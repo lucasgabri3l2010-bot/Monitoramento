@@ -51,6 +51,17 @@ class Config:
     # Modo de Demonstração Opcional (dados fictícios em memória com badge DEMO, padrão: false)
     DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() in ("true", "1", "yes")
 
+    # Políticas de Uso Corporativo (bloqueios, detecções, alertas)
+    POLICY_MONITORING_ENABLED = os.getenv("POLICY_MONITORING_ENABLED", "true").lower() in ("true", "1", "yes")
+    ADMIN_NOTIFICATIONS_ENABLED = os.getenv("ADMIN_NOTIFICATIONS_ENABLED", "true").lower() in ("true", "1", "yes")
+    POLICY_EVENT_RETENTION_DAYS = int(os.getenv("POLICY_EVENT_RETENTION_DAYS", "90"))
+
+    # Auto-Update do Agente e Gestão de Versões
+    AGENT_AUTO_UPDATE_ENABLED = os.getenv("AGENT_AUTO_UPDATE_ENABLED", "true").lower() in ("true", "1", "yes")
+    AGENT_UPDATE_CHECK_HOURS = int(os.getenv("AGENT_UPDATE_CHECK_HOURS", "6"))
+    LATEST_AGENT_VERSION = os.getenv("LATEST_AGENT_VERSION", "1.4.0")
+    RELEASES_DIR = os.getenv("RELEASES_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "releases"))
+
     # Servidor e Porta (Render define dinamicamente a variável de ambiente PORT)
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", "5000"))

@@ -82,6 +82,8 @@ Crie um arquivo `.env` na raiz do projeto baseado no `.env.example`:
 | `RAM_ALERT_PERCENT` | `90.0` | Porcentagem de memória RAM para disparar alerta. |
 | `DISK_ALERT_PERCENT` | `90.0` | Porcentagem de ocupação de disco para disparar alerta. |
 | `METRICS_RETENTION_DAYS`| `7` | Prazo em dias para expurgo automático de métricas antigas. |
+| `POLICY_MONITORING_ENABLED`| `true` | Habilita motor de regras e detecção de políticas corporativas. |
+| `AGENT_AUTO_UPDATE_ENABLED`| `true` | Habilita endpoints e consultas de auto-update da frota. |
 | `DEMO_MODE` | `false` | Modo de demonstração com dados simulados em memória (`true`/`false`). |
 | `HOST` | `0.0.0.0` | Interface de rede para bind do servidor. |
 | `PORT` | `5000` | Porta TCP do servidor web. |
@@ -139,11 +141,13 @@ Crie um arquivo `.env` na raiz do projeto baseado no `.env.example`:
 
 ## 6. Executando os Testes Automatizados
 
-Para rodar a suite completa de testes de integridade, segurança e DEMO_MODE (7 testes):
+Para rodar a suite completa de 13 testes automatizados (cobrindo saúde, autenticação, alertas de hardware, edição/exclusão, monitoramento de atividade, DEMO_MODE, versionamento SemVer, downloads seguros, integridade de políticas corporativas, terminais de TI e sincronização de cache):
 
 ```bash
-python -m unittest discover tests
+python -m unittest tests/test_system.py
 ```
+
+Todos os 13 testes executam em banco isolado em memória (SQLite in-memory) sem efeitos colaterais na base de produção.
 
 ---
 
@@ -403,3 +407,13 @@ Para apresentações à diretoria onde há apenas 1 computador real conectado, o
    Pause o agente local por mais de 30 segundos. Mostre o status transicionando automaticamente para **Offline** com badge visual informativo.
 10. **Conclusão Técnica**:
     Ressalte a arquitetura escalável: backend em nuvem no Render, banco de dados gerenciado no Neon, agentes ultraleves rodando em segundo plano sem impacto no desempenho dos usuários e conformidade estrita de privacidade (sem keylogger, sem espionagem indevida).
+
+---
+
+## 12. Documentação Técnica Detalhada
+
+Para detalhes aprofundados sobre os subsistemas avançados do Givova Monitor, consulte os guias dedicados na pasta `docs/`:
+
+* 🚀 [**Arquitetura de Auto-Update Remoto do Agente**](docs/AGENT_UPDATE.md): Ciclo de vida de atualização remota ("Instalar uma vez -> Atualizar para sempre"), supervisor de boot (`GivovaMonitorUpdater`), rollback automático com tolerância a falhas, validação criptográfica SHA-256 e estratégias de armazenamento persistente de releases no PostgreSQL Neon.
+* 🛡️ [**Políticas Corporativas de Uso & Alertas de TI**](docs/POLICY_MONITORING.md): Motor de regras para sites (domínios) e aplicativos, normalização canônica com proteção contra falsos positivos, deduplicação de ocorrências com tempo de permanência, cache em memória sincronizado entre múltiplos workers do Gunicorn e notificações nativas Windows Toast para a equipe de TI.
+

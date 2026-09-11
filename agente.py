@@ -15,6 +15,10 @@ import logging
 import argparse
 import uuid
 import threading
+import random
+import shutil
+import hashlib
+import subprocess
 from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from logging.handlers import RotatingFileHandler
@@ -258,6 +262,343 @@ def get_foreground_application():
         return None
 
 
+def parse_semver(v: str) -> tuple:
+    """Converte '1.4.0' ou 'v1.4' em tupla (1, 4, 0)."""
+    try:
+        clean = str(v).strip().lstrip("vV")
+        parts = [int(p) for p in clean.split(".") if p.isdigit()]
+        while len(parts) < 3:
+            parts.append(0)
+        return tuple(parts[:3])
+    except Exception:
+        return (1, 0, 0)
+
+
+def is_newer_version(latest_v: str, current_v: str) -> bool:
+    """Retorna True se latest_v for estritamente mais recente que current_v."""
+    return parse_semver(latest_v) > parse_semver(current_v)
+
+
+def emit_health_confirmation():
+    """
+    Emite update_confirmed.json para sinalizar ao GivovaMonitorUpdater
+    que a nova versão iniciou com sucesso e já enviou seu primeiro report ao servidor.
+    Utiliza o update_id gravado em pending_update.json para confirmação unívoca.
+    """
+    pending_file = os.path.join(APP_DIR, "pending_update.json")
+    if not os.path.exists(pending_file):
+        return
+
+    try:
+        update_id = ""
+        with open(pending_file, "r", encoding="utf-8") as f:
+            pdata = json.load(f)
+            if isinstance(pdata, dict):
+                target_ver = pdata.get("target_version")
+                # Confirma apenas se a versão deste agente for a esperada pelo update
+                if target_ver and target_ver != VERSION:
+                    return
+                update_id = pdata.get("update_id", "")
+
+        conf_file = os.path.join(APP_DIR, "update_confirmed.json")
+        with open(conf_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "version": VERSION,
+                "update_id": update_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "status": "confirmed"
+            }, f, indent=2)
+
+        if os.path.exists(pending_file):
+            try:
+                os.remove(pending_file)
+            except Exception:
+                pass
+
+        logger.info(f"Confirmação de saúde emitida com sucesso para v{VERSION} (update_id: {update_id})")
+    except Exception as e:
+        logger.debug(f"Falha ao emitir arquivo de confirmação de saúde: {e}")
+
+
+def get_failed_versions() -> list:
+    """Retorna lista de versões que sofreram rollback para evitar loops de repetição."""
+    failed_file = os.path.join(APP_DIR, "failed_updates.json")
+    if os.path.exists(failed_file):
+        try:
+            with open(failed_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return [item.get("version") for item in data if isinstance(item, dict) and item.get("version")]
+        except Exception:
+            pass
+    return []
+
+
+def start_auto_update_worker(config: dict):
+    """Inicia thread de background para verificação periódica e aplicação de atualizações."""
+    if not config.get("auto_update", True):
+        logger.info("Auto-update desabilitado por configuração.")
+        return None
+    t = threading.Thread(target=_auto_update_loop, args=(config,), daemon=True)
+    t.start()
+    return t
+
+
+def _auto_update_loop(config: dict):
+    # Jitter inicial aleatório (20 a 45 segundos após início)
+    time.sleep(random.randint(20, 45))
+    check_interval = config.get("update_check_interval", 6 * 3600)
+
+    while True:
+        try:
+            _check_and_apply_update(config)
+        except Exception as e:
+            logger.warning(f"Erro no ciclo de verificação de atualização: {e}")
+
+        # Intervalo com jitter de até ± 10 minutos
+        jitter = random.randint(-600, 600)
+        sleep_time = max(300, check_interval + jitter)
+        time.sleep(sleep_time)
+
+
+def _check_and_apply_update(config: dict):
+    server_url = config.get("server_url", "")
+    token = config.get("agent_token", "")
+    device_token = config.get("device_token")
+    uuid_str = get_machine_uuid()
+
+    from urllib.parse import urlparse
+    parsed = urlparse(server_url)
+    base_url = f"{parsed.scheme}://{parsed.netloc}"
+    update_url = f"{base_url}/api/agent/update"
+
+    headers = {
+        "X-Agent-Token": token,
+        "X-Device-UUID": uuid_str,
+        "User-Agent": f"GivovaMonitorAgent/{VERSION}"
+    }
+    if device_token:
+        headers["X-Device-Token"] = device_token
+
+    params = {
+        "current_version": VERSION,
+        "uuid": uuid_str,
+        "os_name": platform.system(),
+        "os_arch": platform.machine()
+    }
+
+    try:
+        resp = requests.get(update_url, headers=headers, params=params, timeout=15)
+        if resp.status_code != 200:
+            return
+        data = resp.json()
+    except Exception as e:
+        logger.debug(f"Servidor de atualização inacessível: {e}")
+        return
+
+    if not data.get("update_available"):
+        return
+
+    target_version = data.get("latest_version")
+    target_sha256 = (data.get("sha256") or "").strip().lower()
+    download_url = data.get("download_url")
+
+    if not target_version or not download_url:
+        return
+
+    # 1. Verifica se esta versão está na lista de falhas anteriores (evita loop de rollback)
+    failed_list = get_failed_versions()
+    if target_version in failed_list:
+        logger.warning(f"Versão v{target_version} está na lista de falhas anteriores (failed_updates.json). Ignorando atualização automática.")
+        return
+
+    # 2. Bloqueia downgrade não autorizado
+    if not is_newer_version(target_version, VERSION):
+        return
+
+    logger.info(f"Nova versão disponível: v{VERSION} → v{target_version}. Iniciando download seguro...")
+
+    if download_url.startswith("/"):
+        download_url = f"{base_url}{download_url}"
+
+    temp_dir = os.path.join(APP_DIR, "temp")
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_file = os.path.join(temp_dir, f"update_v{target_version}.tmp")
+    dest_exe = os.path.join(temp_dir, f"update_v{target_version}.exe")
+
+    try:
+        dl_resp = requests.get(download_url, headers=headers, stream=True, timeout=60)
+        if dl_resp.status_code != 200:
+            logger.error(f"Falha ao baixar nova versão (HTTP {dl_resp.status_code}).")
+            return
+
+        hasher = hashlib.sha256()
+        with open(temp_file, "wb") as f:
+            for chunk in dl_resp.iter_content(chunk_size=65536):
+                if chunk:
+                    f.write(chunk)
+                    hasher.update(chunk)
+
+        computed_sha256 = hasher.hexdigest().lower()
+
+        # 3. Verificação de integridade SHA-256
+        if target_sha256 and computed_sha256 != target_sha256:
+            logger.critical(f"INTEGRIDADE COMPROMETIDA! SHA-256 divergente: esperado '{target_sha256}', obtido '{computed_sha256}'. Abortando atualização.")
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+            return
+
+        logger.info(f"Integridade SHA-256 validada com sucesso: {computed_sha256[:16]}...")
+        if os.path.exists(dest_exe):
+            os.remove(dest_exe)
+        shutil.move(temp_file, dest_exe)
+
+    except Exception as e:
+        logger.error(f"Erro durante o download da nova versão: {e}")
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except Exception:
+                pass
+        return
+
+    # 4. Localiza executável do Updater
+    updater_candidates = [
+        os.path.join(APP_DIR, "GivovaMonitorUpdater.exe"),
+        os.path.join(APP_DIR, "updater.py"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
+    ]
+    updater_path = None
+    for cand in updater_candidates:
+        if os.path.exists(cand):
+            updater_path = cand
+            break
+
+    if not updater_path:
+        logger.error("Atualizador GivovaMonitorUpdater não localizado para prosseguir.")
+        return
+
+    # 5. Prepara identificador único de atualização e limpa confirmações residuais antigas
+    update_id = f"upd-{uuid.uuid4().hex[:12]}"
+    confirmed_file = os.path.join(APP_DIR, "update_confirmed.json")
+    if os.path.exists(confirmed_file):
+        try:
+            os.remove(confirmed_file)
+        except Exception:
+            pass
+
+    pending_file = os.path.join(APP_DIR, "pending_update.json")
+    try:
+        with open(pending_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "update_id": update_id,
+                "target_version": target_version,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Não foi possível gravar pending_update.json: {e}")
+
+    logger.info(f"Invocando GivovaMonitorUpdater ({updater_path}) [update_id: {update_id}] e encerrando agente atual...")
+
+    cmd = [
+        updater_path,
+        "--target-dir", APP_DIR,
+        "--new-exe", dest_exe,
+        "--old-pid", str(os.getpid()),
+        "--version", target_version,
+        "--update-id", update_id
+    ]
+    if updater_path.endswith(".py"):
+        cmd.insert(0, sys.executable)
+
+    DETACHED_PROCESS = 0x00000008
+    CREATE_NEW_PROCESS_GROUP = 0x00000200
+    flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP if platform.system() == "Windows" else 0
+
+    subprocess.Popen(cmd, cwd=APP_DIR, creationflags=flags)
+    time.sleep(1)
+    # Encerra agente para liberação do lock no Windows
+    sys.exit(0)
+
+
+def start_admin_notifications_worker(config: dict):
+    """Inicia worker de notificações Windows para computadores da equipe de TI autorizados."""
+    if not config.get("admin_notifications", False):
+        return None
+    t = threading.Thread(target=_admin_notifications_loop, args=(config,), daemon=True)
+    t.start()
+    return t
+
+
+def _admin_notifications_loop(config: dict):
+    time.sleep(10)
+    last_seen_id = 0
+    server_url = config.get("server_url", "")
+    token = config.get("agent_token", "")
+    device_token = config.get("device_token")
+    uuid_str = get_machine_uuid()
+
+    from urllib.parse import urlparse
+    parsed = urlparse(server_url)
+    alerts_url = f"{parsed.scheme}://{parsed.netloc}/api/agent/admin-alerts"
+
+    headers = {
+        "X-Agent-Token": token,
+        "X-Device-UUID": uuid_str,
+        "User-Agent": f"GivovaMonitorAgent/{VERSION}"
+    }
+    if device_token:
+        headers["X-Device-Token"] = device_token
+
+    while True:
+        try:
+            params = {"since_id": last_seen_id, "uuid": uuid_str}
+            resp = requests.get(alerts_url, headers=headers, params=params, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                alerts = data.get("alerts", [])
+                for alert in alerts:
+                    alert_id = alert.get("id", 0)
+                    if alert_id > last_seen_id:
+                        last_seen_id = alert_id
+                        show_windows_toast(alert.get("title", "Givova Monitor"), alert.get("message", ""))
+            elif resp.status_code == 403:
+                # Dispositivo não configurado como admin no servidor: pausa por 2 minutos
+                time.sleep(120)
+                continue
+        except Exception as e:
+            logger.debug(f"Polling de notificações admin: {e}")
+
+        time.sleep(45)
+
+
+def show_windows_toast(title: str, message: str):
+    """Exibe notificação nativa Windows Toast de forma assíncrona e silenciosa."""
+    if platform.system() != "Windows":
+        return
+    try:
+        clean_title = title.replace('"', '`"').replace("'", "''")
+        clean_msg = message.replace('"', '`"').replace("'", "''")
+        ps_cmd = f'''
+        [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+        $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+        $textNodes = $template.GetElementsByTagName("text")
+        $textNodes.Item(0).AppendChild($template.CreateTextNode("{clean_title}")) | Out-Null
+        $textNodes.Item(1).AppendChild($template.CreateTextNode("{clean_msg}")) | Out-Null
+        $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Givova Monitor")
+        $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
+        $notifier.Show($toast)
+        '''
+        subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=0x08000000  # CREATE_NO_WINDOW
+        )
+    except Exception as e:
+        logger.debug(f"Não foi possível emitir notificação Toast: {e}")
+
+
 def load_config():
     """
     Carrega configurações priorizando argumentos CLI > variáveis de ambiente > agent_config.json > padrões.
@@ -265,11 +606,15 @@ def load_config():
     cfg = {
         "server_url": "https://monitoramento-gb9g.onrender.com/api/agent/report",
         "agent_token": "givova_agent_token_dev_2026",
+        "device_token": "",
         "department": "Não informado",
         "display_name": "",
         "interval_seconds": 5,
         "timeout_seconds": 10,
-        "activity_monitoring": True
+        "activity_monitoring": True,
+        "auto_update": True,
+        "admin_notifications": False,
+        "update_check_interval": 6 * 3600
     }
 
     # 1. Lê arquivo local agent_config.json caso exista
@@ -287,6 +632,8 @@ def load_config():
         cfg["server_url"] = os.getenv("SERVER_URL")
     if os.getenv("AGENT_TOKEN"):
         cfg["agent_token"] = os.getenv("AGENT_TOKEN")
+    if os.getenv("DEVICE_TOKEN"):
+        cfg["device_token"] = os.getenv("DEVICE_TOKEN")
     if os.getenv("DEPARTMENT"):
         cfg["department"] = os.getenv("DEPARTMENT")
     if os.getenv("DISPLAY_NAME"):
@@ -303,22 +650,31 @@ def load_config():
             pass
     if os.getenv("ACTIVITY_MONITORING_ENABLED") is not None:
         cfg["activity_monitoring"] = os.getenv("ACTIVITY_MONITORING_ENABLED", "true").lower() in ("true", "1", "yes")
+    if os.getenv("AUTO_UPDATE") is not None:
+        cfg["auto_update"] = os.getenv("AUTO_UPDATE", "true").lower() in ("true", "1", "yes")
+    if os.getenv("ADMIN_NOTIFICATIONS") is not None:
+        cfg["admin_notifications"] = os.getenv("ADMIN_NOTIFICATIONS", "false").lower() in ("true", "1", "yes")
 
     # 3. Argumentos de linha de comando (prioridade máxima)
     parser = argparse.ArgumentParser(description="Agente de Monitoramento de PCs - Givova Transportes")
     parser.add_argument("--server", dest="server_url", help="URL do servidor de monitoramento")
     parser.add_argument("--token", dest="agent_token", help="Token de autenticação do agente")
+    parser.add_argument("--device-token", dest="device_token", help="Token individual do dispositivo")
     parser.add_argument("--setor", dest="department", help="Setor/Departamento da máquina (ex: Logística, TI, Financeiro)")
     parser.add_argument("--nome", dest="display_name", help="Nome amigável da máquina")
     parser.add_argument("--intervalo", dest="interval_seconds", type=int, help="Intervalo de envio em segundos")
     parser.add_argument("--timeout", dest="timeout_seconds", type=int, help="Tempo limite para requisições")
     parser.add_argument("--sem-atividade", dest="disable_activity", action="store_true", help="Desabilita o monitoramento de janela e domínio ativo")
+    parser.add_argument("--sem-autoupdate", dest="disable_autoupdate", action="store_true", help="Desabilita verificação automática de updates")
+    parser.add_argument("--admin-notif", dest="admin_notif", action="store_true", help="Habilita polling de notificações Windows de TI")
 
     args, _ = parser.parse_known_args()
     if args.server_url:
         cfg["server_url"] = args.server_url
     if args.agent_token:
         cfg["agent_token"] = args.agent_token
+    if args.device_token:
+        cfg["device_token"] = args.device_token
     if args.department:
         cfg["department"] = args.department
     if args.display_name:
@@ -327,8 +683,12 @@ def load_config():
         cfg["interval_seconds"] = max(2, args.interval_seconds)
     if args.disable_activity:
         cfg["activity_monitoring"] = False
+    if args.disable_autoupdate:
+        cfg["auto_update"] = False
+    if args.admin_notif:
+        cfg["admin_notifications"] = True
 
-    # Normalização inteligente da URL do servidor (aceita tanto 'https://app.onrender.com' quanto 'https://app.onrender.com/api/agent/report')
+    # Normalização inteligente da URL do servidor
     raw_url = str(cfg.get("server_url", "")).strip().rstrip("/")
     if raw_url:
         if not (raw_url.endswith("/api/agent/report") or raw_url.endswith("/monitoramento")):
@@ -476,15 +836,20 @@ def get_system_metrics(activity_enabled: bool = True):
     }
 
 
-def send_metrics(server_url: str, token: str, payload: dict, timeout: int = 5):
+def send_metrics(server_url: str, token: str, payload: dict, timeout: int = 5, device_token: str = None):
     """
-    Envia métricas para o servidor com header de autenticação e timeout.
+    Envia métricas para o servidor com headers de autenticação e timeout.
+    Suporta autenticação por token compartilhado e token individual de dispositivo.
     """
     headers = {
         "Content-Type": "application/json",
         "X-Agent-Token": token,
+        "X-Device-UUID": payload.get("uuid", ""),
         "User-Agent": f"GivovaMonitorAgent/{VERSION}"
     }
+    if device_token:
+        headers["X-Device-Token"] = device_token
+        payload["device_token"] = device_token
 
     try:
         response = requests.post(server_url, json=payload, headers=headers, timeout=timeout)
@@ -516,11 +881,17 @@ def run_agent():
     logger.info(f"   Servidor: {config['server_url']}")
     logger.info(f"   Intervalo: {config['interval_seconds']}s")
     logger.info(f"   Monitoramento de Atividade: {'Habilitado' if config['activity_monitoring'] else 'Desabilitado'}")
+    logger.info(f"   Auto-Update Remoto: {'Habilitado' if config['auto_update'] else 'Desabilitado'}")
+    logger.info(f"   Notificações TI (Admin): {'Habilitado' if config['admin_notifications'] else 'Desabilitado'}")
     logger.info("=" * 65)
 
     # Inicia o receptor local para a extensão Chromium se o monitoramento de atividade estiver ativo
     if config["activity_monitoring"]:
         start_extension_receiver(LOCAL_RECEIVER_PORT)
+
+    # Inicia workers de background para auto-update e notificações de TI
+    start_auto_update_worker(config)
+    start_admin_notifications_worker(config)
 
     # Cria arquivo de configuração inicial local caso não exista para facilitar customização
     if not os.path.exists(CONFIG_FILE):
@@ -529,11 +900,14 @@ def run_agent():
                 json.dump({
                     "server_url": config["server_url"],
                     "agent_token": config["agent_token"],
+                    "device_token": config.get("device_token", ""),
                     "department": config["department"],
                     "display_name": config["display_name"],
                     "interval_seconds": config["interval_seconds"],
                     "timeout_seconds": config["timeout_seconds"],
-                    "activity_monitoring": config["activity_monitoring"]
+                    "activity_monitoring": config["activity_monitoring"],
+                    "auto_update": config.get("auto_update", True),
+                    "admin_notifications": config.get("admin_notifications", False)
                 }, f, indent=4)
         except Exception:
             pass
@@ -551,11 +925,13 @@ def run_agent():
                 server_url=config["server_url"],
                 token=config["agent_token"],
                 payload=metrics,
-                timeout=config["timeout_seconds"]
+                timeout=config["timeout_seconds"],
+                device_token=config.get("device_token")
             )
 
             if success:
                 fail_count = 0
+                emit_health_confirmation()
                 activity_log = ""
                 if metrics.get("active_application"):
                     if metrics.get("active_domain"):

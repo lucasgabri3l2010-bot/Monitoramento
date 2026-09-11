@@ -15,7 +15,13 @@ os.environ["DISK_ALERT_PERCENT"] = "90.0"
 
 from config import Config
 from servidor import app, db
-from models import User, Device, Alert, MetricHistory
+from models import (
+    User, Device, Alert, MetricHistory,
+    PolicyRule, PolicyEvent, PolicyAuditLog, AgentRelease,
+    parse_semver, compare_versions, normalize_domain,
+    match_domain_secure, match_application_secure
+)
+from services import get_active_policy_rules, invalidate_policy_rules_cache
 
 class SystemMonitoringTestCase(unittest.TestCase):
 
@@ -23,6 +29,8 @@ class SystemMonitoringTestCase(unittest.TestCase):
         self.app = app
         self.app.config["TESTING"] = True
         self.app.config["WTF_CSRF_ENABLED"] = False
+        Config.POLICY_MONITORING_ENABLED = True
+        Config.ACTIVITY_MONITORING_ENABLED = True
         self.client = self.app.test_client()
 
         with self.app.app_context():
@@ -35,7 +43,23 @@ class SystemMonitoringTestCase(unittest.TestCase):
                 db.session.add(admin)
             else:
                 admin.set_password("TestAdminPass123!")
+
+            # Semeia regras corporativas padrão para os testes
+            if PolicyRule.query.count() == 0:
+                default_rules = [
+                    PolicyRule(name="Jogos Steam", rule_type="application", pattern="steam.exe", category="Jogos", severity="warning", scope_type="global", enabled=True),
+                    PolicyRule(name="Jogos Valorant", rule_type="application", pattern="valorant.exe", category="Jogos", severity="critical", scope_type="global", enabled=True),
+                    PolicyRule(name="Jogos Roblox", rule_type="application", pattern="robloxplayerbeta.exe", category="Jogos", severity="warning", scope_type="global", enabled=True),
+                    PolicyRule(name="Apostas Bet365", rule_type="domain", pattern="bet365.com", category="Apostas", severity="critical", scope_type="global", enabled=True),
+                    PolicyRule(name="Apostas Betano", rule_type="domain", pattern="betano.com", category="Apostas", severity="critical", scope_type="global", enabled=True),
+                    PolicyRule(name="Streaming Netflix", rule_type="domain", pattern="netflix.com", category="Streaming", severity="warning", scope_type="global", enabled=True),
+                    PolicyRule(name="Redes Sociais Instagram", rule_type="domain", pattern="instagram.com", category="Redes Sociais", severity="warning", scope_type="global", enabled=False),
+                    PolicyRule(name="Redes Sociais TikTok", rule_type="domain", pattern="tiktok.com", category="Redes Sociais", severity="warning", scope_type="global", enabled=True)
+                ]
+                db.session.add_all(default_rules)
+
             db.session.commit()
+            invalidate_policy_rules_cache()
 
     def tearDown(self):
         with self.app.app_context():
@@ -393,6 +417,250 @@ class SystemMonitoringTestCase(unittest.TestCase):
         self.assertEqual(len(res_after.get_json()), 1)
         self.assertEqual(res_after.get_json()[0]["hostname"], "PC-REAL-MATRIZ")
 
+    def test_08_semantic_versioning_and_update_manifest(self):
+        """Valida comparação de SemVer e consulta do manifesto de auto-update"""
+        # 1. Testes de semver
+        self.assertEqual(parse_semver("1.4.0"), (1, 4, 0))
+        self.assertEqual(parse_semver("v2.1.3"), (2, 1, 3))
+        self.assertEqual(parse_semver("invalid"), (0, 0, 0))
+        self.assertGreater(compare_versions("1.4.0", "1.3.0"), 0)
+        self.assertEqual(compare_versions("1.4.0", "1.4.0"), 0)
+        self.assertLess(compare_versions("1.3.0", "1.4.0"), 0)
+        self.assertGreater(compare_versions("2.0.0", "1.9.9"), 0)
+
+        # 2. Requisição sem autenticação deve falhar
+        res_unauth = self.client.get("/api/agent/update?agent_version=1.3.0")
+        self.assertEqual(res_unauth.status_code, 401)
+
+        # 3. Requisição com versão desatualizada (1.3.0 < 1.4.0)
+        headers = {"X-Agent-Token": "test_secret_token_123"}
+        res_update = self.client.get(
+            "/api/agent/update?agent_version=1.3.0&uuid=uuid-update-test&hostname=PC-UPDATE-TEST",
+            headers=headers
+        )
+        self.assertEqual(res_update.status_code, 200)
+        data = res_update.get_json()
+        self.assertTrue(data["update_available"])
+        self.assertEqual(data["target_version"], Config.LATEST_AGENT_VERSION)
+        self.assertIn("sha256", data)
+        self.assertIn("download_url", data)
+
+        # 4. Requisição com agente já atualizado (1.4.0 == 1.4.0)
+        res_current = self.client.get(
+            f"/api/agent/update?agent_version={Config.LATEST_AGENT_VERSION}&uuid=uuid-update-test",
+            headers=headers
+        )
+        self.assertEqual(res_current.status_code, 200)
+        data_curr = res_current.get_json()
+        self.assertFalse(data_curr["update_available"])
+
+    def test_09_download_endpoint_security_and_integrity(self):
+        """Valida segurança, sanitização contra path-traversal e integridade no download do agente"""
+        # 1. Sem token -> 401
+        res_no_tok = self.client.get(f"/api/agent/download/{Config.LATEST_AGENT_VERSION}")
+        self.assertEqual(res_no_tok.status_code, 401)
+
+        headers = {"X-Agent-Token": "test_secret_token_123"}
+
+        # 2. Path traversal -> Deve ser bloqueado com 400
+        res_traversal = self.client.get("/api/agent/download/..%2F..%2Fconfig.py", headers=headers)
+        self.assertEqual(res_traversal.status_code, 400)
+        self.assertEqual(res_traversal.get_json()["code"], "INVALID_VERSION")
+
+        # 3. Teste de download via AgentRelease no banco (estratégia primária para Render/Neon)
+        test_version = "1.4.0"
+        dummy_content = b"MZ\x90\x00\x03\x00\x00\x00GIVOVA_MONITOR_TEST_BINARY"
+        with self.app.app_context():
+            rel = AgentRelease(
+                version=test_version,
+                sha256="test_sha256_hash",
+                download_url=f"/api/agent/download/{test_version}",
+                storage_type="database",
+                binary_data=dummy_content
+            )
+            db.session.add(rel)
+            db.session.commit()
+
+        res_dl = self.client.get(f"/api/agent/download/{test_version}", headers=headers)
+        self.assertEqual(res_dl.status_code, 200)
+        self.assertEqual(res_dl.data, dummy_content)
+        self.assertIn("application/octet-stream", res_dl.headers.get("Content-Type", ""))
+        res_dl.close()
+
+    def test_10_corporate_policy_monitoring_and_domain_matching(self):
+        """Valida matching canônico de domínios/apps, deduplicação e fechamento de ocorrências"""
+        # 1. Normalização e Matching Canônico
+        self.assertEqual(normalize_domain("HTTPS://WWW.BET365.COM:443/sports"), "bet365.com")
+        self.assertEqual(normalize_domain("globo.com."), "globo.com")
+        self.assertEqual(normalize_domain("www.uol.com.br"), "uol.com.br")
+
+        # Subdomínios são correspondidos corretamente
+        self.assertTrue(match_domain_secure("bet365.com", "bet365.com"))
+        self.assertTrue(match_domain_secure("m.bet365.com", "bet365.com"))
+        self.assertTrue(match_domain_secure("sports.bet365.com", "bet365.com"))
+
+        # Proteção contra falsos positivos de substring
+        self.assertFalse(match_domain_secure("notbet365.com", "bet365.com"))
+        self.assertFalse(match_domain_secure("fakebet365.com", "bet365.com"))
+        self.assertFalse(match_domain_secure("bet365.corporate.net", "bet365.com"))
+
+        # Executáveis
+        self.assertTrue(match_application_secure("utorrent.exe", "uTorrent.exe"))
+        self.assertFalse(match_application_secure("utorrent.exe", "bittorrent.exe"))
+
+        # 2. Ingestão com domínio que viola política corporativa (bet365.com)
+        headers = {"X-Agent-Token": "test_secret_token_123"}
+        payload_violation = {
+            "uuid": "test-uuid-policy-01",
+            "computador": "PC-POLICY-TEST",
+            "usuario": "rodrigo.silva",
+            "setor": "Logística",
+            "ip": "192.168.1.60",
+            "cpu": 20.0,
+            "ram": 35.0,
+            "disco": 40.0,
+            "active_app": "Google Chrome",
+            "active_domain": "bet365.com"
+        }
+
+        res1 = self.client.post("/api/agent/report", json=payload_violation, headers=headers)
+        self.assertEqual(res1.status_code, 200)
+
+        with self.app.app_context():
+            # Deve haver 1 evento de política ativo para este dispositivo
+            events = PolicyEvent.query.filter_by(status="active").all()
+            self.assertEqual(len(events), 1)
+            event = events[0]
+            self.assertEqual(event.domain, "bet365.com")
+            self.assertEqual(event.category, "Apostas")
+            self.assertEqual(event.severity, "critical")
+
+        # 3. Deduplicação: Envio subsequente da mesma violação não cria duplicata
+        res2 = self.client.post("/api/agent/report", json=payload_violation, headers=headers)
+        self.assertEqual(res2.status_code, 200)
+
+        with self.app.app_context():
+            events = PolicyEvent.query.filter_by(status="active").all()
+            self.assertEqual(len(events), 1)
+
+        # 4. Usuário navega para site permitido -> Ocorrência anterior deve ser fechada
+        payload_compliant = payload_violation.copy()
+        payload_compliant["active_domain"] = "givovatransportes.com.br"
+
+        res3 = self.client.post("/api/agent/report", json=payload_compliant, headers=headers)
+        self.assertEqual(res3.status_code, 200)
+
+        with self.app.app_context():
+            active_events = PolicyEvent.query.filter_by(status="active").all()
+            self.assertEqual(len(active_events), 0)
+            closed_events = PolicyEvent.query.filter_by(status="closed").all()
+            self.assertEqual(len(closed_events), 1)
+            self.assertIsNotNone(closed_events[0].resolved_at)
+
+    def test_11_admin_alerts_security_and_device_authorization(self):
+        """Valida que apenas terminais com is_admin_device=True conseguem consumir alertas de TI"""
+        headers = {"X-Agent-Token": "test_secret_token_123"}
+        uuid_normal = "uuid-normal-terminal"
+        uuid_admin = "uuid-admin-terminal"
+
+        # Registra terminal normal
+        self.client.post("/api/agent/report", json={
+            "uuid": uuid_normal, "computador": "PC-NORMAL", "usuario": "user", "setor": "RH", "cpu": 10.0, "ram": 10.0, "disco": 10.0
+        }, headers=headers)
+
+        # Registra terminal de TI
+        self.client.post("/api/agent/report", json={
+            "uuid": uuid_admin, "computador": "PC-TI-ADMIN", "usuario": "admin.ti", "setor": "TI", "cpu": 10.0, "ram": 10.0, "disco": 10.0
+        }, headers=headers)
+
+        with self.app.app_context():
+            dev_admin = Device.query.filter_by(uuid=uuid_admin).first()
+            dev_admin.is_admin_device = True
+            db.session.commit()
+
+        # Terminal normal tenta acessar -> 403 Forbidden
+        res_forbidden = self.client.get(f"/api/agent/admin-alerts?uuid={uuid_normal}", headers=headers)
+        self.assertEqual(res_forbidden.status_code, 403)
+        self.assertIn(res_forbidden.get_json()["code"], ("ADMIN_DEVICE_UNAUTHORIZED", "ADMIN_DEVICE_REQUIRED"))
+
+        # Terminal TI autorizado acessa -> 200 OK
+        res_allowed = self.client.get(f"/api/agent/admin-alerts?uuid={uuid_admin}", headers=headers)
+        self.assertEqual(res_allowed.status_code, 200)
+        data = res_allowed.get_json()
+        self.assertIn("alerts", data)
+
+    def test_12_policy_rules_crud_and_in_memory_cache_invalidation(self):
+        """Testa CRUD de regras de uso corporativo e invalidação atômica do cache em memória"""
+        # Login como administrador
+        self.client.post("/login", data={"username": "testadmin", "password": "TestAdminPass123!"})
+
+        # 1. Criação de nova regra
+        rule_payload = {
+            "name": "Bloqueio de Poker Online",
+            "rule_type": "domain",
+            "pattern": "pokerstars.com",
+            "category": "Jogos",
+            "severity": "critical",
+            "scope_type": "global"
+        }
+        res_create = self.client.post("/api/policies/rules", json=rule_payload)
+        self.assertEqual(res_create.status_code, 201)
+        created_rule = res_create.get_json()["rule"]
+        rule_id = created_rule["id"]
+
+        # Cache em memória deve refletir a nova regra imediatamente
+        with self.app.app_context():
+            active_rules = get_active_policy_rules()
+            patterns = [r.pattern for r in active_rules]
+            self.assertIn("pokerstars.com", patterns)
+
+        # 2. Desativação rápida (toggle)
+        res_toggle = self.client.post(f"/api/policies/rules/{rule_id}/toggle")
+        self.assertEqual(res_toggle.status_code, 200)
+        self.assertFalse(res_toggle.get_json()["enabled"])
+
+        # Cache em memória deve ter sido invalidado e regra desativada removida
+        with self.app.app_context():
+            active_rules = get_active_policy_rules()
+            patterns = [r.pattern for r in active_rules]
+            self.assertNotIn("pokerstars.com", patterns)
+
+        # 3. Exclusão da regra
+        res_del = self.client.delete(f"/api/policies/rules/{rule_id}")
+        self.assertEqual(res_del.status_code, 200)
+
+    def test_13_demo_mode_policy_isolation(self):
+        """Valida que no modo DEMO regras e ocorrências são 100% virtuais sem escrita no banco"""
+        self.client.post("/login", data={"username": "testadmin", "password": "TestAdminPass123!"})
+
+        Config.DEMO_MODE = True
+        try:
+            # 1. Listagem de ocorrências contém dados demo
+            res_events = self.client.get("/api/policies/events")
+            self.assertEqual(res_events.status_code, 200)
+            events = res_events.get_json()
+            demo_events = [e for e in events if e.get("is_demo") is True]
+            self.assertTrue(len(demo_events) > 0)
+
+            # 2. Tentar alterar ou excluir regras virtuais de demonstração deve ser bloqueado
+            res_edit_demo = self.client.post("/api/policies/rules/9001/edit", json={"name": "Alterado"})
+            self.assertEqual(res_edit_demo.status_code, 400)
+            self.assertEqual(res_edit_demo.get_json()["code"], "DEMO_RULE_READONLY")
+
+            # 3. Reconhecimento de evento demo responde com sucesso virtual
+            res_ack_demo = self.client.post("/api/policies/events/9001/acknowledge")
+            self.assertEqual(res_ack_demo.status_code, 200)
+
+            # 4. Verificação de integridade no banco de dados real
+            with self.app.app_context():
+                db_demo_events = PolicyEvent.query.filter(PolicyEvent.id >= 9000).count()
+                self.assertEqual(db_demo_events, 0)
+                db_demo_rules = PolicyRule.query.filter(PolicyRule.id >= 9000).count()
+                self.assertEqual(db_demo_rules, 0)
+        finally:
+            Config.DEMO_MODE = False
+
 
 if __name__ == "__main__":
     unittest.main()
+

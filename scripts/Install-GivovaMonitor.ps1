@@ -139,6 +139,11 @@ if (-not (Test-Path -Path $logDir)) {
 
 Write-Host "[3/6] Copiando executável autônomo..." -ForegroundColor Gray
 Copy-Item -Path $sourceExe -Destination $destExe -Force
+$sourceUpdater = Join-Path $sourceDir "GivovaMonitorUpdater.exe"
+if (Test-Path -Path $sourceUpdater) {
+    Copy-Item -Path $sourceUpdater -Destination (Join-Path $installDir "GivovaMonitorUpdater.exe") -Force
+    Write-Host "      Supervisor de atualizações GivovaMonitorUpdater.exe copiado." -ForegroundColor Green
+}
 
 # -------------------------------------------------------------------------
 # 5. GERENCIAMENTO DA CONFIGURAÇÃO (agent_config.json)

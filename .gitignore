@@ -30,6 +30,9 @@ deploy_config.local.json
 # PyInstaller build artifacts and distribution bundles
 build/
 dist/
+releases/
+temp/
+*.exe
 *.spec
 
 # OS files

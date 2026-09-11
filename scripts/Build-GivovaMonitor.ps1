@@ -133,7 +133,30 @@ if (-not (Test-Path -Path $compiledExe)) {
 }
 
 $exeSizeMb = [math]::Round(((Get-Item $compiledExe).Length / 1MB), 2)
-Write-Host "      Executável gerado com sucesso: $compiledExe - ${exeSizeMb} MB" -ForegroundColor Green
+Write-Host "      GivovaMonitorAgent.exe gerado com sucesso: ${exeSizeMb} MB" -ForegroundColor Green
+
+# Compilação do Supervisor de Atualizações (GivovaMonitorUpdater.exe)
+Write-Host "      Compilando supervisor GivovaMonitorUpdater.exe com PyInstaller..." -ForegroundColor Gray
+$updaterScript = Join-Path $repoRoot "updater.py"
+$updaterArgs = @(
+    "--noconsole",
+    "--onefile",
+    "--name", "GivovaMonitorUpdater",
+    "--clean",
+    $updaterScript
+)
+
+Push-Location $repoRoot
+try {
+    & $pyInstallerExe @updaterArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Falha ao compilar GivovaMonitorUpdater.exe via PyInstaller (código $LASTEXITCODE). O script updater.py será usado como fallback."
+    }
+} finally {
+    Pop-Location
+}
+
+$compiledUpdater = Join-Path $repoRoot "dist\GivovaMonitorUpdater.exe"
 
 # -------------------------------------------------------------------------
 # 4. MONTAGEM DO PACOTE DE IMPLANTAÇÃO (dist\GivovaMonitorDeploy)
@@ -145,8 +168,12 @@ if (-not (Test-Path -Path $deployDir)) {
     New-Item -Path $deployDir -ItemType Directory -Force | Out-Null
 }
 
-# 1. Copia o binário executável
+# 1. Copia os binários executáveis
 Copy-Item -Path $compiledExe -Destination (Join-Path $deployDir "GivovaMonitorAgent.exe") -Force
+if (Test-Path -Path $compiledUpdater) {
+    Copy-Item -Path $compiledUpdater -Destination (Join-Path $deployDir "GivovaMonitorUpdater.exe") -Force
+    Write-Host "      GivovaMonitorUpdater.exe anexado ao pacote de deploy." -ForegroundColor Green
+}
 
 # 2. Copia os scripts com nomes amigáveis em português
 Copy-Item -Path (Join-Path $repoRoot "scripts\Install-GivovaMonitor.ps1") -Destination (Join-Path $deployDir "Instalar-GivovaMonitor.ps1") -Force

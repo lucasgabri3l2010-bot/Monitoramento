@@ -183,7 +183,7 @@ def get_demo_devices() -> list:
             "disk_total_gb": 240.0,
             "last_disk_used_gb": 67.2,
             "disk_free_gb": 172.8,
-            "agent_version": "1.3.0",
+            "agent_version": "1.1.0",
             "cpu": 0.0,
             "ram": 0.0,
             "disco": 28.0,
@@ -329,7 +329,7 @@ def get_demo_devices() -> list:
             "disk_total_gb": 2048.0,
             "last_disk_used_gb": 1607.6,
             "disk_free_gb": 440.4,
-            "agent_version": "1.3.0",
+            "agent_version": "1.4.0",
             "cpu": 44.0,
             "ram": 58.0,
             "disco": 78.5,
@@ -347,6 +347,43 @@ def get_demo_devices() -> list:
             "is_demo": True
         }
     ]
+
+    for d in devices:
+        _enrich_version_info(d)
+
+    return devices
+
+
+def _enrich_version_info(device_dict: dict, latest_version: str = "1.4.0"):
+    from models import compare_versions, parse_semver
+    cur = device_dict.get("agent_version", "1.0.0")
+    cmp = compare_versions(cur, latest_version)
+    if cmp >= 0:
+        device_dict["version_status"] = "up_to_date"
+        device_dict["version_label"] = f"Atualizado — v{cur}"
+        device_dict["version_badge_class"] = "bg-emerald-50 text-emerald-700 border-emerald-200"
+        device_dict["version_needs_update"] = False
+        device_dict["version_is_critical"] = False
+    else:
+        p_cur = parse_semver(cur)
+        p_lat = parse_semver(latest_version)
+        is_crit = (p_cur[0] < p_lat[0]) or ((p_lat[1] - p_cur[1]) >= 2)
+        if is_crit:
+            device_dict["version_status"] = "outdated_critical"
+            device_dict["version_label"] = f"Desatualizado Crítico — v{cur}"
+            device_dict["version_badge_class"] = "bg-rose-50 text-rose-700 border-rose-200"
+            device_dict["version_needs_update"] = True
+            device_dict["version_is_critical"] = True
+        else:
+            device_dict["version_status"] = "update_available"
+            device_dict["version_label"] = f"Atualização disponível — v{cur} → v{latest_version}"
+            device_dict["version_badge_class"] = "bg-amber-50 text-amber-700 border-amber-200"
+            device_dict["version_needs_update"] = True
+            device_dict["version_is_critical"] = False
+    device_dict["latest_available_version"] = latest_version
+    device_dict["last_update_check"] = device_dict.get("ultimo_contato")
+    device_dict["is_admin_device"] = device_dict.get("department") == "TI"
+    device_dict["has_individual_token"] = True
 
 
 def get_demo_device(device_id: int) -> dict | None:
@@ -463,6 +500,131 @@ def get_demo_alerts() -> list:
             "created_at": (now - timedelta(hours=4)).strftime("%d/%m/%Y %H:%M:%S"),
             "created_at_iso": (now - timedelta(hours=4)).isoformat(),
             "is_resolved": False,
+            "resolved_at": None,
+            "is_demo": True
+        }
+    ]
+
+
+def get_demo_policy_rules() -> list:
+    """
+    Retorna regras virtuais de demonstração em memória.
+    """
+    now = datetime.now(timezone.utc)
+    ts = now.strftime("%d/%m/%Y %H:%M:%S")
+    return [
+        {
+            "id": 9101,
+            "name": "[DEMO] Jogos Steam",
+            "rule_type": "application",
+            "pattern": "steam.exe",
+            "category": "Jogos",
+            "severity": "warning",
+            "scope_type": "global",
+            "scope_target": "Todos",
+            "action": "alert",
+            "enabled": True,
+            "created_at": ts,
+            "is_demo": True
+        },
+        {
+            "id": 9102,
+            "name": "[DEMO] Apostas Bet365",
+            "rule_type": "domain",
+            "pattern": "bet365.com",
+            "category": "Apostas",
+            "severity": "critical",
+            "scope_type": "global",
+            "scope_target": "Todos",
+            "action": "alert",
+            "enabled": True,
+            "created_at": ts,
+            "is_demo": True
+        },
+        {
+            "id": 9103,
+            "name": "[DEMO] Streaming Netflix",
+            "rule_type": "domain",
+            "pattern": "netflix.com",
+            "category": "Streaming",
+            "severity": "warning",
+            "scope_type": "global",
+            "scope_target": "Todos",
+            "action": "alert",
+            "enabled": True,
+            "created_at": ts,
+            "is_demo": True
+        },
+        {
+            "id": 9104,
+            "name": "[DEMO] Redes Sociais TikTok",
+            "rule_type": "domain",
+            "pattern": "tiktok.com",
+            "category": "Redes Sociais",
+            "severity": "warning",
+            "scope_type": "department",
+            "scope_target": "Logística",
+            "action": "alert",
+            "enabled": True,
+            "created_at": ts,
+            "is_demo": True
+        }
+    ]
+
+
+def get_demo_policy_events() -> list:
+    """
+    Retorna ocorrências virtuais de demonstração em memória.
+    """
+    now = datetime.now(timezone.utc)
+    return [
+        {
+            "id": 9201,
+            "device_id": 90001,
+            "device_name": "PC Expedição 01",
+            "department": "Logística",
+            "user_name": "Operador de Cargas",
+            "policy_rule_id": 9104,
+            "event_type": "domain",
+            "category": "Redes Sociais",
+            "severity": "warning",
+            "application": "Microsoft Edge",
+            "domain": "tiktok.com",
+            "first_seen": (now - timedelta(minutes=18)).strftime("%d/%m/%Y %H:%M:%S"),
+            "first_seen_iso": (now - timedelta(minutes=18)).isoformat(),
+            "last_seen": (now - timedelta(minutes=2)).strftime("%d/%m/%Y %H:%M:%S"),
+            "last_seen_iso": (now - timedelta(minutes=2)).isoformat(),
+            "duration_seconds": 960,
+            "duration_formatted": "16m 0s",
+            "status": "active",
+            "acknowledged": False,
+            "acknowledged_at": None,
+            "acknowledged_by": None,
+            "resolved_at": None,
+            "is_demo": True
+        },
+        {
+            "id": 9202,
+            "device_id": 90003,
+            "device_name": "PC Faturamento 02",
+            "department": "Faturamento",
+            "user_name": "Analista Fiscal",
+            "policy_rule_id": 9101,
+            "event_type": "application",
+            "category": "Jogos",
+            "severity": "warning",
+            "application": "Steam",
+            "domain": "—",
+            "first_seen": (now - timedelta(minutes=45)).strftime("%d/%m/%Y %H:%M:%S"),
+            "first_seen_iso": (now - timedelta(minutes=45)).isoformat(),
+            "last_seen": (now - timedelta(minutes=10)).strftime("%d/%m/%Y %H:%M:%S"),
+            "last_seen_iso": (now - timedelta(minutes=10)).isoformat(),
+            "duration_seconds": 2100,
+            "duration_formatted": "35m 0s",
+            "status": "active",
+            "acknowledged": True,
+            "acknowledged_at": (now - timedelta(minutes=8)).strftime("%d/%m/%Y %H:%M:%S"),
+            "acknowledged_by": "admin",
             "resolved_at": None,
             "is_demo": True
         }

@@ -99,6 +99,17 @@
                 <span id="badge-alertas-count" class="hidden px-2 py-0.5 text-xs font-bold rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30">0</span>
             </a>
 
+            <a href="#politicas" onclick="navigate('politicas')" id="nav-politicas"
+               class="nav-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
+                <div class="flex items-center gap-3">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                    </svg>
+                    <span>Políticas de Uso</span>
+                </div>
+                <span id="badge-politicas-count" class="hidden px-2 py-0.5 text-xs font-bold rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30">0</span>
+            </a>
+
             <a href="#setores" onclick="navigate('setores')" id="nav-setores"
                class="nav-item flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -164,7 +175,16 @@
             </div>
 
             <!-- Controles de Atualização em Tempo Real -->
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 sm:gap-3">
+                <!-- Botão Central de Notificações / Políticas Corporativas -->
+                <button onclick="navigate('politicas')" title="Alertas de Políticas Corporativas"
+                        class="relative p-2 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-600 hover:text-slate-900 border border-slate-200 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+                    </svg>
+                    <span id="header-bell-badge" class="hidden absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-600 text-[9px] font-bold text-white shadow-xs">0</span>
+                </button>
+
                 <div class="flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200/70">
                     <span class="relative flex h-2 w-2">
                         <span id="sync-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -483,6 +503,143 @@
             </div>
 
             <!-- ========================================================= -->
+            <!-- VIEW: POLÍTICAS DE USO CORPORATIVO                        -->
+            <!-- ========================================================= -->
+            <div id="view-politicas" class="hidden space-y-6">
+                <!-- Cabeçalho e KPIs da Política Corporativa -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Regras Ativas</div>
+                        <div class="text-2xl font-bold text-slate-900 mt-1" id="pol-kpi-rules">0</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Políticas monitoradas</div>
+                    </div>
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Ocorrências Ativas</div>
+                        <div class="text-2xl font-bold text-amber-600 mt-1" id="pol-kpi-active">0</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Em andamento</div>
+                    </div>
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Incidentes Críticos</div>
+                        <div class="text-2xl font-bold text-rose-600 mt-1" id="pol-kpi-critical">0</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Severidade alta</div>
+                    </div>
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Violações Hoje</div>
+                        <div class="text-2xl font-bold text-slate-800 mt-1" id="pol-kpi-today">0</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Total registrado</div>
+                    </div>
+                </div>
+
+                <!-- Sub-navegação: Ocorrências vs Regras -->
+                <div class="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex items-center gap-2">
+                        <button onclick="alternarAbaPolitica('ocorrencias')" id="btn-tab-pol-ocorrencias"
+                                class="px-4 py-2 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs transition-colors">
+                            Ocorrências & Violações
+                        </button>
+                        <button onclick="alternarAbaPolitica('regras')" id="btn-tab-pol-regras"
+                                class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+                            Regras Corporativas
+                        </button>
+                    </div>
+
+                    <div id="actions-tab-regras" class="hidden">
+                        <button onclick="abrirModalNovaRegra()"
+                                class="px-4 py-2 text-xs font-semibold rounded-xl bg-givova-600 hover:bg-givova-700 text-white shadow-xs transition-colors flex items-center gap-1.5">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                            </svg>
+                            <span>+ Nova Regra de Uso</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- SUB-ABA 1: OCORRÊNCIAS & VIOLAÇÕES -->
+                <div id="subtab-pol-ocorrencias" class="space-y-4">
+                    <!-- Filtros de Ocorrências -->
+                    <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
+                        <div class="flex items-center gap-2">
+                            <button onclick="filtrarEventosPolitica('active')" id="btn-pol-filter-active"
+                                    class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs">
+                                Ativas
+                            </button>
+                            <button onclick="filtrarEventosPolitica('all')" id="btn-pol-filter-all"
+                                    class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+                                Todas
+                            </button>
+                            <button onclick="filtrarEventosPolitica('closed')" id="btn-pol-filter-closed"
+                                    class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+                                Resolvidas
+                            </button>
+                        </div>
+
+                        <div class="flex items-center gap-2 text-xs">
+                            <select id="filter-pol-severity" onchange="carregarEventosPolitica()"
+                                    class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-none">
+                                <option value="Todos">Todas as Severidades</option>
+                                <option value="critical">Crítico</option>
+                                <option value="warning">Alerta</option>
+                                <option value="info">Informativo</option>
+                            </select>
+
+                            <button onclick="carregarEventosPolitica()" title="Recarregar ocorrências"
+                                    class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Tabela de Ocorrências -->
+                    <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead class="bg-slate-50/80 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200/80 text-[11px]">
+                                    <tr>
+                                        <th class="py-3 px-4">Computador</th>
+                                        <th class="py-3 px-3">Alvo Detectado</th>
+                                        <th class="py-3 px-3">Categoria</th>
+                                        <th class="py-3 px-3 text-center">Severidade</th>
+                                        <th class="py-3 px-3">Início / Duração</th>
+                                        <th class="py-3 px-3 text-center">Status</th>
+                                        <th class="py-3 px-4 text-right">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="table-pol-events-body" class="divide-y divide-slate-100">
+                                    <tr><td colspan="7" class="py-12 text-center text-slate-400">Carregando ocorrências...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-ABA 2: REGRAS CORPORATIVAS -->
+                <div id="subtab-pol-regras" class="hidden space-y-4">
+                    <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead class="bg-slate-50/80 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200/80 text-[11px]">
+                                    <tr>
+                                        <th class="py-3 px-4">Nome da Regra</th>
+                                        <th class="py-3 px-3">Tipo & Padrão</th>
+                                        <th class="py-3 px-3">Categoria</th>
+                                        <th class="py-3 px-3 text-center">Severidade</th>
+                                        <th class="py-3 px-3">Escopo</th>
+                                        <th class="py-3 px-3 text-center">Status</th>
+                                        <th class="py-3 px-4 text-right">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="table-pol-rules-body" class="divide-y divide-slate-100">
+                                    <tr><td colspan="7" class="py-12 text-center text-slate-400">Carregando regras corporativas...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========================================================= -->
             <!-- VIEW 4: SETORES                                           -->
             <!-- ========================================================= -->
             <div id="view-setores" class="hidden space-y-6">
@@ -536,15 +693,70 @@
                     </div>
 
 
-                    <!-- Passo a Passo de Execução -->
-                    <div class="pt-2 space-y-2 text-xs text-slate-600">
-                        <div class="font-bold text-slate-800">Passo a passo para implantar em um computador:</div>
+                    <!-- Passo a Passo de Execução e Instalador de 1 Clique -->
+                    <div class="pt-2 space-y-3 text-xs text-slate-600">
+                        <div class="p-3.5 rounded-xl bg-givova-50 border border-givova-200 text-givova-950">
+                            <div class="font-bold flex items-center gap-1.5 text-givova-800">
+                                <svg class="w-4 h-4 text-givova-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                </svg>
+                                <span>Instalação Automatizada (Recomendado - 1 Execução)</span>
+                            </div>
+                            <div class="mt-1 leading-relaxed text-[11px]">
+                                Para implantar sem necessidade de Python ou comandos manuais, execute como Administrador o script empacotado:
+                                <code class="px-1.5 py-0.5 rounded bg-white font-mono font-bold text-givova-700 border border-givova-300">Instalar-GivovaMonitor.ps1</code>
+                                ou o executável silencioso compilado em <code class="px-1.5 py-0.5 rounded bg-white font-mono font-bold text-givova-700 border border-givova-300">dist/GivovaMonitorDeploy/</code>.
+                                Ele registra o serviço com reinicialização automática e proteção de integridade.
+                            </div>
+                        </div>
+
+                        <div class="font-bold text-slate-800">Passo a passo manual de implantação:</div>
                         <ol class="list-decimal list-inside space-y-1 pl-1">
                             <li>Certifique-se de que a máquina possui Python 3.8+ instalado.</li>
                             <li>Copie o script <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-800">agente.py</code> e instale as dependências: <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-800">pip install psutil requests</code>.</li>
                             <li>Crie o arquivo <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-800">agent_config.json</code> ajustando a URL e o setor da máquina.</li>
                             <li>Execute: <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-800">python agente.py</code> ou configure como tarefa agendada do Windows (Task Scheduler).</li>
                         </ol>
+                    </div>
+                </div>
+
+                <!-- Gestão de Versões e Atualizações da Frota (Auto-Update) -->
+                <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                <span>Gestão de Versões e Auto-Update da Frota</span>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">v{{ config.LATEST_AGENT_VERSION }} Oficial</span>
+                            </h2>
+                            <p class="text-xs text-slate-500 mt-0.5">Visão do ciclo de vida dos agentes instalados e conformidade das versões conectadas.</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                        <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                            <span class="text-slate-500">Agentes Atualizados</span>
+                            <div class="text-xl font-bold text-emerald-600 mt-1" id="cfg-fleet-uptodate">0</div>
+                            <div class="text-[11px] text-slate-400 mt-0.5">Versão v{{ config.LATEST_AGENT_VERSION }}</div>
+                        </div>
+
+                        <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                            <span class="text-slate-500">Atualização Pendente</span>
+                            <div class="text-xl font-bold text-amber-600 mt-1" id="cfg-fleet-pending">0</div>
+                            <div class="text-[11px] text-slate-400 mt-0.5">Atualização disponível</div>
+                        </div>
+
+                        <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                            <span class="text-slate-500">Versões Desatualizadas</span>
+                            <div class="text-xl font-bold text-rose-600 mt-1" id="cfg-fleet-outdated">0</div>
+                            <div class="text-[11px] text-slate-400 mt-0.5">Abaixo de versão suportada</div>
+                        </div>
+                    </div>
+
+                    <div class="p-4 rounded-xl bg-slate-900 text-slate-300 text-xs font-mono space-y-2">
+                        <div class="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Como publicar nova release do agente:</div>
+                        <div class="text-slate-300">1. Compile o novo executável e gere o hash SHA-256:</div>
+                        <div class="text-emerald-400 pl-3">powershell -ExecutionPolicy Bypass -File .\scripts\Publish-AgentRelease.ps1 -Version "1.4.1"</div>
+                        <div class="text-slate-300">2. As máquinas autorizadas consultam periodicamente o servidor e atualizam automaticamente com fallback de segurança (rollback).</div>
                     </div>
                 </div>
 
@@ -633,7 +845,14 @@
                     </div>
                     <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
                         <span class="text-slate-400">Versão do Agente</span>
-                        <div id="modal-dev-agent" class="font-semibold text-slate-800 mt-0.5 truncate">v1.3.0</div>
+                        <div class="flex items-center gap-1.5 mt-0.5">
+                            <span id="modal-dev-agent" class="font-semibold text-slate-800 truncate">v1.4.0</span>
+                            <span id="modal-dev-version-badge" class="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">Atualizado</span>
+                        </div>
+                    </div>
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <span class="text-slate-400">Perfil de Acesso</span>
+                        <div id="modal-dev-admin-badge" class="mt-0.5 text-xs font-semibold text-slate-600">Terminal Padrão</div>
                     </div>
                 </div>
 
@@ -763,12 +982,133 @@
                     </select>
                 </div>
 
+                <!-- Perfil TI e Notificações de Políticas -->
+                <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                    <label class="flex items-start gap-2.5 cursor-pointer">
+                        <input type="checkbox" id="edit-dev-is-admin" class="mt-0.5 rounded text-givova-600 focus:ring-givova-500">
+                        <div>
+                            <span class="text-xs font-bold text-slate-800">Terminal TI Autorizado (Notificações Administrativas)</span>
+                            <p class="text-[11px] text-slate-500 leading-tight mt-0.5">Quando ativo, este terminal Windows recebe alertas Toast em tempo real de violações ocorridas em outros computadores corporativos.</p>
+                        </div>
+                    </label>
+
+                    <label class="flex items-start gap-2.5 cursor-pointer pt-1 border-t border-slate-200/60">
+                        <input type="checkbox" id="edit-dev-gen-token" class="mt-0.5 rounded text-givova-600 focus:ring-givova-500">
+                        <div>
+                            <span class="text-xs font-semibold text-slate-700">Gerar Novo Token Individual para este PC</span>
+                            <p class="text-[10px] text-slate-400 leading-tight">Gera chave de telemetria individual exclusiva para substituir o token compartilhado.</p>
+                        </div>
+                    </label>
+                </div>
+
                 <div class="pt-2 flex items-center justify-end gap-2">
                     <button type="button" onclick="fecharModalEditar()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
                         Cancelar
                     </button>
                     <button type="submit" class="px-4 py-2 text-xs font-semibold text-white bg-givova-600 hover:bg-givova-700 rounded-xl shadow-xs transition-colors">
                         Salvar Alterações
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- MODAL DE CRIAÇÃO / EDIÇÃO DE REGRA DE POLÍTICA                    -->
+    <!-- ================================================================= -->
+    <div id="modal-policy-rule" class="fixed inset-0 z-55 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-lg p-6 animate-in fade-in zoom-in-95 duration-150">
+            <h2 id="modal-rule-title" class="text-base font-bold text-slate-900 mb-1">Nova Regra de Política Corporativa</h2>
+            <p class="text-xs text-slate-500 mb-4">Defina critérios de conformidade para navegação ou softwares em execução.</p>
+
+            <form id="form-policy-rule" onsubmit="salvarRegraPolitica(event)" class="space-y-4">
+                <input type="hidden" id="pol-rule-id">
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Nome da Regra</label>
+                    <input type="text" id="pol-rule-name" required placeholder="ex: Bloqueio de Apostas e Jogos Online"
+                           class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-givova-500/20 focus:border-givova-600">
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Tipo de Alvo</label>
+                        <select id="pol-rule-type" required
+                                class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-givova-500/20 focus:border-givova-600">
+                            <option value="domain">Domínio / Site Web</option>
+                            <option value="application">Aplicativo / Processo</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Padrão / Alvo</label>
+                        <input type="text" id="pol-rule-pattern" required placeholder="ex: bet365.com ou torrent.exe"
+                               class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-givova-500/20 focus:border-givova-600">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Categoria</label>
+                        <select id="pol-rule-category" required
+                                class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-givova-500/20 focus:border-givova-600">
+                            <option value="Apostas">Apostas</option>
+                            <option value="Jogos">Jogos</option>
+                            <option value="Streaming">Streaming / Vídeo</option>
+                            <option value="Redes Sociais">Redes Sociais</option>
+                            <option value="Adulto">Adulto</option>
+                            <option value="Malware">Malware / Phishing</option>
+                            <option value="Aplicativo Não Autorizado">Aplicativo Não Autorizado</option>
+                            <option value="Outro">Outro</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Severidade</label>
+                        <select id="pol-rule-severity" required
+                                class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-givova-500/20 focus:border-givova-600">
+                            <option value="warning">Alerta (Warning)</option>
+                            <option value="critical">Crítico (Critical)</option>
+                            <option value="info">Informativo (Info)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Escopo de Aplicação</label>
+                        <select id="pol-rule-scope-type" onchange="atualizarCampoEscopo()" required
+                                class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-givova-500/20 focus:border-givova-600">
+                            <option value="global">Global (Toda a Empresa)</option>
+                            <option value="department">Departamento Específico</option>
+                            <option value="device">Computador Específico</option>
+                        </select>
+                    </div>
+
+                    <div id="div-scope-target" class="hidden">
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Alvo do Escopo</label>
+                        <input type="text" id="pol-rule-scope-target" placeholder="ex: Logística ou hostname"
+                               class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-givova-500/20 focus:border-givova-600">
+                    </div>
+                </div>
+
+                <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <div class="text-xs font-semibold text-slate-800">Regra Habilitada</div>
+                        <div class="text-[11px] text-slate-400">Avaliar ocorrências imediatamente na telemetria</div>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="pol-rule-enabled" checked class="sr-only peer">
+                        <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-givova-600"></div>
+                    </label>
+                </div>
+
+                <div class="pt-2 flex items-center justify-end gap-2">
+                    <button type="button" onclick="fecharModalRegra()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="px-4 py-2 text-xs font-semibold text-white bg-givova-600 hover:bg-givova-700 rounded-xl shadow-xs transition-colors">
+                        Salvar Regra
                     </button>
                 </div>
             </form>
@@ -829,6 +1169,7 @@
             document.getElementById("view-dashboard").classList.add("hidden");
             document.getElementById("view-computadores").classList.add("hidden");
             document.getElementById("view-alertas").classList.add("hidden");
+            document.getElementById("view-politicas").classList.add("hidden");
             document.getElementById("view-setores").classList.add("hidden");
             document.getElementById("view-configuracoes").classList.add("hidden");
 
@@ -855,6 +1196,7 @@
                 dashboard: ["Dashboard de Monitoramento", "Visão geral em tempo real dos computadores corporativos"],
                 computadores: ["Gerenciamento de Computadores", "Inventário e telemetria de todos os computadores"],
                 alertas: ["Central de Alertas e Incidentes", "Monitoramento de anomalias operacionais e sobrecarga"],
+                politicas: ["Políticas de Uso Corporativo", "Monitoramento de conformidade de navegação e softwares"],
                 setores: ["Distribuição por Departamento", "Visão setorial e saúde dos computadores por equipe"],
                 configuracoes: ["Instalação do Agente e Parâmetros", "Instruções técnicas para implantação nos terminais"]
             };
@@ -872,6 +1214,8 @@
             // Renderiza views específicas
             if (viewName === "alertas") {
                 carregarAlertas();
+            } else if (viewName === "politicas") {
+                carregarPoliticas();
             } else if (viewName === "setores") {
                 renderizarSetores();
             }
@@ -925,13 +1269,37 @@
                 // Atualiza Tabela de Computadores
                 aplicarFiltrosDispositivos();
 
-                // Atualiza badge de alertas
+                // Atualiza badge de alertas de hardware
                 const badge = document.getElementById("badge-alertas-count");
                 if (estatisticasGerais.active_alerts_count > 0) {
                     badge.innerText = estatisticasGerais.active_alerts_count;
                     badge.classList.remove("hidden");
                 } else {
                     badge.classList.add("hidden");
+                }
+
+                // Atualiza badges de políticas corporativas
+                const polCount = estatisticasGerais.active_policy_alerts_count || 0;
+                const badgePol = document.getElementById("badge-politicas-count");
+                const bellBadge = document.getElementById("header-bell-badge");
+                if (badgePol) {
+                    badgePol.innerText = polCount;
+                    badgePol.classList.toggle("hidden", polCount === 0);
+                }
+                if (bellBadge) {
+                    bellBadge.innerText = polCount;
+                    bellBadge.classList.toggle("hidden", polCount === 0);
+                }
+
+                // Atualiza gestão de versões em Agente & Config
+                if (estatisticasGerais.fleet_versions) {
+                    const fv = estatisticasGerais.fleet_versions;
+                    const elUp = document.getElementById("cfg-fleet-uptodate");
+                    const elPend = document.getElementById("cfg-fleet-pending");
+                    const elOut = document.getElementById("cfg-fleet-outdated");
+                    if (elUp) elUp.innerText = fv.up_to_date || 0;
+                    if (elPend) elPend.innerText = fv.update_available || 0;
+                    if (elOut) elOut.innerText = fv.outdated_critical || 0;
                 }
 
                 // Atualiza modal ativo se estiver aberto
@@ -941,6 +1309,8 @@
 
                 if (currentView === "setores") {
                     renderizarSetores();
+                } else if (currentView === "politicas") {
+                    carregarPoliticas();
                 }
 
             } catch (err) {
@@ -1295,6 +1665,31 @@
                 document.getElementById("modal-dev-os").innerText = `${d.os_name} (${d.os_arch})`;
                 document.getElementById("modal-dev-agent").innerText = `v${d.agent_version}`;
 
+                // Badge de conformidade de versão do agente
+                const vBadge = document.getElementById("modal-dev-version-badge");
+                if (vBadge) {
+                    if (d.version_status === "up_to_date") {
+                        vBadge.className = "px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800";
+                        vBadge.innerText = "Atualizado";
+                    } else if (d.version_status === "update_available") {
+                        vBadge.className = "px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 text-amber-800";
+                        vBadge.innerText = "Atualização Disponível";
+                    } else {
+                        vBadge.className = "px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-100 text-rose-800";
+                        vBadge.innerText = "Desatualizado";
+                    }
+                }
+
+                // Perfil de acesso TI / Notificações
+                const adminBadge = document.getElementById("modal-dev-admin-badge");
+                if (adminBadge) {
+                    if (d.is_admin_device) {
+                        adminBadge.innerHTML = '<span class="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 font-bold border border-purple-200">Terminal TI Autorizado (Toast Ativo)</span>';
+                    } else {
+                        adminBadge.innerHTML = '<span class="text-slate-500 font-normal">Terminal Padrão</span>';
+                    }
+                }
+
                 // Oculta botão de editar para dispositivos fictícios de demonstração
                 const editBtn = document.getElementById("btn-edit-dev");
                 if (editBtn) {
@@ -1431,6 +1826,8 @@
             document.getElementById("edit-dev-id").value = dev.id;
             document.getElementById("edit-dev-name").value = dev.display_name;
             document.getElementById("edit-dev-dept").value = dev.department;
+            document.getElementById("edit-dev-is-admin").checked = !!dev.is_admin_device;
+            document.getElementById("edit-dev-gen-token").checked = false;
 
             document.getElementById("modal-edit").classList.remove("hidden");
         }
@@ -1450,12 +1847,19 @@
             const id = document.getElementById("edit-dev-id").value;
             const name = document.getElementById("edit-dev-name").value;
             const dept = document.getElementById("edit-dev-dept").value;
+            const isAdmin = document.getElementById("edit-dev-is-admin").checked;
+            const genToken = document.getElementById("edit-dev-gen-token").checked;
 
             try {
                 const resp = await fetch(`/api/devices/${id}/edit`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ display_name: name, department: dept })
+                    body: JSON.stringify({
+                        display_name: name,
+                        department: dept,
+                        is_admin_device: isAdmin,
+                        generate_token: genToken
+                    })
                 });
 
                 if (resp.ok) {
@@ -1600,6 +2004,364 @@
                     </div>
                 `;
             }).join("");
+        }
+
+        // =============================================================
+        // GERENCIAMENTO DE POLÍTICAS CORPORATIVAS (SITES & SOFTWARES)
+        // =============================================================
+        let abaPoliticaAtiva = 'ocorrencias';
+        let filtroEventoStatus = 'active';
+        let todasRegrasPolitica = [];
+
+        function alternarAbaPolitica(aba) {
+            abaPoliticaAtiva = aba;
+            const subOcorrencias = document.getElementById("subtab-pol-ocorrencias");
+            const subRegras = document.getElementById("subtab-pol-regras");
+            const btnOcorrencias = document.getElementById("btn-tab-pol-ocorrencias");
+            const btnRegras = document.getElementById("btn-tab-pol-regras");
+            const actionsRegras = document.getElementById("actions-tab-regras");
+
+            if (aba === 'ocorrencias') {
+                subOcorrencias.classList.remove("hidden");
+                subRegras.classList.add("hidden");
+                actionsRegras.classList.add("hidden");
+                btnOcorrencias.className = "px-4 py-2 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs transition-colors";
+                btnRegras.className = "px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors";
+                carregarEventosPolitica();
+            } else {
+                subOcorrencias.classList.add("hidden");
+                subRegras.classList.remove("hidden");
+                actionsRegras.classList.remove("hidden");
+                btnOcorrencias.className = "px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors";
+                btnRegras.className = "px-4 py-2 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs transition-colors";
+                carregarRegrasPolitica();
+            }
+        }
+
+        async function carregarPoliticas() {
+            try {
+                const respStats = await fetch("/api/policies/stats");
+                if (respStats.ok) {
+                    const stats = await respStats.json();
+                    const elRules = document.getElementById("pol-kpi-rules");
+                    const elActive = document.getElementById("pol-kpi-active");
+                    const elCritical = document.getElementById("pol-kpi-critical");
+                    const elToday = document.getElementById("pol-kpi-today");
+                    if (elRules) elRules.innerText = stats.active_rules ?? 0;
+                    if (elActive) elActive.innerText = stats.active_violations ?? 0;
+                    if (elCritical) elCritical.innerText = stats.critical_violations ?? 0;
+                    if (elToday) elToday.innerText = stats.today_violations ?? 0;
+                }
+            } catch (err) {
+                console.error("Erro ao carregar KPIs de políticas:", err);
+            }
+
+            if (abaPoliticaAtiva === 'ocorrencias') {
+                carregarEventosPolitica();
+            } else {
+                carregarRegrasPolitica();
+            }
+        }
+
+        function filtrarEventosPolitica(status) {
+            filtroEventoStatus = status;
+            ['active', 'all', 'closed'].forEach(s => {
+                const btn = document.getElementById(`btn-pol-filter-${s}`);
+                if (btn) {
+                    if (s === status) {
+                        btn.className = "px-3 py-1.5 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs";
+                    } else {
+                        btn.className = "px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors";
+                    }
+                }
+            });
+            carregarEventosPolitica();
+        }
+
+        async function carregarEventosPolitica() {
+            const tbody = document.getElementById("table-pol-events-body");
+            const severityEl = document.getElementById("filter-pol-severity");
+            const severity = severityEl ? severityEl.value : "Todos";
+
+            let url = `/api/policies/events?status=${filtroEventoStatus}`;
+            if (severity && severity !== "Todos") {
+                url += `&severity=${severity}`;
+            }
+
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error("Erro ao listar ocorrências");
+                const events = await resp.json();
+
+                if (events.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="7" class="py-12 text-center text-slate-400">Nenhuma ocorrência de política corporativa encontrada com os filtros atuais.</td></tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = events.map(e => {
+                    const devName = e.device_name || e.hostname || 'Desconhecido';
+                    const dept = e.department || '—';
+                    const target = e.domain ? `${e.domain}` : (e.application ? `${e.application}` : '—');
+                    const targetTypeIcon = e.domain ? '🌐' : '💻';
+                    
+                    const sevBadge = e.severity === 'critical'
+                        ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">Crítico</span>'
+                        : (e.severity === 'warning'
+                            ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">Alerta</span>'
+                            : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">Info</span>');
+
+                    const statusBadge = e.status === 'active'
+                        ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span> Ativa</span>'
+                        : '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200"><span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span> Fechada</span>';
+
+                    const durationMin = Math.round((e.duration_seconds || 0) / 60);
+                    const durText = durationMin > 0 ? `${durationMin} min` : `${e.duration_seconds || 0}s`;
+
+                    return `
+                        <tr class="hover:bg-slate-50/80 transition-colors">
+                            <td class="py-3 px-4">
+                                <div class="font-bold text-slate-900 flex items-center gap-1.5">
+                                    <span>${devName}</span>
+                                    ${e.is_demo ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-100 text-amber-800 border border-amber-300">DEMO</span>' : ''}
+                                </div>
+                                <div class="text-[11px] text-slate-400 font-mono">${dept}</div>
+                            </td>
+                            <td class="py-3 px-3">
+                                <span class="font-semibold text-slate-800 font-mono inline-flex items-center gap-1">${targetTypeIcon} ${target}</span>
+                            </td>
+                            <td class="py-3 px-3">
+                                <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium text-[11px]">${e.category || 'Outro'}</span>
+                            </td>
+                            <td class="py-3 px-3 text-center">${sevBadge}</td>
+                            <td class="py-3 px-3">
+                                <div class="text-slate-800 font-mono text-[11px]">${e.first_seen || '—'}</div>
+                                <div class="text-slate-400 text-[10px]">Duração: ${durText}</div>
+                            </td>
+                            <td class="py-3 px-3 text-center">${statusBadge}</td>
+                            <td class="py-3 px-4 text-right">
+                                <div class="flex items-center justify-end gap-1.5">
+                                    ${!e.acknowledged && e.status === 'active' ? `
+                                        <button onclick="reconhecerEventoPolitica(${e.id})" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-200 shadow-2xs transition-colors" title="Reconhecer ciente">
+                                            Reconhecer
+                                        </button>
+                                    ` : ''}
+                                    ${e.status === 'active' ? `
+                                        <button onclick="resolverEventoPolitica(${e.id})" class="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold border border-emerald-200 shadow-2xs transition-colors" title="Encerrar ocorrência">
+                                            Resolver
+                                        </button>
+                                    ` : '<span class="text-slate-400 text-[11px]">Concluída</span>'}
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join("");
+            } catch (err) {
+                console.error("Erro ao carregar eventos:", err);
+                tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-rose-500">Erro ao carregar ocorrências corporativas.</td></tr>`;
+            }
+        }
+
+        async function reconhecerEventoPolitica(id) {
+            try {
+                const resp = await fetch(`/api/policies/events/${id}/acknowledge`, { method: "POST" });
+                if (resp.ok) {
+                    carregarEventosPolitica();
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function resolverEventoPolitica(id) {
+            try {
+                const resp = await fetch(`/api/policies/events/${id}/resolve`, { method: "POST" });
+                if (resp.ok) {
+                    carregarDados();
+                    carregarEventosPolitica();
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function carregarRegrasPolitica() {
+            const tbody = document.getElementById("table-pol-rules-body");
+            try {
+                const resp = await fetch("/api/policies/rules");
+                if (!resp.ok) throw new Error("Erro ao listar regras");
+                todasRegrasPolitica = await resp.json();
+
+                if (todasRegrasPolitica.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="7" class="py-12 text-center text-slate-400">Nenhuma regra corporativa cadastrada. Clique em "+ Nova Regra de Uso" acima.</td></tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = todasRegrasPolitica.map(r => {
+                    const sevBadge = r.severity === 'critical'
+                        ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">Crítico</span>'
+                        : (r.severity === 'warning'
+                            ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">Alerta</span>'
+                            : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">Info</span>');
+
+                    const escopoText = r.scope_type === 'global' ? 'Global (Frota Toda)' : `${r.scope_type === 'department' ? 'Setor' : 'PC'}: ${r.scope_target}`;
+
+                    return `
+                        <tr class="hover:bg-slate-50/80 transition-colors">
+                            <td class="py-3 px-4">
+                                <div class="font-bold text-slate-900">${r.name}</div>
+                                <div class="text-[11px] text-slate-400 font-mono">Ação: ${r.action}</div>
+                            </td>
+                            <td class="py-3 px-3">
+                                <span class="font-semibold text-slate-800 font-mono text-xs">${r.rule_type === 'domain' ? '🌐' : '💻'} ${r.pattern}</span>
+                            </td>
+                            <td class="py-3 px-3">
+                                <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium text-[11px]">${r.category}</span>
+                            </td>
+                            <td class="py-3 px-3 text-center">${sevBadge}</td>
+                            <td class="py-3 px-3 text-slate-600 font-mono text-[11px]">${escopoText}</td>
+                            <td class="py-3 px-3 text-center">
+                                <button onclick="alternarRegraPolitica(${r.id})" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-colors ${r.enabled ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}" title="Clique para ativar/desativar">
+                                    ${r.enabled ? 'Ativa' : 'Inativa'}
+                                </button>
+                            </td>
+                            <td class="py-3 px-4 text-right">
+                                <div class="flex items-center justify-end gap-1.5">
+                                    <button onclick="editarRegraPolitica(${r.id})" class="p-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors" title="Editar">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                                        </svg>
+                                    </button>
+                                    <button onclick="excluirRegraPolitica(${r.id}, '${r.name}')" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors" title="Excluir">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join("");
+            } catch (err) {
+                console.error(err);
+                tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-rose-500">Erro ao carregar regras corporativas.</td></tr>`;
+            }
+        }
+
+        function atualizarCampoEscopo() {
+            const scopeType = document.getElementById("pol-rule-scope-type").value;
+            const divTarget = document.getElementById("div-scope-target");
+            if (scopeType === "global") {
+                divTarget.classList.add("hidden");
+            } else {
+                divTarget.classList.remove("hidden");
+                const label = divTarget.querySelector("label");
+                if (label) label.innerText = scopeType === "department" ? "Nome do Setor" : "Hostname ou UUID";
+            }
+        }
+
+        function abrirModalNovaRegra() {
+            document.getElementById("form-policy-rule").reset();
+            document.getElementById("pol-rule-id").value = "";
+            document.getElementById("modal-rule-title").innerText = "Nova Regra de Política Corporativa";
+            document.getElementById("pol-rule-enabled").checked = true;
+            atualizarCampoEscopo();
+            document.getElementById("modal-policy-rule").classList.remove("hidden");
+        }
+
+        function fecharModalRegra() {
+            document.getElementById("modal-policy-rule").classList.add("hidden");
+        }
+
+        function editarRegraPolitica(id) {
+            const rule = todasRegrasPolitica.find(r => r.id === id);
+            if (!rule) return;
+
+            document.getElementById("pol-rule-id").value = rule.id;
+            document.getElementById("modal-rule-title").innerText = "Editar Regra de Política";
+            document.getElementById("pol-rule-name").value = rule.name;
+            document.getElementById("pol-rule-type").value = rule.rule_type;
+            document.getElementById("pol-rule-pattern").value = rule.pattern;
+            document.getElementById("pol-rule-category").value = rule.category;
+            document.getElementById("pol-rule-severity").value = rule.severity;
+            document.getElementById("pol-rule-scope-type").value = rule.scope_type;
+            document.getElementById("pol-rule-scope-target").value = rule.scope_target || "";
+            document.getElementById("pol-rule-enabled").checked = rule.enabled;
+
+            atualizarCampoEscopo();
+            document.getElementById("modal-policy-rule").classList.remove("hidden");
+        }
+
+        async function salvarRegraPolitica(e) {
+            e.preventDefault();
+            const id = document.getElementById("pol-rule-id").value;
+            const name = document.getElementById("pol-rule-name").value.trim();
+            const ruleType = document.getElementById("pol-rule-type").value;
+            const pattern = document.getElementById("pol-rule-pattern").value.trim();
+            const category = document.getElementById("pol-rule-category").value;
+            const severity = document.getElementById("pol-rule-severity").value;
+            const scopeType = document.getElementById("pol-rule-scope-type").value;
+            const scopeTarget = document.getElementById("pol-rule-scope-target").value.trim();
+            const enabled = document.getElementById("pol-rule-enabled").checked;
+
+            const payload = {
+                name,
+                rule_type: ruleType,
+                pattern,
+                category,
+                severity,
+                scope_type: scopeType,
+                scope_target: scopeType === "global" ? "Todos" : scopeTarget,
+                enabled
+            };
+
+            const isEdit = !!id;
+            const url = isEdit ? `/api/policies/rules/${id}/edit` : "/api/policies/rules";
+
+            try {
+                const resp = await fetch(url, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+
+                if (resp.ok) {
+                    fecharModalRegra();
+                    carregarPoliticas();
+                } else {
+                    const err = await resp.json();
+                    alert(err.error || "Não foi possível salvar a regra.");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Erro ao comunicar com o servidor.");
+            }
+        }
+
+        async function alternarRegraPolitica(id) {
+            try {
+                const resp = await fetch(`/api/policies/rules/${id}/toggle`, { method: "POST" });
+                if (resp.ok) {
+                    carregarRegrasPolitica();
+                    carregarDados();
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function excluirRegraPolitica(id, name) {
+            if (!confirm(`Tem certeza que deseja excluir a regra '${name}'?`)) return;
+            try {
+                const resp = await fetch(`/api/policies/rules/${id}`, { method: "DELETE" });
+                if (resp.ok) {
+                    carregarRegrasPolitica();
+                    carregarDados();
+                } else {
+                    alert("Não foi possível excluir a regra.");
+                }
+            } catch (err) {
+                console.error(err);
+            }
         }
 
         // Atualiza dinamicamente a URL do servidor no bloco de instruções do agente

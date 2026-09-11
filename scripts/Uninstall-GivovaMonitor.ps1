@@ -1,4 +1,4 @@
-﻿<#
+﻿﻿<#
 .SYNOPSIS
     Desinstalador do Givova Monitor Agent.
 .DESCRIPTION
