@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    container_name: givova-monitor-app
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - SECRET_KEY=${SECRET_KEY:-givova_production_secret_key_change_me}
+      - AGENT_SECRET_TOKEN=${AGENT_SECRET_TOKEN:-givova_agent_token_prod_2026}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///monitoramento.db}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-GivovaAdmin@2026!}
+      - OFFLINE_THRESHOLD_SECONDS=30
+      - CPU_ALERT_PERCENT=90.0
+      - RAM_ALERT_PERCENT=90.0
+      - DISK_ALERT_PERCENT=90.0
+      - METRICS_RETENTION_DAYS=7
+    volumes:
+      - givova_data:/app/instance
+
+volumes:
+  givova_data:

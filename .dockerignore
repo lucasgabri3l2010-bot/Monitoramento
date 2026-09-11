@@ -1,0 +1,16 @@
+.git
+.gitignore
+venv/
+env/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite
+*.sqlite3
+.env
+agent_config.json
+agente.log
+tests/
