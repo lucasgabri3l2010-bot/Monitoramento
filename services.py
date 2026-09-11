@@ -216,75 +216,67 @@ def cleanup_old_metrics():
 def get_dashboard_stats():
     """
     Calcula agregados completos para o Dashboard da Givova Transportes.
+    Suporta DEMO_MODE opcional com sobreposição virtual em memória (zero contaminação de banco).
     """
-    devices = Device.query.all()
-    now = datetime.now(timezone.utc)
+    # 1. Dispositivos reais do banco de dados
+    real_devices = Device.query.all()
+    all_devices = [d.to_dict(Config.OFFLINE_THRESHOLD_SECONDS) for d in real_devices]
 
-    total_devices = len(devices)
-    online_count = 0
-    offline_count = 0
-    warning_count = 0
-    critical_count = 0
-    
-    total_cpu = 0.0
-    total_ram = 0.0
-    total_disk_gb = 0.0
-    total_disk_used_gb = 0.0
+    # 2. Se DEMO_MODE estiver ativo, anexa os dispositivos virtuais em memória
+    demo_alerts = []
+    if Config.DEMO_MODE:
+        from demo_data import get_demo_devices, get_demo_alerts
+        demo_devices = get_demo_devices()
+        all_devices.extend(demo_devices)
+        demo_alerts = get_demo_alerts()
+
+    total_devices = len(all_devices)
+    online_count = sum(1 for d in all_devices if d.get("status") in ("online", "warning", "critical"))
+    offline_count = sum(1 for d in all_devices if d.get("status") == "offline")
+    warning_count = sum(1 for d in all_devices if d.get("status") == "warning")
+    critical_count = sum(1 for d in all_devices if d.get("status") == "critical")
+
+    total_cpu = sum(float(d.get("cpu") or 0.0) for d in all_devices)
+    total_ram = sum(float(d.get("ram") or 0.0) for d in all_devices)
+    total_disk_gb = sum(float(d.get("disk_total_gb") or 0.0) for d in all_devices)
+    total_disk_used_gb = sum(float(d.get("last_disk_used_gb") or 0.0) for d in all_devices)
 
     departments_map = {}
-
-    for d in devices:
-        st = d.get_status(Config.OFFLINE_THRESHOLD_SECONDS)
-        if st == "online":
-            online_count += 1
-        elif st == "warning":
-            warning_count += 1
-            online_count += 1 # Computador está comunicando, porém em alerta
-        elif st == "critical":
-            critical_count += 1
-            online_count += 1 # Computador comunicando, porém crítico
-        elif st == "offline":
-            offline_count += 1
-
-        dept = d.department or "Outros"
+    for d in all_devices:
+        dept = d.get("department") or "Outros"
         departments_map[dept] = departments_map.get(dept, 0) + 1
-
-        total_cpu += (d.last_cpu or 0.0)
-        total_ram += (d.last_ram or 0.0)
-        total_disk_gb += (d.disk_total_gb or 0.0)
-        total_disk_used_gb += (d.last_disk_used_gb or 0.0)
 
     avg_cpu = round(total_cpu / total_devices, 1) if total_devices > 0 else 0.0
     avg_ram = round(total_ram / total_devices, 1) if total_devices > 0 else 0.0
     total_disk_free_gb = round(max(0.0, total_disk_gb - total_disk_used_gb), 1)
 
-    # Alertas ativos (não resolvidos)
-    active_alerts = Alert.query.filter_by(is_resolved=False).order_by(Alert.created_at.desc()).limit(10).all()
+    # Alertas ativos (reais + virtuais se DEMO_MODE)
+    real_alerts = Alert.query.filter_by(is_resolved=False).order_by(Alert.created_at.desc()).limit(10).all()
+    alerts_list = demo_alerts + [a.to_dict() for a in real_alerts]
 
     # Top computadores por consumo de CPU e RAM
-    top_cpu = sorted(devices, key=lambda x: (x.last_cpu or 0.0), reverse=True)[:5]
-    top_ram = sorted(devices, key=lambda x: (x.last_ram or 0.0), reverse=True)[:5]
+    top_cpu = sorted(all_devices, key=lambda x: float(x.get("cpu") or 0.0), reverse=True)[:5]
+    top_ram = sorted(all_devices, key=lambda x: float(x.get("ram") or 0.0), reverse=True)[:5]
 
     # Atividade em tempo real de computadores online
     recent_activities = []
     if Config.ACTIVITY_MONITORING_ENABLED:
-        online_devices = [d for d in devices if d.get_status(Config.OFFLINE_THRESHOLD_SECONDS) in ("online", "warning", "critical")]
-        sorted_by_activity = sorted(
-            [d for d in online_devices if d.active_app and d.activity_updated_at],
-            key=lambda x: x.activity_updated_at,
-            reverse=True
-        )[:8]
-
-        for d in sorted_by_activity:
+        online_devs = [
+            d for d in all_devices
+            if d.get("status") in ("online", "warning", "critical")
+            and d.get("active_app") and d.get("active_app") != "—"
+        ]
+        for d in online_devs[:8]:
             recent_activities.append({
-                "id": d.id,
-                "name": d.display_name or d.hostname,
-                "user_name": d.user_name or "—",
-                "department": d.department or "—",
-                "active_app": d.active_app or "—",
-                "active_domain": d.active_domain or "—",
-                "formatted_activity": d.get_formatted_activity(Config.OFFLINE_THRESHOLD_SECONDS),
-                "activity_updated_at": d.activity_updated_at.strftime("%H:%M:%S") if d.activity_updated_at else "—"
+                "id": d["id"],
+                "name": d.get("display_name") or d.get("hostname"),
+                "user_name": d.get("user_name") or "—",
+                "department": d.get("department") or "—",
+                "active_app": d.get("active_app") or "—",
+                "active_domain": d.get("active_domain") or "—",
+                "formatted_activity": d.get("active_activity_formatted") or d.get("active_app"),
+                "activity_updated_at": d.get("activity_updated_at") or "—",
+                "is_demo": d.get("is_demo", False)
             })
 
     return {
@@ -298,16 +290,30 @@ def get_dashboard_stats():
         "total_disk_gb": round(total_disk_gb, 1),
         "total_disk_free_gb": total_disk_free_gb,
         "departments": departments_map,
-        "active_alerts_count": Alert.query.filter_by(is_resolved=False).count(),
-        "recent_alerts": [a.to_dict() for a in active_alerts],
+        "active_alerts_count": len(alerts_list),
+        "recent_alerts": alerts_list,
         "top_cpu_devices": [
-            {"id": d.id, "name": d.display_name or d.hostname, "department": d.department, "cpu": round(d.last_cpu or 0.0, 1)}
-            for d in top_cpu if d.last_cpu is not None
+            {
+                "id": d["id"],
+                "name": d.get("display_name") or d.get("hostname"),
+                "department": d.get("department"),
+                "cpu": round(float(d.get("cpu") or 0.0), 1),
+                "is_demo": d.get("is_demo", False)
+            }
+            for d in top_cpu
         ],
         "top_ram_devices": [
-            {"id": d.id, "name": d.display_name or d.hostname, "department": d.department, "ram": round(d.last_ram or 0.0, 1)}
-            for d in top_ram if d.last_ram is not None
+            {
+                "id": d["id"],
+                "name": d.get("display_name") or d.get("hostname"),
+                "department": d.get("department"),
+                "ram": round(float(d.get("ram") or 0.0), 1),
+                "is_demo": d.get("is_demo", False)
+            }
+            for d in top_ram
         ],
         "activity_monitoring_enabled": Config.ACTIVITY_MONITORING_ENABLED,
-        "recent_activities": recent_activities
+        "recent_activities": recent_activities,
+        "demo_mode_active": Config.DEMO_MODE
     }
+

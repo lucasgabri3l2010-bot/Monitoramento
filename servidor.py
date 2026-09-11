@@ -200,36 +200,45 @@ def dados_retrocomp():
 def listar_dispositivos():
     """
     Lista todos os computadores monitorados com suporte a busca, filtro por setor e status.
+    Suporta DEMO_MODE opcional com computadores virtuais em memória identificados com is_demo=True.
     """
-    search = request.args.get("search", "").strip()
+    search = request.args.get("search", "").strip().lower()
     department = request.args.get("department", "").strip()
     status_filter = request.args.get("status", "").strip()
 
-    query = Device.query
+    # 1. Dispositivos reais cadastrados no banco
+    real_devices = Device.query.order_by(Device.updated_at.desc()).all()
+    all_items = [d.to_dict(Config.OFFLINE_THRESHOLD_SECONDS) for d in real_devices]
 
-    if search:
-        query = query.filter(
-            (Device.hostname.ilike(f"%{search}%")) |
-            (Device.display_name.ilike(f"%{search}%")) |
-            (Device.user_name.ilike(f"%{search}%")) |
-            (Device.ip_address.ilike(f"%{search}%"))
-        )
+    # 2. Se DEMO_MODE estiver ativo, anexa os dispositivos virtuais de demonstração
+    if Config.DEMO_MODE:
+        from demo_data import get_demo_devices
+        all_items.extend(get_demo_devices())
 
-    if department and department != "Todos":
-        query = query.filter(Device.department == department)
-
-    devices = query.order_by(Device.updated_at.desc()).all()
-
-    # Aplica filtro de status em memória pois status depende da comparação de tempo com limite
-    result = []
-    for d in devices:
-        item = d.to_dict(Config.OFFLINE_THRESHOLD_SECONDS)
-        if status_filter and status_filter != "Todos":
-            if item["status"] != status_filter.lower():
+    # 3. Aplica filtros de busca, departamento e status
+    filtered = []
+    for item in all_items:
+        if search:
+            match = (
+                search in str(item.get("hostname", "")).lower() or
+                search in str(item.get("display_name", "")).lower() or
+                search in str(item.get("user_name", "")).lower() or
+                search in str(item.get("ip_address", "")).lower()
+            )
+            if not match:
                 continue
-        result.append(item)
 
-    return jsonify(result)
+        if department and department != "Todos":
+            if item.get("department") != department:
+                continue
+
+        if status_filter and status_filter != "Todos":
+            if str(item.get("status", "")).lower() != status_filter.lower():
+                continue
+
+        filtered.append(item)
+
+    return jsonify(filtered)
 
 
 @app.route("/api/devices/<int:device_id>")
@@ -238,6 +247,13 @@ def detalhes_dispositivo(device_id):
     """
     Retorna os detalhes completos de um computador específico, incluindo métricas recentes e alertas.
     """
+    # Se for dispositivo virtual de demonstração
+    if Config.DEMO_MODE and device_id >= 90000:
+        from demo_data import get_demo_device
+        demo_data = get_demo_device(device_id)
+        if demo_data:
+            return jsonify(demo_data)
+
     device = db.get_or_404(Device, device_id)
     
     # Busca últimas 60 métricas históricas para o gráfico temporal
@@ -263,6 +279,12 @@ def historico_metricas_dispositivo(device_id):
     Retorna o histórico de métricas para gráficos com limite configurável.
     """
     limit = min(int(request.args.get("limit", 60)), 300)
+
+    # Se for dispositivo virtual de demonstração
+    if Config.DEMO_MODE and device_id >= 90000:
+        from demo_data import get_demo_metrics_history
+        return jsonify(get_demo_metrics_history(device_id, limit))
+
     metrics = MetricHistory.query.filter_by(device_id=device_id)\
         .order_by(MetricHistory.timestamp.desc())\
         .limit(limit).all()
@@ -276,7 +298,14 @@ def historico_metricas_dispositivo(device_id):
 def editar_dispositivo(device_id):
     """
     Permite atualizar o nome amigável e o setor do computador.
+    Dispositivos de demonstração são protegidos contra edição.
     """
+    if device_id >= 90000:
+        return jsonify({
+            "error": "Dispositivos do Modo de Demonstração são somente leitura e não podem ser editados.",
+            "code": "DEMO_DEVICE_READONLY"
+        }), 400
+
     device = db.get_or_404(Device, device_id)
     data = request.get_json(silent=True) or request.form
 
@@ -298,7 +327,14 @@ def editar_dispositivo(device_id):
 def remover_dispositivo(device_id):
     """
     Remove o computador e seu histórico do sistema.
+    Dispositivos de demonstração são protegidos contra remoção.
     """
+    if device_id >= 90000:
+        return jsonify({
+            "error": "Dispositivos do Modo de Demonstração são somente leitura e não podem ser removidos.",
+            "code": "DEMO_DEVICE_READONLY"
+        }), 400
+
     device = db.get_or_404(Device, device_id)
     hostname = device.hostname
     db.session.delete(device)
@@ -322,6 +358,7 @@ def estatisticas_dashboard():
 def listar_alertas():
     """
     Lista alertas recentes com opção de filtrar por status (ativos/resolvidos).
+    Suporta DEMO_MODE com alertas virtuais em memória.
     """
     status = request.args.get("status", "active")
     query = Alert.query
@@ -332,7 +369,14 @@ def listar_alertas():
         query = query.filter_by(is_resolved=True)
 
     alerts = query.order_by(Alert.created_at.desc()).limit(100).all()
-    return jsonify([a.to_dict() for a in alerts])
+    result = [a.to_dict() for a in alerts]
+
+    # Se DEMO_MODE estiver ativo e buscando alertas ativos, anexa os alertas virtuais
+    if Config.DEMO_MODE and status != "resolved":
+        from demo_data import get_demo_alerts
+        result = get_demo_alerts() + result
+
+    return jsonify(result)
 
 
 @app.route("/api/alerts/<int:alert_id>/resolve", methods=["POST"])
@@ -341,11 +385,18 @@ def resolver_alerta(alert_id):
     """
     Marca um alerta como resolvido manualmente.
     """
+    if alert_id >= 9000:
+        return jsonify({
+            "status": "ok",
+            "message": "Alerta de demonstração marcado como resolvido (simulação)."
+        })
+
     alert = db.get_or_404(Alert, alert_id)
     alert.is_resolved = True
     alert.resolved_at = datetime.now(timezone.utc)
     db.session.commit()
     return jsonify({"status": "ok", "alert": alert.to_dict()})
+
 
 
 @app.route("/api/alerts/resolve-all", methods=["POST"])

@@ -227,6 +227,7 @@ def load_config():
     parser.add_argument("--setor", dest="department", help="Setor/Departamento da máquina (ex: Logística, TI, Financeiro)")
     parser.add_argument("--nome", dest="display_name", help="Nome amigável da máquina")
     parser.add_argument("--intervalo", dest="interval_seconds", type=int, help="Intervalo de envio em segundos")
+    parser.add_argument("--timeout", dest="timeout_seconds", type=int, help="Tempo limite para requisições")
     parser.add_argument("--sem-atividade", dest="disable_activity", action="store_true", help="Desabilita o monitoramento de janela e domínio ativo")
 
     args, _ = parser.parse_known_args()

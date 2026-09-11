@@ -48,7 +48,11 @@ class Config:
     # Monitoramento de Atividade Atual (janela em primeiro plano e domínio ativo)
     ACTIVITY_MONITORING_ENABLED = os.getenv("ACTIVITY_MONITORING_ENABLED", "true").lower() in ("true", "1", "yes")
 
+    # Modo de Demonstração Opcional (dados fictícios em memória com badge DEMO, padrão: false)
+    DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() in ("true", "1", "yes")
+
     # Servidor e Porta (Render define dinamicamente a variável de ambiente PORT)
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", "5000"))
+
 

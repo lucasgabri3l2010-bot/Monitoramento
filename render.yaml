@@ -39,3 +39,6 @@ services:
         value: "true"
       - key: SESSION_COOKIE_SECURE
         value: "true"
+      - key: DEMO_MODE
+        value: "false"
+
