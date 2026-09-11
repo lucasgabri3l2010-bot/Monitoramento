@@ -17,29 +17,113 @@ import uuid
 import threading
 from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from logging.handlers import RotatingFileHandler
 
 import psutil
 import requests
 
-# Detecção Windows para primeiro plano
+# Detecção Windows para primeiro plano e Mutex
 if platform.system() == "Windows":
     import ctypes
     from ctypes import wintypes
 
-# Configuração de Logging do Agente
+VERSION = "1.4.0"
+LOCAL_RECEIVER_PORT = 5005
+
+
+def get_app_dir() -> str:
+    """
+    Retorna o diretório base da aplicação:
+    - Se for executável empacotado (PyInstaller): diretório do .exe
+    - Se executado via python: diretório do script atual
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+APP_DIR = get_app_dir()
+CONFIG_FILE = os.getenv("GIVOVA_CONFIG_PATH", os.path.join(APP_DIR, "agent_config.json"))
+LOG_DIR = os.getenv("GIVOVA_LOG_DIR", os.path.join(APP_DIR, "logs"))
+
+try:
+    os.makedirs(LOG_DIR, exist_ok=True)
+except Exception:
+    pass
+
+LOG_FILE = os.path.join(LOG_DIR, "agente.log")
+
+# Configuração de Logging do Agente com Rotação (5MB, 3 backups)
+_handlers = []
+if sys.stdout is not None:
+    _handlers.append(logging.StreamHandler(sys.stdout))
+
+try:
+    _file_handler = RotatingFileHandler(
+        LOG_FILE,
+        maxBytes=5 * 1024 * 1024,  # 5 MB por arquivo
+        backupCount=3,
+        encoding="utf-8"
+    )
+    _handlers.append(_file_handler)
+except Exception:
+    # Se falhar o arquivo na pasta de logs, tenta no diretório da app
+    try:
+        _handlers.append(RotatingFileHandler(os.path.join(APP_DIR, "agente.log"), maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"))
+    except Exception:
+        pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("agente.log", encoding="utf-8")
-    ]
+    handlers=_handlers
 )
 logger = logging.getLogger("GivovaAgent")
 
-VERSION = "1.3.0"
-CONFIG_FILE = "agent_config.json"
-LOCAL_RECEIVER_PORT = 5005
+# Named Mutex para controle de instância única no Windows
+_single_instance_mutex = None
+
+
+def acquire_single_instance_mutex() -> bool:
+    """
+    Garante que apenas uma única instância do agente execute no computador.
+    Retorna True se adquiriu o mutex com sucesso, ou False se outra instância já estiver ativa.
+    """
+    global _single_instance_mutex
+    if platform.system() != "Windows":
+        return True
+
+    try:
+        ERROR_ALREADY_EXISTS = 183
+        CreateMutexW = ctypes.windll.kernel32.CreateMutexW
+        CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+        CreateMutexW.restype = wintypes.HANDLE
+
+        GetLastError = ctypes.windll.kernel32.GetLastError
+        GetLastError.restype = wintypes.DWORD
+
+        # Tenta criar o mutex com escopo Global
+        mutex_name = "Global\\GivovaMonitorAgent_SingleInstance_Mutex"
+        handle = CreateMutexW(None, True, mutex_name)
+        err = GetLastError()
+
+        if err == ERROR_ALREADY_EXISTS:
+            logger.warning("Outra instância do GivovaMonitorAgent já está em execução (Global Mutex detectado). Encerrando.")
+            return False
+
+        if not handle or handle == 0:
+            # Fallback para escopo Local da sessão do usuário
+            mutex_name = "Local\\GivovaMonitorAgent_SingleInstance_Mutex"
+            handle = CreateMutexW(None, True, mutex_name)
+            if GetLastError() == ERROR_ALREADY_EXISTS:
+                logger.warning("Outra instância do GivovaMonitorAgent já está em execução (Local Mutex detectado). Encerrando.")
+                return False
+
+        _single_instance_mutex = handle
+        return True
+    except Exception as e:
+        logger.warning(f"Não foi possível verificar mutex de instância única: {e}")
+        return True
 
 # Estado compartilhado e thread-safe para telemetria de abas da extensão corporativa
 _tab_lock = threading.Lock()
@@ -179,9 +263,9 @@ def load_config():
     Carrega configurações priorizando argumentos CLI > variáveis de ambiente > agent_config.json > padrões.
     """
     cfg = {
-        "server_url": "http://127.0.0.1:5000/api/agent/report",
+        "server_url": "https://monitoramento-gb9g.onrender.com/api/agent/report",
         "agent_token": "givova_agent_token_dev_2026",
-        "department": "TI",
+        "department": "Não informado",
         "display_name": "",
         "interval_seconds": 5,
         "timeout_seconds": 10,
@@ -420,6 +504,10 @@ def send_metrics(server_url: str, token: str, payload: dict, timeout: int = 5):
 
 
 def run_agent():
+    # Garante instância única por máquina/sessão
+    if not acquire_single_instance_mutex():
+        sys.exit(0)
+
     config = load_config()
 
     logger.info("=" * 65)
@@ -444,6 +532,7 @@ def run_agent():
                     "department": config["department"],
                     "display_name": config["display_name"],
                     "interval_seconds": config["interval_seconds"],
+                    "timeout_seconds": config["timeout_seconds"],
                     "activity_monitoring": config["activity_monitoring"]
                 }, f, indent=4)
         except Exception:
@@ -489,7 +578,11 @@ def run_agent():
         except Exception as e:
             logger.error(f"Erro inesperado no ciclo de coleta: {e}", exc_info=True)
 
-        time.sleep(config["interval_seconds"])
+        sleep_time = config["interval_seconds"]
+        if fail_count > 3:
+            # Em caso de instabilidade prolongada (ex: cold start do Render), pausa suavemente para poupar recursos
+            sleep_time = min(20, config["interval_seconds"] * min(fail_count - 2, 4))
+        time.sleep(sleep_time)
 
 
 if __name__ == "__main__":

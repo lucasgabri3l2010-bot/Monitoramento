@@ -22,8 +22,15 @@ instance/
 *.log
 logs/
 
-# Agent local config overrides
+# Agent local config overrides and deployment packages
 agent_config.json
+deploy_config.local.json
+*.local.json
+
+# PyInstaller build artifacts and distribution bundles
+build/
+dist/
+*.spec
 
 # OS files
 .DS_Store

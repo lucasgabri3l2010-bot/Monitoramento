@@ -147,24 +147,86 @@ python -m unittest discover tests
 
 ---
 
-## 7. Como Configurar o Agente nos Computadores
+## 7. Como Configurar e Instalar o Agente nos Computadores
 
-O script `agente.py` deve ser implantado nos computadores que serão monitorados.
+O sistema disponibiliza duas formas de implantação: **Instalação de 1 Execução Autônoma** (recomendada para todos os computadores da empresa, sem necessidade de Python) e **Execução em Modo Script** (para desenvolvimento e testes de laboratório).
 
-### 7.1 Instalação no Terminal Cliente (Windows ou Linux)
+---
 
-1. Instale os módulos necessários:
+### 7.1 Instalação de 1 Execução para Windows (Recomendado — Produção)
+
+O agente é compilado como um executável nativo do Windows (`GivovaMonitorAgent.exe`) que contém todas as dependências embutidas, opera em segundo plano sem abrir nenhuma janela e é gerenciado pelo **Windows Task Scheduler**.
+
+#### Passo 1: Gerar o Pacote de Implantação (Na Máquina da TI)
+Na raiz deste projeto, execute o script de build:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\Build-GivovaMonitor.ps1
+```
+O script compila o executável via PyInstaller e gera a pasta pronta para distribuição:
+`dist\GivovaMonitorDeploy\` contendo:
+* `GivovaMonitorAgent.exe` — Executável sem console, ultraleve e com mutex de instância única.
+* `Instalar-GivovaMonitor.ps1` — Instalador automatizado com autoelevação UAC.
+* `Desinstalar-GivovaMonitor.ps1` — Desinstalador completo.
+* `agent_config.json` — Configurado com a URL do Render e o token de autenticação corporativo.
+* `LEIAME_INSTALACAO.txt` — Guia rápido para técnicos de campo.
+
+> 🔒 **Segurança Garantida:** A pasta `dist/` e arquivos de credenciais locais estão protegidos no `.gitignore`. Nenhum segredo ou binário é enviado ao repositório Git.
+
+#### Passo 2: Instalar no Computador Autorizado (PC Cliente)
+1. Copie a pasta `GivovaMonitorDeploy` para o computador do usuário (via pendrive, pasta de rede ou transferência temporária).
+2. Clique com o botão direito no arquivo `Instalar-GivovaMonitor.ps1` e selecione **"Executar com o PowerShell"** (ou execute via terminal).
+3. Na janela de confirmação do Windows (UAC), clique em **"Sim"**.
+4. O instalador executará de forma 100% automática:
+   * Cria o diretório `C:\ProgramData\GivovaMonitor\`;
+   * Copia o executável e o arquivo de configuração;
+   * Cria a pasta de logs com **rotação automática de 5 MB** (`logs\agente.log`);
+   * Registra a tarefa `Givova Monitor Agent` no Agendador de Tarefas do Windows para iniciar invisivelmente a cada login de usuário;
+   * Inicia o agente imediatamente;
+   * Valida o processo em execução e a conectividade com o servidor Render;
+   * Exibe a confirmação na tela:
+     ```text
+     ================================================================
+       Givova Monitor instalado com sucesso.
+     ================================================================
+       Agente:      em execução [PID: 4892]
+       Servidor:    conectado [online]
+       Dispositivo: PC-EXPEDICAO-01
+     ================================================================
+     ```
+5. Pronto! O PowerShell pode ser fechado e o usuário pode trabalhar normalmente. O agente iniciará sozinho após desligar ou reiniciar o PC.
+
+#### Passo 3: Como Atualizar o Agente Futuramente
+Para lançar uma nova versão do agente em um computador já instalado:
+1. Copie a nova pasta `GivovaMonitorDeploy` para a máquina.
+2. Execute `Instalar-GivovaMonitor.ps1`.
+3. O instalador detecta a versão anterior, encerra o processo, substitui o executável, **preserva o `agent_config.json` existente** (mantendo apelidos e configurações da máquina) e reinicia a tarefa.
+
+#### Passo 4: Como Desinstalar o Agente
+1. Clique com o botão direito em `Desinstalar-GivovaMonitor.ps1` > **"Executar com o PowerShell"**.
+2. O script encerra o processo, remove a tarefa agendada e apaga os binários de `C:\ProgramData\GivovaMonitor\`.
+   * Para remover também todos os logs e configurações, utilize o parâmetro:
+     ```powershell
+     .\Desinstalar-GivovaMonitor.ps1 -PurgeData
+     ```
+
+---
+
+### 7.2 Execução Manual via Python (Desenvolvimento / Linux)
+
+Caso deseje testar o script diretamente pelo código-fonte:
+
+1. Instale as dependências:
    ```bash
-   pip install psutil requests
+   pip install -r requirements.txt
    ```
 
-2. Crie o arquivo `agent_config.json` no mesmo diretório do `agente.py` (ou copie a partir de `agent_config.example.json`):
+2. Crie ou edite o arquivo `agent_config.json`:
    ```json
    {
-       "server_url": "https://seu-servico.onrender.com/api/agent/report",
+       "server_url": "https://monitoramento-gb9g.onrender.com/api/agent/report",
        "agent_token": "SEU_TOKEN_SECRETO_DO_RENDER",
-       "department": "Operacional",
-       "display_name": "PC-EXPEDICAO-01",
+       "department": "TI",
+       "display_name": "PC-TESTE-TI",
        "interval_seconds": 5,
        "timeout_seconds": 10,
        "activity_monitoring": true
@@ -189,19 +251,25 @@ Exibe no painel qual aplicativo está atualmente em foco (ex: `Microsoft Excel`,
 * ❌ **Sem captura de conteúdo ou digitação**: Não há leitura de telas nem keylogger.
 * ❌ **Sem monitoramento anônimo**: Abas InPrivate ou Anônimas são 100% ignoradas.
 
-### 8.3 Como Habilitar ou Desabilitar:
-* **No Servidor / Backend**: Configure `ACTIVITY_MONITORING_ENABLED=true` ou `false`.
-* **No Agente**:
-  * No arquivo `agent_config.json`: `"activity_monitoring": true` (ou `false`).
-  * Ou execute o agente com a flag: `python agente.py --sem-atividade`.
+### 8.3 Operação Independente e Sem Extensão
+* O agente **funciona 100% mesmo sem a extensão instalada**.
+* Se o usuário estiver utilizando o Chrome ou Edge sem a extensão, o painel exibe de forma limpa e profissional: `Google Chrome` ou `Microsoft Edge`.
+* Caso a extensão esteja presente, o painel complementa com: `🌐 givovatransportes.com.br`.
 
-### 8.4 Instalação da Extensão Corporativa Chromium (Chrome e Edge):
+### 8.4 Instalação Manual da Extensão Chromium (Chrome e Edge)
 A extensão envia apenas o hostname da aba ativa diretamente para o agente local (`http://127.0.0.1:5005/active-tab`), sem passar por servidores externos:
 1. Abra `chrome://extensions` (Chrome) ou `edge://extensions` (Edge).
 2. Ative o **Modo do Desenvolvedor**.
 3. Clique em **Carregar sem compactação** (ou *Carregar descompactada*).
 4. Selecione a pasta `extension/` deste projeto.
-5. Pronto! O domínio ativo é transmitido localmente ao agente e enviado de forma segura ao servidor.
+
+### 8.5 Implantação Corporativa Silenciosa via GPO / Registro (Opcional — Domínio Windows)
+Em ambientes corporativos com Active Directory ou Microsoft Intune, os navegadores Chrome e Edge suportam a política `ExtensionInstallForcelist` para provisionar a extensão silenciosamente sem intervenção manual do usuário:
+* **Google Chrome**:
+  `HKLM\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist`
+* **Microsoft Edge**:
+  `HKLM\SOFTWARE\Policies\Microsoft\Edge\ExtensionInstallForcelist`
+* As políticas aceitam o ID da extensão e a URL de atualização da Web Store corporativa. Em computadores individuais fora de domínio, o uso do agente sem extensão é o padrão recomendado.
 
 ---
 
