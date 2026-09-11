@@ -13,6 +13,7 @@ os.environ["CPU_ALERT_PERCENT"] = "90.0"
 os.environ["RAM_ALERT_PERCENT"] = "90.0"
 os.environ["DISK_ALERT_PERCENT"] = "90.0"
 
+from config import Config
 from servidor import app, db
 from models import User, Device, Alert, MetricHistory
 
@@ -269,6 +270,128 @@ class SystemMonitoringTestCase(unittest.TestCase):
         stats_data = res_stats.get_json()
         self.assertTrue(stats_data["activity_monitoring_enabled"])
         self.assertTrue(len(stats_data["recent_activities"]) >= 2)
+
+    def test_07_demo_mode(self):
+        """Testa o Modo de Demonstração (DEMO_MODE): isolamento em memória, flags is_demo e proteção de integridade"""
+        # Login
+        self.client.post("/login", data={"username": "testadmin", "password": "TestAdminPass123!"})
+
+        # Registra um computador REAL no banco
+        real_payload = {
+            "uuid": "real-uuid-pc-matriz",
+            "computador": "PC-REAL-MATRIZ",
+            "setor": "TI",
+            "cpu": 22.0,
+            "ram": 48.0,
+            "disco": 35.0,
+            "active_application": "Visual Studio Code",
+            "active_domain": None
+        }
+        self.client.post("/api/agent/report", json=real_payload, headers={"X-Agent-Token": "test_secret_token_123"})
+
+        # 1. Com DEMO_MODE = False (Padrão)
+        Config.DEMO_MODE = False
+
+        res_stats_off = self.client.get("/api/stats")
+        self.assertEqual(res_stats_off.status_code, 200)
+        stats_off = res_stats_off.get_json()
+        self.assertFalse(stats_off["demo_mode_active"])
+        self.assertEqual(stats_off["total_devices"], 1)
+
+        res_devs_off = self.client.get("/api/devices")
+        self.assertEqual(res_devs_off.status_code, 200)
+        devs_off = res_devs_off.get_json()
+        self.assertEqual(len(devs_off), 1)
+        self.assertEqual(devs_off[0]["hostname"], "PC-REAL-MATRIZ")
+        self.assertFalse(devs_off[0]["is_demo"])
+
+        # 2. Habilita DEMO_MODE = True
+        Config.DEMO_MODE = True
+        try:
+            res_stats_on = self.client.get("/api/stats")
+            self.assertEqual(res_stats_on.status_code, 200)
+            stats_on = res_stats_on.get_json()
+            self.assertTrue(stats_on["demo_mode_active"])
+            # 1 real + 9 demo = 10 dispositivos
+            self.assertEqual(stats_on["total_devices"], 10)
+
+            # Valida que todos os 6 setores solicitados estão representados
+            expected_sectors = {"Logística", "Faturamento", "Financeiro", "Jurídico", "Monitoramento", "TI"}
+            actual_sectors = set(stats_on["departments"].keys())
+            for sec in expected_sectors:
+                self.assertIn(sec, actual_sectors)
+
+            # Valida lista de dispositivos
+            res_devs_on = self.client.get("/api/devices")
+            self.assertEqual(res_devs_on.status_code, 200)
+            devs_on = res_devs_on.get_json()
+            self.assertEqual(len(devs_on), 10)
+
+            # Valida que o computador real NÃO tem badge/is_demo=False
+            real_dev = next(d for d in devs_on if d["hostname"] == "PC-REAL-MATRIZ")
+            self.assertFalse(real_dev["is_demo"])
+
+            # Valida que os computadores de demonstração possuem is_demo=True
+            demo_devs = [d for d in devs_on if d["is_demo"] is True]
+            self.assertEqual(len(demo_devs), 9)
+
+            # Consulta detalhes do dispositivo demo 90001
+            res_detail = self.client.get("/api/devices/90001")
+            self.assertEqual(res_detail.status_code, 200)
+            demo_detail = res_detail.get_json()
+            self.assertTrue(demo_detail["device"]["is_demo"])
+            self.assertEqual(demo_detail["device"]["hostname"], "PC-EXPEDICAO-01")
+            self.assertTrue(len(demo_detail["metrics"]) > 0)
+
+            # Consulta histórico de métricas demo
+            res_metrics = self.client.get("/api/devices/90001/metrics")
+            self.assertEqual(res_metrics.status_code, 200)
+            metrics_data = res_metrics.get_json()
+            self.assertTrue(len(metrics_data) > 0)
+
+            # Tenta editar dispositivo demo -> Deve ser bloqueado com 400
+            res_edit_demo = self.client.post("/api/devices/90001/edit", json={"display_name": "Novo Nome"})
+            self.assertEqual(res_edit_demo.status_code, 400)
+            self.assertEqual(res_edit_demo.get_json()["code"], "DEMO_DEVICE_READONLY")
+
+            # Tenta excluir dispositivo demo -> Deve ser bloqueado com 400
+            res_del_demo = self.client.delete("/api/devices/90001")
+            self.assertEqual(res_del_demo.status_code, 400)
+            self.assertEqual(res_del_demo.get_json()["code"], "DEMO_DEVICE_READONLY")
+
+            # Valida alertas com dados de demonstração
+            res_alerts = self.client.get("/api/alerts")
+            self.assertEqual(res_alerts.status_code, 200)
+            alerts_list = res_alerts.get_json()
+            demo_alerts = [a for a in alerts_list if a.get("is_demo")]
+            self.assertTrue(len(demo_alerts) > 0)
+
+            # Tenta resolver alerta demo -> Sucesso virtual sem erro
+            res_resolve_demo = self.client.post("/api/alerts/90001/resolve")
+            self.assertEqual(res_resolve_demo.status_code, 200)
+
+            # 3. VERIFICAÇÃO CRUCIAL DE BANCO: NENHUM dado demo persistido no PostgreSQL/SQLite
+            with self.app.app_context():
+                # No banco deve haver APENAS 1 dispositivo (o real)
+                db_device_count = Device.query.count()
+                self.assertEqual(db_device_count, 1)
+
+                # Busca nominal de máquinas demo no banco
+                db_demo_device = Device.query.filter_by(hostname="PC-EXPEDICAO-01").first()
+                self.assertIsNone(db_demo_device)
+
+                # Nenhum alerta no banco
+                db_alerts_count = Alert.query.count()
+                self.assertEqual(db_alerts_count, 0)
+
+        finally:
+            # Restaura DEMO_MODE = False
+            Config.DEMO_MODE = False
+
+        # Valida que após desativar, os dados somem instantaneamente sem limpeza de banco
+        res_after = self.client.get("/api/devices")
+        self.assertEqual(len(res_after.get_json()), 1)
+        self.assertEqual(res_after.get_json()[0]["hostname"], "PC-REAL-MATRIZ")
 
 
 if __name__ == "__main__":

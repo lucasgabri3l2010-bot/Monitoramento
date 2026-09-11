@@ -202,8 +202,10 @@ class Device(db.Model):
             "active_domain": self.active_domain or "—",
             "active_activity_formatted": activity_formatted,
             "activity_updated_at": activity_time_str,
-            "activity_recent": is_recent_activity
+            "activity_recent": is_recent_activity,
+            "is_demo": False
         }
+
 
 
 class MetricHistory(db.Model):
@@ -257,5 +259,7 @@ class Alert(db.Model):
             "created_at": self.created_at.strftime("%d/%m/%Y %H:%M:%S") if self.created_at else "",
             "created_at_iso": self.created_at.isoformat() if self.created_at else "",
             "is_resolved": self.is_resolved,
-            "resolved_at": self.resolved_at.strftime("%d/%m/%Y %H:%M:%S") if self.resolved_at else None
+            "resolved_at": self.resolved_at.strftime("%d/%m/%Y %H:%M:%S") if self.resolved_at else None,
+            "is_demo": False
         }
+

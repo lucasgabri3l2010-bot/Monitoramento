@@ -82,6 +82,7 @@ Crie um arquivo `.env` na raiz do projeto baseado no `.env.example`:
 | `RAM_ALERT_PERCENT` | `90.0` | Porcentagem de memória RAM para disparar alerta. |
 | `DISK_ALERT_PERCENT` | `90.0` | Porcentagem de ocupação de disco para disparar alerta. |
 | `METRICS_RETENTION_DAYS`| `7` | Prazo em dias para expurgo automático de métricas antigas. |
+| `DEMO_MODE` | `false` | Modo de demonstração com dados simulados em memória (`true`/`false`). |
 | `HOST` | `0.0.0.0` | Interface de rede para bind do servidor. |
 | `PORT` | `5000` | Porta TCP do servidor web. |
 
@@ -138,7 +139,7 @@ Crie um arquivo `.env` na raiz do projeto baseado no `.env.example`:
 
 ## 6. Executando os Testes Automatizados
 
-Para rodar a suite completa de testes de integridade e segurança (6 testes):
+Para rodar a suite completa de testes de integridade, segurança e DEMO_MODE (7 testes):
 
 ```bash
 python -m unittest discover tests
@@ -249,6 +250,7 @@ Guia completo passo a passo para colocar a aplicação online para a apresentaç
 | `METRICS_RETENTION_DAYS` | `7` | Não (padrão: 7) |
 | `ACTIVITY_MONITORING_ENABLED`| `true` | Não (padrão: true) |
 | `SESSION_COOKIE_SECURE` | `true` | Não (padrão: true em prod) |
+| `DEMO_MODE` | `false` *(ou `true` para a apresentação)* | Não (padrão: false) |
 
 > 💡 **Dica de Deploy com `render.yaml` (Blueprint):** Se preferir, no Render clique em **New +** > **Blueprint** e conecte o repositório. O Render lerá o arquivo `render.yaml` automaticamente, preenchendo as configurações e solicitando apenas o preenchimento de `DATABASE_URL` e `ADMIN_PASSWORD`!
 
@@ -283,7 +285,35 @@ No computador a ser monitorado (ou no seu computador de teste):
 
 ---
 
-## 10. Roteiro de Demonstração para a Diretoria (10 Passos)
+## 10. Modo de Demonstração (`DEMO_MODE`) para Apresentação Executiva
+
+Para apresentações à diretoria onde há apenas 1 computador real conectado, o sistema conta com um **Modo de Demonstração em memória** de nível corporativo.
+
+### 10.1 Principais Características de Segurança e Transparência:
+* **Identificação Visual Inequívoca**: Todo registro simulado exibe a etiqueta destacada em âmbar/laranja **`DEMO`** (ou `Dado de demonstração`) na tabela, nos rankings, nos cards de alertas e no modal de detalhes.
+* **Banner de Alerta no Topo**: Quando ativado, uma faixa âmbar no topo do Dashboard alerta claramente que dados simulados estão em exibição.
+* **Seu Computador Real Fica 100% Preservado**: O computador que está enviando telemetria real via agente **NUNCA** recebe badge `DEMO` e opera normalmente.
+* **ZERO Poluição do Banco de Dados**: Absolutamente nenhum computador, alerta ou histórico demo é gravado no PostgreSQL do Neon (ou SQLite local). Todos os dados virtuais residem estritamente em memória.
+* **Proteção contra Edição e Exclusão**: Dispositivos simulados não podem ser alterados ou apagados (`DEMO_DEVICE_READONLY`).
+* **6 Setores Representados**: Logística, Faturamento, Financeiro, Jurídico, Monitoramento e TI.
+* **Desativação Instantânea**: Ao mudar para `DEMO_MODE=false`, todas as máquinas de demonstração desaparecem imediatamente sem necessidade de limpeza manual no banco de dados.
+
+### 10.2 Como Ativar no Render (Antes da Apresentação):
+1. Acesse o painel do seu serviço no [Render](https://dashboard.render.com).
+2. Clique na aba **Environment**.
+3. Localize a variável `DEMO_MODE` (ou adicione-a, caso não exista).
+4. Altere o valor para `true`.
+5. Clique em **Save Changes**. O Render fará um redeploy automático rápido (cerca de 1-2 minutos) e o Dashboard passará a exibir o parque completo para demonstração.
+
+### 10.3 Como Desativar no Render (Após a Apresentação):
+1. Acesse a aba **Environment** no Render.
+2. Altere o valor de `DEMO_MODE` para `false`.
+3. Clique em **Save Changes**.
+4. O Dashboard volta a exibir estritamente as máquinas reais conectadas, sem deixar qualquer vestígio de dados simulados no banco de dados.
+
+---
+
+## 11. Roteiro de Demonstração para a Diretoria (10 Passos)
 
 1. **Apresentação Inicial e Acesso Seguro**:
    Acesse a URL do Render no navegador. Mostre a tela de login corporativa com identidade visual da Givova Transportes.

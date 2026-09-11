@@ -195,10 +195,21 @@
         <!-- Conteúdo Scrollável das Views -->
         <main class="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 space-y-6">
 
+            <!-- Banner Informativo de Modo de Demonstração (DEMO_MODE) -->
+            <div id="demo-mode-banner" class="hidden p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 text-xs flex items-center justify-between shadow-2xs">
+                <div class="flex items-center gap-3">
+                    <span class="flex-shrink-0 px-2.5 py-1 rounded-lg font-black bg-amber-500 text-white text-[11px] tracking-wider uppercase shadow-2xs">Modo Demonstração</span>
+                    <span class="leading-relaxed">
+                        Exibindo computadores fictícios identificados com a tag <span class="px-1.5 py-0.5 rounded bg-amber-200/90 text-amber-900 font-bold border border-amber-300">DEMO</span> para visualização de múltiplos setores corporativos. <strong>Seu computador real conectado aparece normalmente sem marcação.</strong>
+                    </span>
+                </div>
+            </div>
+
             <!-- ========================================================= -->
             <!-- VIEW 1: DASHBOARD GERAL                                   -->
             <!-- ========================================================= -->
             <div id="view-dashboard" class="space-y-6">
+
                 <!-- Grid de KPIs Compactos -->
                 <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 sm:gap-4">
                     <!-- Total -->
@@ -388,10 +399,12 @@
                             <option value="Logística">Logística</option>
                             <option value="Faturamento">Faturamento</option>
                             <option value="Financeiro">Financeiro</option>
+                            <option value="Jurídico">Jurídico</option>
                             <option value="Monitoramento">Monitoramento</option>
                             <option value="Administrativo">Administrativo</option>
                             <option value="RH">RH</option>
                             <option value="Diretoria">Diretoria</option>
+
                         </select>
 
                         <select id="filter-status" onchange="aplicarFiltrosDispositivos()"
@@ -944,6 +957,16 @@
         }
 
         function atualizarKPIs(stats) {
+            // Controla exibição do banner de modo de demonstração
+            const demoBanner = document.getElementById("demo-mode-banner");
+            if (demoBanner) {
+                if (stats.demo_mode_active) {
+                    demoBanner.classList.remove("hidden");
+                } else {
+                    demoBanner.classList.add("hidden");
+                }
+            }
+
             document.getElementById("kpi-total").innerText = stats.total_devices;
             document.getElementById("kpi-online").innerText = stats.online_count;
             document.getElementById("kpi-offline").innerText = stats.offline_count;
@@ -961,7 +984,11 @@
                         <div class="flex items-center gap-3">
                             <span class="w-2.5 h-2.5 rounded-full ${a.severity === 'critical' ? 'bg-rose-600 animate-pulse' : 'bg-amber-600'}"></span>
                             <div>
-                                <div class="font-semibold text-xs">${a.device_name} <span class="opacity-60 text-[11px]">(${a.department})</span></div>
+                                <div class="font-semibold text-xs flex items-center gap-1.5">
+                                    <span>${a.device_name}</span>
+                                    ${a.is_demo ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-100 text-amber-800 border border-amber-300">DEMO</span>' : ''}
+                                    <span class="opacity-60 text-[11px]">(${a.department})</span>
+                                </div>
                                 <div class="text-[11px] opacity-85 mt-0.5">${a.message}</div>
                             </div>
                         </div>
@@ -971,12 +998,21 @@
                         </div>
                     </div>
                 `).join("");
+            } else {
+                alertsList.innerHTML = `<div class="text-xs text-slate-400 py-4 text-center">Nenhum alerta pendente no momento.</div>`;
+            }
+
             // Atividades recentes no dashboard
             const activityBody = document.getElementById("dashboard-activity-body");
             if (stats.recent_activities && stats.recent_activities.length > 0) {
                 activityBody.innerHTML = stats.recent_activities.map(a => `
                     <tr class="hover:bg-slate-50/70 transition-colors">
-                        <td class="py-2.5 px-3 font-semibold text-slate-900">${a.name}</td>
+                        <td class="py-2.5 px-3">
+                            <div class="flex items-center gap-1.5">
+                                <span class="font-semibold text-slate-900">${a.name}</span>
+                                ${a.is_demo ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-100 text-amber-800 border border-amber-300">DEMO</span>' : ''}
+                            </div>
+                        </td>
                         <td class="py-2.5 px-3 text-slate-700">${a.user_name}</td>
                         <td class="py-2.5 px-3">
                             <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium text-[11px] border border-slate-200/60">${a.department}</span>
@@ -993,6 +1029,7 @@
                 activityBody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-slate-400">Nenhum computador online com atividade recente no momento.</td></tr>`;
             }
         }
+
 
         function atualizarGraficosDashboard(stats) {
             // 1. Gráfico Doughnut de Status
@@ -1067,7 +1104,10 @@
                 cpuList.innerHTML = stats.top_cpu_devices.map(d => `
                     <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-100/70 transition-colors">
                         <div class="min-w-0">
-                            <div class="font-semibold text-xs text-slate-800 truncate">${d.name}</div>
+                            <div class="font-semibold text-xs text-slate-800 truncate flex items-center gap-1.5">
+                                <span class="truncate">${d.name}</span>
+                                ${d.is_demo ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-100 text-amber-800 border border-amber-300">DEMO</span>' : ''}
+                            </div>
                             <div class="text-[10px] text-slate-400">${d.department}</div>
                         </div>
                         <div class="text-right">
@@ -1084,7 +1124,10 @@
                 ramList.innerHTML = stats.top_ram_devices.map(d => `
                     <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-100/70 transition-colors">
                         <div class="min-w-0">
-                            <div class="font-semibold text-xs text-slate-800 truncate">${d.name}</div>
+                            <div class="font-semibold text-xs text-slate-800 truncate flex items-center gap-1.5">
+                                <span class="truncate">${d.name}</span>
+                                ${d.is_demo ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-100 text-amber-800 border border-amber-300">DEMO</span>' : ''}
+                            </div>
                             <div class="text-[10px] text-slate-400">${d.department}</div>
                         </div>
                         <div class="text-right">
@@ -1096,6 +1139,7 @@
                 ramList.innerHTML = `<div class="text-xs text-slate-400 py-3 text-center">Nenhum dado registrado.</div>`;
             }
         }
+
 
         function aplicarFiltrosDispositivos() {
             const query = (document.getElementById("filter-search").value || "").toLowerCase().trim();
@@ -1143,7 +1187,10 @@
                 return `
                     <tr class="hover:bg-slate-50/80 transition-colors">
                         <td class="py-3 px-4">
-                            <div class="font-bold text-slate-900">${d.display_name}</div>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="font-bold text-slate-900">${d.display_name}</span>
+                                ${d.is_demo ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-300 tracking-wider">DEMO</span>' : ''}
+                            </div>
                             <div class="text-[11px] text-slate-400 font-mono">${d.hostname}</div>
                         </td>
                         <td class="py-3 px-3 text-slate-700 font-medium">${d.user_name}</td>
@@ -1170,12 +1217,13 @@
                         <td class="py-3 px-3 text-slate-500 font-mono text-[11px]">${d.ultimo_contato}</td>
                         <td class="py-3 px-4 text-right">
                             <div class="flex items-center justify-end gap-1.5">
-                                <button onclick="abrirModalDetalhes(${d.id})" class="p-1.5 rounded-lg text-slate-600 hover:text-givova-600 hover:bg-slate-100 transition-colors" title="Ver Detalhes">
+                                <button onclick="abrirModalDetalhes(${d.id})" class="p-1.5 rounded-lg text-slate-600 hover:text-givova-600 hover:bg-slate-100 transition-colors" title="${d.is_demo ? 'Ver Detalhes (Simulação)' : 'Ver Detalhes'}">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
                                     </svg>
                                 </button>
+                                ${d.is_demo ? '' : `
                                 <button onclick="prepararEdicao(${d.id})" class="p-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors" title="Editar">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
@@ -1186,11 +1234,13 @@
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                                     </svg>
                                 </button>
+                                `}
                             </div>
                         </td>
                     </tr>
                 `;
             }).join("");
+
         }
 
         function getStatusBadge(status) {
@@ -1231,7 +1281,11 @@
                 const data = await resp.json();
                 const d = data.device;
 
-                document.getElementById("modal-dev-name").innerText = d.display_name;
+                let nameHtml = d.display_name;
+                if (d.is_demo) {
+                    nameHtml += ' <span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-300 tracking-wider">DEMO</span>';
+                }
+                document.getElementById("modal-dev-name").innerHTML = nameHtml;
                 document.getElementById("modal-dev-hostname").innerText = d.hostname;
                 document.getElementById("modal-dev-user").innerText = d.user_name;
                 document.getElementById("modal-dev-dept").innerText = d.department;
@@ -1240,6 +1294,13 @@
                 document.getElementById("modal-dev-proc").innerText = `${d.processor} (${d.cpu_cores} núcleos)`;
                 document.getElementById("modal-dev-os").innerText = `${d.os_name} (${d.os_arch})`;
                 document.getElementById("modal-dev-agent").innerText = `v${d.agent_version}`;
+
+                // Oculta botão de editar para dispositivos fictícios de demonstração
+                const editBtn = document.getElementById("btn-edit-dev");
+                if (editBtn) {
+                    editBtn.style.display = d.is_demo ? "none" : "block";
+                }
+
 
                 // Status Badge
                 const badge = document.getElementById("modal-dev-status-badge");
@@ -1442,7 +1503,12 @@
                         <div class="flex items-center gap-3">
                             <span class="w-3 h-3 rounded-full flex-shrink-0 ${a.severity === 'critical' ? 'bg-rose-600' : 'bg-amber-500'}"></span>
                             <div>
-                                <div class="font-bold text-xs text-slate-900">${a.device_name} <span class="font-normal text-slate-400 text-[11px]">(${a.department})</span></div>
+                                <div class="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                                    <span>${a.device_name}</span>
+                                    ${a.is_demo ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-100 text-amber-800 border border-amber-300">DEMO</span>' : ''}
+                                    <span class="font-normal text-slate-400 text-[11px]">(${a.department})</span>
+                                </div>
+
                                 <div class="text-xs text-slate-600 mt-0.5">${a.message}</div>
                                 <div class="text-[10px] text-slate-400 mt-1 font-mono">${a.created_at} ${a.is_resolved ? `• Resolvido em ${a.resolved_at}` : ''}</div>
                             </div>
