@@ -1,0 +1,10 @@
+{
+    "_comentario": "Exemplo de configuração do Agente de Monitoramento para apontar para o Render (HTTPS)",
+    "server_url": "https://seu-servico-givova.onrender.com/api/agent/report",
+    "agent_token": "COPIE_O_AGENT_SECRET_TOKEN_DO_RENDER",
+    "department": "Operacional",
+    "display_name": "PC-EXPEDICAO-01",
+    "interval_seconds": 5,
+    "timeout_seconds": 10,
+    "activity_monitoring": true
+}

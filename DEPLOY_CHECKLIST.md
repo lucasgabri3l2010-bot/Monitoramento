@@ -22,10 +22,14 @@ Utilize esta checklist para homologação e publicação do **Sistema de Monitor
 
 ---
 
-## 2. Banco de Dados
-- [ ] Banco inicializado e tabelas criadas automaticamente na primeira subida (`users`, `devices`, `metrics_history`, `alerts`).
-- [ ] Volume persistente montado caso utilize SQLite em container Docker (`/app/instance`).
-- [ ] Backup automático configurado caso utilize PostgreSQL em nuvem (Render PostgreSQL, Supabase, Neon).
+## 2. Banco de Dados (PostgreSQL no Neon)
+- [ ] Projeto criado no Neon (`neon.tech`) com PostgreSQL ativo.
+- [ ] String de conexão copiada com `sslmode=require` e informada em `DATABASE_URL` no Render.
+- [ ] Driver `psycopg2-binary` instalado via `requirements.txt`.
+- [ ] Inicialização automática testada: tabelas (`users`, `devices`, `metrics_history`, `alerts`) criadas na primeira conexão.
+- [ ] Usuário administrador inicial criado com sucesso sem intervenção manual.
+- [ ] Pool com `pool_pre_ping=True` e `pool_recycle=300` ativo para resiliência de conexões serverless.
+
 
 ---
 

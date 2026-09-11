@@ -1,0 +1,41 @@
+# =================================================================
+# Givova Transportes - Monitoramento de PCs
+# Render Blueprint Specification (render.yaml)
+# =================================================================
+
+services:
+  - type: web
+    name: givova-monitoramento
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 servidor:app
+    healthCheckPath: /health
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: AGENT_SECRET_TOKEN
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: OFFLINE_THRESHOLD_SECONDS
+        value: "30"
+      - key: CPU_ALERT_PERCENT
+        value: "90.0"
+      - key: RAM_ALERT_PERCENT
+        value: "90.0"
+      - key: DISK_ALERT_PERCENT
+        value: "90.0"
+      - key: METRICS_RETENTION_DAYS
+        value: "7"
+      - key: ACTIVITY_MONITORING_ENABLED
+        value: "true"
+      - key: SESSION_COOKIE_SECURE
+        value: "true"

@@ -11,29 +11,44 @@ class Config:
     # Token de autenticação exigido dos agentes no header 'X-Agent-Token'
     AGENT_SECRET_TOKEN = os.getenv("AGENT_SECRET_TOKEN", "givova_agent_token_dev_2026")
     
-    # URL do Banco de dados (adequa URLs do Postgres legadas ex: postgres:// -> postgresql://)
-    _db_url = os.getenv("DATABASE_URL", "sqlite:///monitoramento.db")
+    # Conexão com o Banco de dados (adequa URLs do Postgres legadas ex: postgres:// -> postgresql://)
+    _db_url = os.getenv("DATABASE_URL", "sqlite:///monitoramento.db").strip()
     if _db_url.startswith("postgres://"):
         _db_url = _db_url.replace("postgres://", "postgresql://", 1)
     SQLALCHEMY_DATABASE_URI = _db_url
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    
+
+    # Opções do mecanismo SQLAlchemy (essenciais para PostgreSQL serverless como Neon)
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+    }
+
+    # Cookies de Sessão Seguros para Produção (HTTPS no Render)
+    SESSION_COOKIE_SECURE = os.getenv(
+        "SESSION_COOKIE_SECURE",
+        "true" if FLASK_ENV == "production" else "false"
+    ).lower() in ("true", "1", "yes")
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+
     # Regras de Status e Alertas
     OFFLINE_THRESHOLD_SECONDS = int(os.getenv("OFFLINE_THRESHOLD_SECONDS", "30"))
     CPU_ALERT_PERCENT = float(os.getenv("CPU_ALERT_PERCENT", "90.0"))
     RAM_ALERT_PERCENT = float(os.getenv("RAM_ALERT_PERCENT", "90.0"))
     DISK_ALERT_PERCENT = float(os.getenv("DISK_ALERT_PERCENT", "90.0"))
-    
+
     # Retenção de dados históricos (em dias)
     METRICS_RETENTION_DAYS = int(os.getenv("METRICS_RETENTION_DAYS", "7"))
-    
-    # Credenciais do Administrador inicial
-    ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
-    
+
+    # Credenciais do Administrador inicial (criado no 1º boot se inexistente)
+    ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin").strip()
+    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "GivovaAdmin@2026!").strip()
+
     # Monitoramento de Atividade Atual (janela em primeiro plano e domínio ativo)
     ACTIVITY_MONITORING_ENABLED = os.getenv("ACTIVITY_MONITORING_ENABLED", "true").lower() in ("true", "1", "yes")
 
-    # Servidor
+    # Servidor e Porta (Render define dinamicamente a variável de ambiente PORT)
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", "5000"))
+

@@ -132,13 +132,13 @@ Crie um arquivo `.env` na raiz do projeto baseado no `.env.example`:
 6. **Acesse o painel web:**
    Abra `http://localhost:5000` no seu navegador e efetue login com:
    * **Usuário:** `admin`
-   * **Senha:** `admin` *(ou a senha configurada no seu `.env`)*
+   * **Senha:** `GivovaAdmin@2026!` *(ou a senha configurada no seu `.env`)*
 
 ---
 
 ## 6. Executando os Testes Automatizados
 
-Para rodar a suite completa de testes de integridade e segurança:
+Para rodar a suite completa de testes de integridade e segurança (6 testes):
 
 ```bash
 python -m unittest discover tests
@@ -157,101 +157,151 @@ O script `agente.py` deve ser implantado nos computadores que serão monitorados
    pip install psutil requests
    ```
 
-2. Crie o arquivo `agent_config.json` no mesmo diretório do `agente.py`:
+2. Crie o arquivo `agent_config.json` no mesmo diretório do `agente.py` (ou copie a partir de `agent_config.example.json`):
    ```json
    {
-       "server_url": "http://IP_DO_SERVIDOR:5000/api/agent/report",
-       "agent_token": "givova_agent_token_dev_2026",
-       "department": "Logística",
-       "display_name": "PC Expedição 01",
-       "interval_seconds": 5
+       "server_url": "https://seu-servico.onrender.com/api/agent/report",
+       "agent_token": "SEU_TOKEN_SECRETO_DO_RENDER",
+       "department": "Operacional",
+       "display_name": "PC-EXPEDICAO-01",
+       "interval_seconds": 5,
+       "timeout_seconds": 10,
+       "activity_monitoring": true
    }
    ```
-   *(Substitua `IP_DO_SERVIDOR` pelo IP local ou domínio público do seu servidor e o `agent_token` pelo mesmo valor configurado no `.env` do servidor).*
 
 3. Execute o agente:
    ```bash
    python agente.py
    ```
 
-### 7.2 Execução como Tarefa de Inicialização no Windows
-Para iniciar o agente em segundo plano silenciosamente junto ao Windows:
-1. Abra o **Agendador de Tarefas** (`taskschd.msc`).
-2. Crie uma Tarefa Básica:
-   * **Disparador:** Ao inicializar o sistema / Ao fazer logon.
-   * **Ação:** Iniciar um programa -> Programa: `pythonw.exe` -> Argumentos: `agente.py` -> Iniciar em: pasta do script.
-
 ---
 
-## 8. Monitoramento de Atividade Atual
+## 8. Monitoramento de Atividade Atual (Janela e Domínio)
 
-O sistema inclui detecção leve de aplicativo em primeiro plano e, opcionalmente, o domínio do site ativo no navegador (Google Chrome e Microsoft Edge).
+### 8.1 Funcionalidade Corporativa
+Exibe no painel qual aplicativo está atualmente em foco (ex: `Microsoft Excel`, `VS Code`, `Google Chrome`) e, quando for um navegador corporativo com a extensão habilitada, mostra o domínio visitado (ex: `givovatransportes.com.br`).
 
-### 8.1 O que é coletado:
-* **Nome do aplicativo em foco** (ex: `Microsoft Excel`, `VS Code`, `Outlook`, `Google Chrome`).
-* **Domínio raiz do site ativo** (ex: `chatgpt.com`, `youtube.com`, `givovatransportes.com.br`).
-* **Horário da última alteração**.
-
-### 8.2 O que NÃO é coletado (Compromisso Estrito de Privacidade):
-* ❌ **Sem URLs completas**: Caminhos como `/busca?q=teste` ou `/painel/123` são descartados no navegador antes de qualquer envio.
-* ❌ **Sem histórico de navegação**: Não há gravação de logs históricos de navegação nem cronologia de páginas.
-* ❌ **Sem formulários, senhas ou conteúdo**: Nenhum texto digitado ou elemento da página é lido.
-* ❌ **Sem screenshots ou keylogger**.
+### 8.2 Privacidade e Segurança Garantidas por Design:
+* ❌ **Sem histórico de navegação**: Apenas o domínio ativo atual.
+* ❌ **Sem captura de URLs completas ou parâmetros**: Parâmetros, paths e queries são descartados.
+* ❌ **Sem captura de conteúdo ou digitação**: Não há leitura de telas nem keylogger.
 * ❌ **Sem monitoramento anônimo**: Abas InPrivate ou Anônimas são 100% ignoradas.
 
 ### 8.3 Como Habilitar ou Desabilitar:
-* **No Servidor / Backend**: Configure a variável `ACTIVITY_MONITORING_ENABLED=true` ou `false` no `.env`.
+* **No Servidor / Backend**: Configure `ACTIVITY_MONITORING_ENABLED=true` ou `false`.
 * **No Agente**:
   * No arquivo `agent_config.json`: `"activity_monitoring": true` (ou `false`).
   * Ou execute o agente com a flag: `python agente.py --sem-atividade`.
 
 ### 8.4 Instalação da Extensão Corporativa Chromium (Chrome e Edge):
-A extensão complementar envia apenas o hostname da aba ativa diretamente para o agente local (`http://127.0.0.1:5005/active-tab`), sem passar por servidores externos:
-1. Abra `chrome://extensions` (no Chrome) ou `edge://extensions` (no Edge).
-2. Ative a chave **Modo do Desenvolvedor** no topo.
+A extensão envia apenas o hostname da aba ativa diretamente para o agente local (`http://127.0.0.1:5005/active-tab`), sem passar por servidores externos:
+1. Abra `chrome://extensions` (Chrome) ou `edge://extensions` (Edge).
+2. Ative o **Modo do Desenvolvedor**.
 3. Clique em **Carregar sem compactação** (ou *Carregar descompactada*).
 4. Selecione a pasta `extension/` deste projeto.
-5. Pronto! O domínio ativo passará a ser transmitido ao agente e refletido no dashboard.
-
-*Observação: Caso a extensão não esteja instalada ou o usuário utilize outro software, o sistema continuará operando normalmente exibindo apenas o nome do aplicativo (ex: `Google Chrome` ou `Microsoft Excel`).*
+5. Pronto! O domínio ativo é transmitido localmente ao agente e enviado de forma segura ao servidor.
 
 ---
 
-## 9. Guia de Deploy em Produção
+## 9. Deploy Rápido — Render + Neon (PostgreSQL)
 
-### 8.1 Opção A: Deploy via Docker / Docker Compose
+Guia completo passo a passo para colocar a aplicação online para a apresentação à diretoria.
 
-O repositório já inclui `Dockerfile` e `docker-compose.yml` otimizados para produção:
+### Passo 1: Criar o Banco PostgreSQL no Neon
+1. Acesse [neon.tech](https://neon.tech) e crie uma conta gratuita (ou faça login com GitHub).
+2. Crie um novo projeto, por exemplo `givova-monitoramento`.
+3. No painel do projeto, em **Connection Details**, selecione a conexão padrão e copie a **Connection String**.
+   * Exemplo gerado pelo Neon:
+     `postgresql://usuario:senha@ep-xyz-123456.us-east-2.aws.neon.tech/neondb?sslmode=require`
+4. Guarde essa URL para o próximo passo.
 
-```bash
-# Sobe o container em background com reinicialização automática
-docker compose up -d --build
-```
+### Passo 2: Criar o Web Service no Render
+1. Acesse [render.com](https://render.com) e crie ou acesse sua conta.
+2. Clique em **New +** > **Web Service**.
+3. Conecte o repositório do GitHub `lucasgabri3l2010-bot/Monitoramento`.
+4. Preencha as configurações do serviço:
+   * **Name:** `givova-monitoramento` (ou o nome desejado)
+   * **Region:** Ohio (US East) ou Oregon (US West)
+   * **Branch:** `main`
+   * **Runtime:** `Python 3` (ou escolha `Docker`, ambos funcionam nativamente)
+   * **Build Command:** `pip install -r requirements.txt`
+   * **Start Command:** `gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 servidor:app`
+   * **Plan:** `Free`
+5. Em **Advanced**, configure:
+   * **Health Check Path:** `/health`
+6. Em **Environment Variables**, adicione a lista de variáveis abaixo.
 
-### 8.2 Opção B: Deploy em Plataformas de Nuvem (Render / Railway / Fly.io)
+### Passo 3: Tabela Exata de Variáveis de Ambiente no Render
 
-1. Conecte seu repositório Git na plataforma.
-2. Defina o tipo de serviço como **Web Service (Python)** ou **Docker**.
-3. Comando de Inicialização (se não usar Docker):
-   ```bash
-   pip install -r requirements.txt && gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 servidor:app
+| Variável | Valor Recomendado / Como Obter | Obrigatória? |
+| :--- | :--- | :--- |
+| `FLASK_ENV` | `production` | Sim |
+| `SECRET_KEY` | *(Gere uma chave segura, ex: `python -c "import secrets; print(secrets.token_hex(32))"`)* | Sim |
+| `AGENT_SECRET_TOKEN` | *(Gere um token seguro, ex: `python -c "import secrets; print(secrets.token_hex(24))"`)* | Sim |
+| `DATABASE_URL` | *(Cole a Connection String obtida no Neon)* | Sim |
+| `ADMIN_USERNAME` | `admin` *(ou o usuário que preferir)* | Sim |
+| `ADMIN_PASSWORD` | `SuaSenhaForte@2026!` *(defina uma senha segura para seu login)* | Sim |
+| `OFFLINE_THRESHOLD_SECONDS` | `30` | Não (padrão: 30) |
+| `CPU_ALERT_PERCENT` | `90.0` | Não (padrão: 90.0) |
+| `RAM_ALERT_PERCENT` | `90.0` | Não (padrão: 90.0) |
+| `DISK_ALERT_PERCENT` | `90.0` | Não (padrão: 90.0) |
+| `METRICS_RETENTION_DAYS` | `7` | Não (padrão: 7) |
+| `ACTIVITY_MONITORING_ENABLED`| `true` | Não (padrão: true) |
+| `SESSION_COOKIE_SECURE` | `true` | Não (padrão: true em prod) |
+
+> 💡 **Dica de Deploy com `render.yaml` (Blueprint):** Se preferir, no Render clique em **New +** > **Blueprint** e conecte o repositório. O Render lerá o arquivo `render.yaml` automaticamente, preenchendo as configurações e solicitando apenas o preenchimento de `DATABASE_URL` e `ADMIN_PASSWORD`!
+
+### Passo 4: URL Gerada e Health Check
+Assim que o deploy for concluído, o Render disponibilizará sua URL pública HTTPS:
+* Exemplo: `https://givova-monitoramento.onrender.com`
+* Teste a saúde acessando: `https://givova-monitoramento.onrender.com/health`
+* Resposta esperada: `{"status": "ok", "database": "connected", ...}` com status HTTP 200.
+
+### Passo 5: Configurar e Executar o Agente Local
+No computador a ser monitorado (ou no seu computador de teste):
+1. Crie ou edite o arquivo `agent_config.json`:
+   ```json
+   {
+       "server_url": "https://givova-monitoramento.onrender.com/api/agent/report",
+       "agent_token": "COPIE_O_AGENT_SECRET_TOKEN_DO_RENDER",
+       "department": "TI",
+       "display_name": "Estação de Trabalho (Apresentação)",
+       "interval_seconds": 5
+   }
    ```
-4. Adicione as Variáveis de Ambiente no painel da nuvem (veja a seção 4).
-5. Configure o endpoint de checagem de integridade (**Health Check Path**): `/health`.
+   *(Nota: O agente aceita tanto `https://givova-monitoramento.onrender.com` quanto `https://givova-monitoramento.onrender.com/api/agent/report`).*
 
-### 8.3 Opção C: Deploy em Servidor Windows Local (IIS / Waitress)
-
-Para executar como serviço no Windows:
-```bash
-python wsgi.py
-```
-O servidor será servido através do motor WSGI de alto desempenho **Waitress**.
+2. Inicie o agente:
+   ```powershell
+   python agente.py
+   ```
+3. O agente exibirá:
+   ```
+   [OK] [HOSTNAME] CPU: 12.5% | RAM: 48.0% | Disco: 35.0% - Enviado com sucesso (HTTP 200)
+   ```
 
 ---
 
-## 9. Segurança e Privacidade
+## 10. Roteiro de Demonstração para a Diretoria (10 Passos)
 
-* **Isolamento de Credenciais**: Senhas de operadores são armazenadas com hash criptográfico (`scrypt`/Werkzeug).
-* **Autenticação do Agente**: Todas as chamadas ao endpoint de telemetria exigem validação criptográfica do cabeçalho `X-Agent-Token`. Tentativas sem autorização são imediatamente bloqueadas com código HTTP `401 Unauthorized`.
-* **Proteção contra Spoofing**: Cada equipamento gera um identificador único de hardware (`uuid`) que impede duplicação ou sobrescrita maliciosa.
-* **Privacidade Absoluta**: O agente coleta apenas dados técnicos de hardware e rede (CPU, RAM, Disco, IP e Uptime). Não são executados keyloggers, leitura de telas ou captura de arquivos pessoais.
+1. **Apresentação Inicial e Acesso Seguro**:
+   Acesse a URL do Render no navegador. Mostre a tela de login corporativa com identidade visual da Givova Transportes.
+2. **Login Administrativo**:
+   Entre com seu usuário e senha. Mostre a transição suave para o Dashboard principal.
+3. **Visão Geral dos KPIs**:
+   Apresente os cards superiores com total de computadores monitorados, status online, alertas ativos e médias de consumo de hardware.
+4. **Telemetria em Tempo Real**:
+   Mostre o card da máquina conectada e destaque como os indicadores atualizam automaticamente sem necessidade de recarregar a página (F5).
+5. **Demonstração da Atividade Atual (Diferencial Executivo)**:
+   Abra uma planilha no Excel ou abra o navegador no site da Givova Transportes. Mostre no dashboard o rótulo atualizando em tempo real com o aplicativo/site em primeiro plano.
+6. **Gráficos e Diagnóstico Histórico**:
+   Clique sobre a máquina para abrir os detalhes completos: histórico de CPU e RAM, especificações detalhadas do processador, núcleos, memória física e disco.
+7. **Simulação de Sobrecarga / Resiliência**:
+   Mostre a coluna de alertas e explique a detecção automática de gargalos (processador >90%, memória cheia ou falhas de conexão).
+8. **Edição Rápida e Governança**:
+   Altere o setor ou apelido da máquina pelo painel (ex: mude de "TI" para "Diretoria" ou "Logística") e mostre o agrupamento automático.
+9. **Detecção Automática de Máquina Desconectada**:
+   Pause o agente local por mais de 30 segundos. Mostre o status transicionando automaticamente para **Offline** com badge visual informativo.
+10. **Conclusão Técnica**:
+    Ressalte a arquitetura escalável: backend em nuvem no Render, banco de dados gerenciado no Neon, agentes ultraleves rodando em segundo plano sem impacto no desempenho dos usuários e conformidade estrita de privacidade (sem keylogger, sem espionagem indevida).

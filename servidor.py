@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 from functools import wraps
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import Config
 from models import db, User, Device, MetricHistory, Alert
@@ -21,7 +22,11 @@ app = Flask(__name__)
 app.config.from_object(Config)
 app.permanent_session_lifetime = timedelta(days=7)
 
+# Middleware para Proxy Reverso (Render, Nginx, Docker) garantindo HTTPS e IPs reais
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
 db.init_app(app)
+
 
 
 # =====================================================================
@@ -356,6 +361,25 @@ def resolver_todos_alertas():
 
 
 # =====================================================================
+# Tratamento Centralizado de Erros (Segurança em Produção)
+# =====================================================================
+
+@app.errorhandler(404)
+def handle_not_found(error):
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Recurso não encontrado", "code": "NOT_FOUND"}), 404
+    return render_template("login.html", error="Página não encontrada (404)"), 404
+
+
+@app.errorhandler(500)
+def handle_internal_server_error(error):
+    logger.error(f"Erro interno 500: {error}", exc_info=True)
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Erro interno do servidor", "code": "INTERNAL_SERVER_ERROR"}), 500
+    return "<h3>Erro interno do servidor. Entre em contato com a equipe de TI da Givova Transportes.</h3>", 500
+
+
+# =====================================================================
 # Inicialização da Base de Dados e Usuário Inicial
 # =====================================================================
 
@@ -365,8 +389,8 @@ def init_db():
         # Migração idempotente para bases existentes (adiciona colunas de atividade se ausentes)
         try:
             with db.engine.connect() as conn:
-                # Verifica no SQLite via PRAGMA
-                if "sqlite" in str(db.engine.url):
+                engine_str = str(db.engine.url).lower()
+                if "sqlite" in engine_str:
                     result = conn.execute(db.text("PRAGMA table_info(devices)")).fetchall()
                     cols = [r[1] for r in result]
                     if cols:
@@ -376,6 +400,19 @@ def init_db():
                             conn.execute(db.text("ALTER TABLE devices ADD COLUMN active_domain VARCHAR(150)"))
                         if "activity_updated_at" not in cols:
                             conn.execute(db.text("ALTER TABLE devices ADD COLUMN activity_updated_at DATETIME"))
+                        conn.commit()
+                elif "postgres" in engine_str:
+                    result = conn.execute(db.text(
+                        "SELECT column_name FROM information_schema.columns WHERE table_name = 'devices'"
+                    )).fetchall()
+                    cols = [r[0].lower() for r in result]
+                    if cols:
+                        if "active_app" not in cols:
+                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN active_app VARCHAR(120)"))
+                        if "active_domain" not in cols:
+                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN active_domain VARCHAR(150)"))
+                        if "activity_updated_at" not in cols:
+                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN activity_updated_at TIMESTAMP"))
                         conn.commit()
         except Exception as e:
             logger.debug(f"Verificação de colunas de atividade: {e}")
@@ -388,6 +425,13 @@ def init_db():
             db.session.add(admin)
             db.session.commit()
             logger.info(f"Usuário administrador padrão '{Config.ADMIN_USERNAME}' inicializado com sucesso.")
+
+        # Alerta de segurança em produção caso secrets de desenvolvimento ainda estejam em uso
+        if Config.FLASK_ENV == "production":
+            if "change_in_prod" in Config.SECRET_KEY or "fallback" in Config.SECRET_KEY:
+                logger.warning("ALERTA DE SEGURANÇA: SECRET_KEY padrão detectada em produção. Defina SECRET_KEY no painel do Render!")
+            if "dev" in Config.AGENT_SECRET_TOKEN:
+                logger.warning("ALERTA DE SEGURANÇA: AGENT_SECRET_TOKEN padrão detectado em produção. Defina AGENT_SECRET_TOKEN no painel do Render!")
 
 
 init_db()

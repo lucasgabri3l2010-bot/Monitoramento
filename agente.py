@@ -178,25 +178,49 @@ def load_config():
     """
     Carrega configurações priorizando argumentos CLI > variáveis de ambiente > agent_config.json > padrões.
     """
-    defaults = {
-        "server_url": os.getenv("SERVER_URL", "http://127.0.0.1:5000/api/agent/report"),
-        "agent_token": os.getenv("AGENT_TOKEN", "givova_agent_token_dev_2026"),
-        "department": os.getenv("DEPARTMENT", "TI"),
-        "display_name": os.getenv("DISPLAY_NAME", ""),
-        "interval_seconds": int(os.getenv("INTERVAL_SECONDS", "5")),
-        "timeout_seconds": 5,
-        "activity_monitoring": os.getenv("ACTIVITY_MONITORING_ENABLED", "true").lower() in ("true", "1", "yes")
+    cfg = {
+        "server_url": "http://127.0.0.1:5000/api/agent/report",
+        "agent_token": "givova_agent_token_dev_2026",
+        "department": "TI",
+        "display_name": "",
+        "interval_seconds": 5,
+        "timeout_seconds": 10,
+        "activity_monitoring": True
     }
 
+    # 1. Lê arquivo local agent_config.json caso exista
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 file_cfg = json.load(f)
-                defaults.update(file_cfg)
+                if isinstance(file_cfg, dict):
+                    cfg.update(file_cfg)
         except Exception as e:
             logger.warning(f"Não foi possível ler {CONFIG_FILE}: {e}")
 
-    # Argumentos de linha de comando
+    # 2. Variáveis de ambiente (sobrescrevem agent_config.json)
+    if os.getenv("SERVER_URL"):
+        cfg["server_url"] = os.getenv("SERVER_URL")
+    if os.getenv("AGENT_TOKEN"):
+        cfg["agent_token"] = os.getenv("AGENT_TOKEN")
+    if os.getenv("DEPARTMENT"):
+        cfg["department"] = os.getenv("DEPARTMENT")
+    if os.getenv("DISPLAY_NAME"):
+        cfg["display_name"] = os.getenv("DISPLAY_NAME")
+    if os.getenv("INTERVAL_SECONDS"):
+        try:
+            cfg["interval_seconds"] = int(os.getenv("INTERVAL_SECONDS"))
+        except ValueError:
+            pass
+    if os.getenv("TIMEOUT_SECONDS"):
+        try:
+            cfg["timeout_seconds"] = int(os.getenv("TIMEOUT_SECONDS"))
+        except ValueError:
+            pass
+    if os.getenv("ACTIVITY_MONITORING_ENABLED") is not None:
+        cfg["activity_monitoring"] = os.getenv("ACTIVITY_MONITORING_ENABLED", "true").lower() in ("true", "1", "yes")
+
+    # 3. Argumentos de linha de comando (prioridade máxima)
     parser = argparse.ArgumentParser(description="Agente de Monitoramento de PCs - Givova Transportes")
     parser.add_argument("--server", dest="server_url", help="URL do servidor de monitoramento")
     parser.add_argument("--token", dest="agent_token", help="Token de autenticação do agente")
@@ -207,19 +231,29 @@ def load_config():
 
     args, _ = parser.parse_known_args()
     if args.server_url:
-        defaults["server_url"] = args.server_url
+        cfg["server_url"] = args.server_url
     if args.agent_token:
-        defaults["agent_token"] = args.agent_token
+        cfg["agent_token"] = args.agent_token
     if args.department:
-        defaults["department"] = args.department
+        cfg["department"] = args.department
     if args.display_name:
-        defaults["display_name"] = args.display_name
+        cfg["display_name"] = args.display_name
     if args.interval_seconds:
-        defaults["interval_seconds"] = max(2, args.interval_seconds)
+        cfg["interval_seconds"] = max(2, args.interval_seconds)
     if args.disable_activity:
-        defaults["activity_monitoring"] = False
+        cfg["activity_monitoring"] = False
 
-    return defaults
+    # Normalização inteligente da URL do servidor (aceita tanto 'https://app.onrender.com' quanto 'https://app.onrender.com/api/agent/report')
+    raw_url = str(cfg.get("server_url", "")).strip().rstrip("/")
+    if raw_url:
+        if not (raw_url.endswith("/api/agent/report") or raw_url.endswith("/monitoramento")):
+            cfg["server_url"] = f"{raw_url}/api/agent/report"
+        else:
+            cfg["server_url"] = raw_url
+
+    return cfg
+
+
 
 
 def get_machine_uuid():
@@ -376,11 +410,12 @@ def send_metrics(server_url: str, token: str, payload: dict, timeout: int = 5):
         else:
             return False, f"Servidor respondeu com código de erro {response.status_code}"
     except requests.exceptions.Timeout:
-        return False, "Tempo de resposta do servidor esgotado (Timeout)"
+        return False, "Tempo de resposta esgotado (Timeout — se o servidor estiver no plano gratuito do Render, ele pode estar inicializando/cold start)"
     except requests.exceptions.ConnectionError:
-        return False, "Servidor indisponível ou conexão recusada"
+        return False, "Servidor indisponível ou conexão recusada (verifique a URL e se o serviço está ativo)"
     except Exception as e:
         return False, f"Erro de comunicação: {str(e)}"
+
 
 
 def run_agent():

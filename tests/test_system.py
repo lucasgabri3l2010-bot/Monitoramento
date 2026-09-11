@@ -42,12 +42,18 @@ class SystemMonitoringTestCase(unittest.TestCase):
             db.drop_all()
 
     def test_01_health_check(self):
-        """Testa o endpoint público de checagem de saúde"""
+        """Testa o endpoint público de checagem de saúde e erro 404 seguro"""
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         self.assertEqual(data["status"], "ok")
         self.assertEqual(data["database"], "connected")
+
+        # Testa tratamento de rota 404 segura para API
+        res_404_api = self.client.get("/api/rota_inexistente")
+        self.assertEqual(res_404_api.status_code, 404)
+        self.assertEqual(res_404_api.get_json()["code"], "NOT_FOUND")
+
 
     def test_02_login_and_protected_routes(self):
         """Testa o fluxo de autenticação e proteção de rotas"""
