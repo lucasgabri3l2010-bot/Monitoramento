@@ -1,148 +1,1445 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" class="h-full bg-slate-50">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>Monitoramento</title>
-
+    <title>Givova Transportes - Monitoramento Corporativo de PCs</title>
+    
+    <!-- Tipografia Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        givova: {
+                            50: '#fff7ed',
+                            100: '#ffedd5',
+                            200: '#fed7aa',
+                            300: '#fdba74',
+                            400: '#fb923c',
+                            500: '#f97316',
+                            600: '#ea580c',
+                            700: '#c2410c',
+                            800: '#9a3412',
+                            900: '#7c2d12',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Chart.js para Gráficos Corporativos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    
     <style>
-
-        body {
-            font-family: Arial, sans-serif;
-            background: #f2f2f2;
-            margin: 0;
-            padding: 30px;
-        }
-
-        h1 {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-
-        .computadores {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 20px;
-            justify-content: center;
-        }
-
-        .card {
-            background: white;
-            width: 280px;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
-        }
-
-        .online {
-            color: green;
-            font-weight: bold;
-        }
-
-        .offline {
-            color: red;
-            font-weight: bold;
-        }
-
-        .informacao {
-            margin: 10px 0;
-        }
-
+        body { font-family: 'Inter', sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
-
 </head>
 
-<body>
+<body class="h-full flex overflow-hidden bg-slate-100 text-slate-800">
 
-    <h1>🖥️ Monitoramento dos Computadores</h1>
+    <!-- ================================================================= -->
+    <!-- SIDEBAR DE NAVEGAÇÃO CORPORATIVA                                  -->
+    <!-- ================================================================= -->
+    <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-64 bg-slate-900 text-slate-300 flex flex-col transition-transform duration-200 ease-in-out md:translate-x-0 -translate-x-full border-r border-slate-800">
+        <!-- Logo e Identidade Givova -->
+        <div class="h-16 flex items-center gap-3 px-5 border-b border-slate-800/80 bg-slate-950/40">
+            <div class="w-9 h-9 rounded-xl bg-givova-600 flex items-center justify-center text-white font-bold shadow-md shadow-givova-600/30">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                </svg>
+            </div>
+            <div class="overflow-hidden">
+                <div class="text-sm font-bold text-white tracking-tight truncate">Givova Transportes</div>
+                <div class="text-[11px] font-medium text-givova-400 uppercase tracking-wider">Monitor de PCs</div>
+            </div>
+        </div>
 
-    <div class="computadores" id="computadores">
-        Carregando...
+        <!-- Links de Navegação -->
+        <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
+            <a href="#dashboard" onclick="navigate('dashboard')" id="nav-dashboard"
+               class="nav-item flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-white bg-slate-800/90 shadow-sm transition-colors">
+                <svg class="w-4 h-4 text-givova-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
+                </svg>
+                <span>Dashboard</span>
+            </a>
+
+            <a href="#computadores" onclick="navigate('computadores')" id="nav-computadores"
+               class="nav-item flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                </svg>
+                <span>Computadores</span>
+            </a>
+
+            <a href="#alertas" onclick="navigate('alertas')" id="nav-alertas"
+               class="nav-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
+                <div class="flex items-center gap-3">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
+                    <span>Alertas</span>
+                </div>
+                <span id="badge-alertas-count" class="hidden px-2 py-0.5 text-xs font-bold rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30">0</span>
+            </a>
+
+            <a href="#setores" onclick="navigate('setores')" id="nav-setores"
+               class="nav-item flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                </svg>
+                <span>Setores</span>
+            </a>
+
+            <a href="#configuracoes" onclick="navigate('configuracoes')" id="nav-configuracoes"
+               class="nav-item flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+                <span>Agente & Config</span>
+            </a>
+        </nav>
+
+        <!-- Rodapé do Usuário -->
+        <div class="p-3.5 border-t border-slate-800 bg-slate-950/40">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5 min-w-0">
+                    <div class="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-semibold text-givova-400">
+                        {{ user[0]|upper if user else 'TI' }}
+                    </div>
+                    <div class="min-w-0">
+                        <div class="text-xs font-semibold text-white truncate">{{ user or 'Operador TI' }}</div>
+                        <div class="text-[10px] text-emerald-400 flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Conectado
+                        </div>
+                    </div>
+                </div>
+                <a href="{{ url_for('logout') }}" title="Sair do Sistema"
+                   class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                    </svg>
+                </a>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Overlay Mobile -->
+    <div id="sidebar-overlay" onclick="toggleSidebar()" class="fixed inset-0 z-30 bg-slate-900/60 backdrop-blur-xs hidden md:hidden"></div>
+
+    <!-- ================================================================= -->
+    <!-- ÁREA PRINCIPAL DO CONTEÚDO                                        -->
+    <!-- ================================================================= -->
+    <div class="flex-1 flex flex-col md:pl-64 h-full overflow-hidden">
+        
+        <!-- Barra Superior (Header) -->
+        <header class="h-16 bg-white border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between flex-shrink-0 z-20">
+            <div class="flex items-center gap-3">
+                <button onclick="toggleSidebar()" class="md:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                    </svg>
+                </button>
+                <div>
+                    <h1 id="page-title" class="text-base sm:text-lg font-bold text-slate-900 leading-tight">Dashboard de Monitoramento</h1>
+                    <p id="page-subtitle" class="text-xs text-slate-500 hidden sm:block">Visão geral em tempo real dos computadores corporativos</p>
+                </div>
+            </div>
+
+            <!-- Controles de Atualização em Tempo Real -->
+            <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200/70">
+                    <span class="relative flex h-2 w-2">
+                        <span id="sync-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span id="sync-dot" class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <span id="sync-text">Sincronizado</span>
+                    <span class="text-slate-400">|</span>
+                    <span id="sync-countdown" class="text-slate-500 font-mono">5s</span>
+                </div>
+
+                <button onclick="carregarDados(true)" title="Atualizar agora"
+                        class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-600 hover:text-slate-900 border border-slate-200 transition-colors">
+                    <svg id="refresh-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Banner de Erro de Conexão (se houver) -->
+        <div id="connection-alert" class="hidden bg-rose-600 text-white text-xs px-4 py-2 text-center font-medium flex items-center justify-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+            <span>Falha de comunicação com o servidor de telemetria. Tentando reconectar...</span>
+        </div>
+
+        <!-- Conteúdo Scrollável das Views -->
+        <main class="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 space-y-6">
+
+            <!-- ========================================================= -->
+            <!-- VIEW 1: DASHBOARD GERAL                                   -->
+            <!-- ========================================================= -->
+            <div id="view-dashboard" class="space-y-6">
+                <!-- Grid de KPIs Compactos -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 sm:gap-4">
+                    <!-- Total -->
+                    <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Total PCs</div>
+                        <div class="text-2xl font-bold text-slate-900 mt-1" id="kpi-total">0</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Cadastrados</div>
+                    </div>
+
+                    <!-- Online -->
+                    <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="text-[11px] font-semibold uppercase tracking-wider text-emerald-600 flex items-center gap-1">
+                            <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Online
+                        </div>
+                        <div class="text-2xl font-bold text-emerald-600 mt-1" id="kpi-online">0</div>
+                        <div class="text-[11px] text-emerald-700/60 mt-0.5">Ativos agora</div>
+                    </div>
+
+                    <!-- Offline -->
+                    <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                            <span class="w-2 h-2 rounded-full bg-slate-400"></span> Offline
+                        </div>
+                        <div class="text-2xl font-bold text-slate-700 mt-1" id="kpi-offline">0</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Sem resposta</div>
+                    </div>
+
+                    <!-- Em Alerta -->
+                    <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="text-[11px] font-semibold uppercase tracking-wider text-amber-600 flex items-center gap-1">
+                            <span class="w-2 h-2 rounded-full bg-amber-500"></span> Alerta
+                        </div>
+                        <div class="text-2xl font-bold text-amber-600 mt-1" id="kpi-warning">0</div>
+                        <div class="text-[11px] text-amber-700/60 mt-0.5">&gt; 90% de uso</div>
+                    </div>
+
+                    <!-- Crítico -->
+                    <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="text-[11px] font-semibold uppercase tracking-wider text-rose-600 flex items-center gap-1">
+                            <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span> Crítico
+                        </div>
+                        <div class="text-2xl font-bold text-rose-600 mt-1" id="kpi-critical">0</div>
+                        <div class="text-[11px] text-rose-700/60 mt-0.5">&gt; 95% de uso</div>
+                    </div>
+
+                    <!-- Média CPU -->
+                    <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Média CPU</div>
+                        <div class="text-2xl font-bold text-slate-900 mt-1" id="kpi-avg-cpu">0%</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Processamento</div>
+                    </div>
+
+                    <!-- Média RAM -->
+                    <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Média RAM</div>
+                        <div class="text-2xl font-bold text-slate-900 mt-1" id="kpi-avg-ram">0%</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Memória</div>
+                    </div>
+
+                    <!-- Espaço Livre -->
+                    <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Disco Livre</div>
+                        <div class="text-2xl font-bold text-slate-900 mt-1" id="kpi-disk-free">0 GB</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Total disponível</div>
+                    </div>
+                </div>
+
+                <!-- Gráficos e Distribuições Corporativas -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- Status dos Computadores -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-sm font-bold text-slate-900">Status dos Dispositivos</h2>
+                            <span class="text-xs text-slate-400 font-medium">Tempo Real</span>
+                        </div>
+                        <div class="h-56 relative flex items-center justify-center">
+                            <canvas id="chart-status"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Distribuição por Setor -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs lg:col-span-2">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-sm font-bold text-slate-900">Computadores por Setor</h2>
+                            <span class="text-xs text-slate-400 font-medium">Givova Transportes</span>
+                        </div>
+                        <div class="h-56">
+                            <canvas id="chart-setores"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rankings: Top Consumo CPU e RAM -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Top Consumo CPU -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="flex items-center justify-between mb-3">
+                            <h2 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-sm bg-givova-600"></span> Top Consumo de Processamento (CPU)
+                            </h2>
+                        </div>
+                        <div id="top-cpu-list" class="space-y-2.5">
+                            <div class="text-xs text-slate-400 py-3 text-center">Nenhum dado registrado ainda.</div>
+                        </div>
+                    </div>
+
+                    <!-- Top Consumo RAM -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="flex items-center justify-between mb-3">
+                            <h2 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-sm bg-blue-600"></span> Top Consumo de Memória (RAM)
+                            </h2>
+                        </div>
+                        <div id="top-ram-list" class="space-y-2.5">
+                            <div class="text-xs text-slate-400 py-3 text-center">Nenhum dado registrado ainda.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Alertas Recentes no Dashboard -->
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h2 class="text-sm font-bold text-slate-900">Incidentes e Alertas Recentes</h2>
+                            <p class="text-xs text-slate-500 mt-0.5">Ocorrências técnicas que exigem atenção da equipe de TI</p>
+                        </div>
+                        <a href="#alertas" onclick="navigate('alertas')" class="text-xs font-semibold text-givova-600 hover:text-givova-700">Ver Todos &rarr;</a>
+                    </div>
+                    <div id="dashboard-alerts-list" class="space-y-2">
+                        <div class="text-xs text-slate-400 py-4 text-center">Nenhum alerta pendente no momento.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========================================================= -->
+            <!-- VIEW 2: COMPUTADORES (TABELA CORPORATIVA)                 -->
+            <!-- ========================================================= -->
+            <div id="view-computadores" class="hidden space-y-4">
+                <!-- Barra de Filtros e Busca -->
+                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row gap-3 items-center justify-between">
+                    <div class="w-full md:w-80 relative">
+                        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                            </svg>
+                        </div>
+                        <input type="text" id="filter-search" oninput="aplicarFiltrosDispositivos()" placeholder="Buscar por computador, usuário, IP..."
+                               class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-givova-500/20 focus:border-givova-600">
+                    </div>
+
+                    <div class="w-full md:w-auto flex flex-wrap gap-2.5 items-center">
+                        <select id="filter-dept" onchange="aplicarFiltrosDispositivos()"
+                                class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-givova-500/20">
+                            <option value="Todos">Todos os Setores</option>
+                            <option value="TI">TI</option>
+                            <option value="Logística">Logística</option>
+                            <option value="Faturamento">Faturamento</option>
+                            <option value="Financeiro">Financeiro</option>
+                            <option value="Monitoramento">Monitoramento</option>
+                            <option value="Administrativo">Administrativo</option>
+                            <option value="RH">RH</option>
+                            <option value="Diretoria">Diretoria</option>
+                        </select>
+
+                        <select id="filter-status" onchange="aplicarFiltrosDispositivos()"
+                                class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-givova-500/20">
+                            <option value="Todos">Todos os Status</option>
+                            <option value="online">Online</option>
+                            <option value="warning">Alerta</option>
+                            <option value="critical">Crítico</option>
+                            <option value="offline">Offline</option>
+                        </select>
+
+                        <div class="text-xs text-slate-500 font-medium pl-1" id="count-devices">0 máquinas</div>
+                    </div>
+                </div>
+
+                <!-- Tabela de Dispositivos -->
+                <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50/80 border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                                    <th class="py-3 px-4">Computador</th>
+                                    <th class="py-3 px-3">Usuário</th>
+                                    <th class="py-3 px-3">Setor</th>
+                                    <th class="py-3 px-3">IP / Rede</th>
+                                    <th class="py-3 px-3">SO</th>
+                                    <th class="py-3 px-3 text-center">CPU</th>
+                                    <th class="py-3 px-3 text-center">RAM</th>
+                                    <th class="py-3 px-3 text-center">Disco</th>
+                                    <th class="py-3 px-3">Status</th>
+                                    <th class="py-3 px-3">Último Contato</th>
+                                    <th class="py-3 px-4 text-right">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-devices-body" class="divide-y divide-slate-100 text-xs">
+                                <tr>
+                                    <td colspan="11" class="py-8 text-center text-slate-400">Carregando computadores...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========================================================= -->
+            <!-- VIEW 3: ALERTAS                                           -->
+            <!-- ========================================================= -->
+            <div id="view-alertas" class="hidden space-y-4">
+                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <button onclick="filtrarAlertas('active')" id="btn-alert-active"
+                                class="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs">
+                            Ativos
+                        </button>
+                        <button onclick="filtrarAlertas('resolved')" id="btn-alert-resolved"
+                                class="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+                            Resolvidos
+                        </button>
+                    </div>
+
+                    <button onclick="resolverTodosAlertas()"
+                            class="px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors flex items-center gap-1.5">
+                        <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span>Resolver Todos Ativos</span>
+                    </button>
+                </div>
+
+                <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                    <div id="alerts-full-list" class="divide-y divide-slate-100">
+                        <div class="py-12 text-center text-xs text-slate-400">Carregando alertas...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========================================================= -->
+            <!-- VIEW 4: SETORES                                           -->
+            <!-- ========================================================= -->
+            <div id="view-setores" class="hidden space-y-6">
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                    <h2 class="text-sm font-bold text-slate-900">Visão Geral por Departamento</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Distribuição das máquinas, disponibilidade e incidentes por setor operacional da Givova Transportes.</p>
+                </div>
+
+                <div id="sectors-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    <div class="col-span-full py-12 text-center text-xs text-slate-400">Carregando setores...</div>
+                </div>
+            </div>
+
+            <!-- ========================================================= -->
+            <!-- VIEW 5: AGENTE & CONFIGURAÇÕES                            -->
+            <!-- ========================================================= -->
+            <div id="view-configuracoes" class="hidden space-y-6">
+                <!-- Informações de Conexão do Agente -->
+                <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-900">Instalação e Configuração do Agente</h2>
+                        <p class="text-xs text-slate-500 mt-1">Siga as instruções abaixo para conectar novas máquinas corporativas ao monitoramento da Givova Transportes.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                        <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">URL do Servidor (Endpoint)</div>
+                            <div class="text-sm font-mono font-medium text-slate-800 mt-1 select-all break-all" id="cfg-server-url">
+                                http://SEU_SERVIDOR:5000/api/agent/report
+                            </div>
+                        </div>
+
+                        <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Token do Agente (X-Agent-Token)</div>
+                            <div class="text-sm font-mono font-medium text-givova-600 mt-1 select-all break-all">
+                                {{ config.AGENT_SECRET_TOKEN or 'givova_agent_token_dev_2026' }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Exemplo de agent_config.json -->
+                    <div class="pt-2">
+                        <div class="text-xs font-bold text-slate-700 mb-1.5">Arquivo de Configuração Local (<code class="text-givova-600">agent_config.json</code>):</div>
+                        <pre class="p-4 rounded-xl bg-slate-900 text-slate-200 text-xs font-mono overflow-x-auto select-all">{
+    "server_url": "http://127.0.0.1:5000/api/agent/report",
+    "agent_token": "{{ config.AGENT_SECRET_TOKEN or 'givova_agent_token_dev_2026' }}",
+    "department": "Logística",
+    "display_name": "PC Expedição 01",
+    "interval_seconds": 5
+}</pre>
+                    </div>
+
+                    <!-- Passo a Passo de Execução -->
+                    <div class="pt-2 space-y-2 text-xs text-slate-600">
+                        <div class="font-bold text-slate-800">Passo a passo para implantar em um computador:</div>
+                        <ol class="list-decimal list-inside space-y-1 pl-1">
+                            <li>Certifique-se de que a máquina possui Python 3.8+ instalado.</li>
+                            <li>Copie o script <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-800">agente.py</code> e instale as dependências: <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-800">pip install psutil requests</code>.</li>
+                            <li>Crie o arquivo <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-800">agent_config.json</code> ajustando a URL e o setor da máquina.</li>
+                            <li>Execute: <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-800">python agente.py</code> ou configure como tarefa agendada do Windows (Task Scheduler).</li>
+                        </ol>
+                    </div>
+                </div>
+
+                <!-- Parâmetros Operacionais do Servidor -->
+                <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
+                    <h2 class="text-sm font-bold text-slate-900">Parâmetros Operacionais do Sistema</h2>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 text-xs">
+                        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                            <span class="text-slate-500">Timeout Offline:</span>
+                            <div class="text-sm font-bold text-slate-800 mt-0.5">{{ config.OFFLINE_THRESHOLD_SECONDS }} segundos</div>
+                        </div>
+                        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                            <span class="text-slate-500">Limiar Alerta CPU:</span>
+                            <div class="text-sm font-bold text-slate-800 mt-0.5">&gt; {{ config.CPU_ALERT_PERCENT }}%</div>
+                        </div>
+                        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                            <span class="text-slate-500">Limiar Alerta RAM:</span>
+                            <div class="text-sm font-bold text-slate-800 mt-0.5">&gt; {{ config.RAM_ALERT_PERCENT }}%</div>
+                        </div>
+                        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                            <span class="text-slate-500">Retenção Histórico:</span>
+                            <div class="text-sm font-bold text-slate-800 mt-0.5">{{ config.METRICS_RETENTION_DAYS }} dias</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
     </div>
 
+    <!-- ================================================================= -->
+    <!-- MODAL DE DETALHES COMPLETOS DO COMPUTADOR                         -->
+    <!-- ================================================================= -->
+    <div id="modal-details" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <!-- Header do Modal -->
+            <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-givova-50 border border-givova-200 flex items-center justify-center text-givova-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h2 id="modal-dev-name" class="text-base font-bold text-slate-900">PC-001</h2>
+                        <div class="flex items-center gap-2 text-xs text-slate-500">
+                            <span id="modal-dev-hostname">hostname</span> • 
+                            <span id="modal-dev-status-badge" class="px-2 py-0.5 rounded-md font-semibold text-[11px]">Online</span>
+                        </div>
+                    </div>
+                </div>
+                <button onclick="fecharModalDetalhes()" class="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
 
+            <!-- Corpo Scrollável -->
+            <div class="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+                <!-- Informações de Identificação e Hardware -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <span class="text-slate-400">Usuário</span>
+                        <div id="modal-dev-user" class="font-semibold text-slate-800 mt-0.5 truncate">—</div>
+                    </div>
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <span class="text-slate-400">Setor</span>
+                        <div id="modal-dev-dept" class="font-semibold text-slate-800 mt-0.5 truncate">—</div>
+                    </div>
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <span class="text-slate-400">Endereço IP</span>
+                        <div id="modal-dev-ip" class="font-semibold text-slate-800 mt-0.5 font-mono truncate">—</div>
+                    </div>
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <span class="text-slate-400">Tempo Ativo (Uptime)</span>
+                        <div id="modal-dev-uptime" class="font-semibold text-slate-800 mt-0.5 truncate">—</div>
+                    </div>
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 sm:col-span-2">
+                        <span class="text-slate-400">Processador</span>
+                        <div id="modal-dev-proc" class="font-semibold text-slate-800 mt-0.5 truncate">—</div>
+                    </div>
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <span class="text-slate-400">Sistema Operacional</span>
+                        <div id="modal-dev-os" class="font-semibold text-slate-800 mt-0.5 truncate">—</div>
+                    </div>
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <span class="text-slate-400">Versão do Agente</span>
+                        <div id="modal-dev-agent" class="font-semibold text-slate-800 mt-0.5 truncate">v1.2.0</div>
+                    </div>
+                </div>
+
+                <!-- Métricas Instantâneas (Barras de Progresso) -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <!-- CPU Gauge -->
+                    <div class="p-4 rounded-2xl border border-slate-200 bg-white">
+                        <div class="flex items-center justify-between text-xs font-semibold text-slate-700 mb-2">
+                            <span>Processador (CPU)</span>
+                            <span id="modal-dev-cpu-val" class="font-bold text-slate-900">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                            <div id="modal-dev-cpu-bar" class="bg-givova-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- RAM Gauge -->
+                    <div class="p-4 rounded-2xl border border-slate-200 bg-white">
+                        <div class="flex items-center justify-between text-xs font-semibold text-slate-700 mb-2">
+                            <span>Memória (RAM)</span>
+                            <span id="modal-dev-ram-val" class="font-bold text-slate-900">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                            <div id="modal-dev-ram-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                        <div id="modal-dev-ram-sub" class="text-[10px] text-slate-400 mt-1">0 GB / 0 GB</div>
+                    </div>
+
+                    <!-- Disco Gauge -->
+                    <div class="p-4 rounded-2xl border border-slate-200 bg-white">
+                        <div class="flex items-center justify-between text-xs font-semibold text-slate-700 mb-2">
+                            <span>Armazenamento</span>
+                            <span id="modal-dev-disk-val" class="font-bold text-slate-900">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                            <div id="modal-dev-disk-bar" class="bg-emerald-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                        <div id="modal-dev-disk-sub" class="text-[10px] text-slate-400 mt-1">0 GB livres de 0 GB</div>
+                    </div>
+                </div>
+
+                <!-- Gráfico de Histórico de CPU e RAM -->
+                <div class="p-4 rounded-2xl border border-slate-200 bg-white">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wider">Histórico de Uso Recente (CPU & RAM)</h3>
+                        <span class="text-[11px] text-slate-400">Últimos envios</span>
+                    </div>
+                    <div class="h-52">
+                        <canvas id="chart-device-history"></canvas>
+                    </div>
+                </div>
+
+                <!-- Histórico de Alertas da Máquina -->
+                <div class="p-4 rounded-2xl border border-slate-200 bg-white">
+                    <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wider mb-2">Alertas Deste Computador</h3>
+                    <div id="modal-dev-alerts-list" class="space-y-2 text-xs">
+                        <div class="text-slate-400 py-2">Nenhum alerta registrado para este computador.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rodapé do Modal -->
+            <div class="px-6 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+                <button id="btn-edit-dev" onclick="abrirModalEditar()" class="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
+                    Editar Nome / Setor
+                </button>
+                <button onclick="fecharModalDetalhes()" class="px-4 py-2 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-900 rounded-xl transition-colors">
+                    Fechar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- MODAL DE EDIÇÃO DE DISPOSITIVO                                    -->
+    <!-- ================================================================= -->
+    <div id="modal-edit" class="fixed inset-0 z-55 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-150">
+            <h2 class="text-base font-bold text-slate-900 mb-1">Editar Computador</h2>
+            <p class="text-xs text-slate-500 mb-4">Ajuste o apelido de identificação e o departamento da máquina.</p>
+
+            <form id="form-edit-dev" onsubmit="salvarEdicaoDispositivo(event)" class="space-y-4">
+                <input type="hidden" id="edit-dev-id">
+                
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Nome de Exibição</label>
+                    <input type="text" id="edit-dev-name" required placeholder="ex: PC Expedição 01"
+                           class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-givova-500/20 focus:border-givova-600">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Setor / Departamento</label>
+                    <select id="edit-dev-dept" required
+                            class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-givova-500/20 focus:border-givova-600">
+                        <option value="TI">TI</option>
+                        <option value="Logística">Logística</option>
+                        <option value="Faturamento">Faturamento</option>
+                        <option value="Financeiro">Financeiro</option>
+                        <option value="Monitoramento">Monitoramento</option>
+                        <option value="Administrativo">Administrativo</option>
+                        <option value="RH">RH</option>
+                        <option value="Diretoria">Diretoria</option>
+                    </select>
+                </div>
+
+                <div class="pt-2 flex items-center justify-end gap-2">
+                    <button type="button" onclick="fecharModalEditar()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="px-4 py-2 text-xs font-semibold text-white bg-givova-600 hover:bg-givova-700 rounded-xl shadow-xs transition-colors">
+                        Salvar Alterações
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- LOGICA JAVASCRIPT REATIVA E MODERNA                               -->
+    <!-- ================================================================= -->
     <script>
+        // Estado Global da Aplicação
+        let todosDispositivos = [];
+        let estatisticasGerais = null;
+        let chartStatusInstance = null;
+        let chartSetoresInstance = null;
+        let chartHistoryInstance = null;
+        let activeDeviceId = null;
+        let alertTabMode = 'active';
+        let refreshSeconds = 5;
+        let countdownTimer = null;
+        let currentView = 'dashboard';
 
-        async function atualizarDados() {
+        // Inicialização
+        document.addEventListener("DOMContentLoaded", () => {
+            // Define URL correta do endpoint no guia de instalação
+            document.getElementById("cfg-server-url").innerText = `${window.location.origin}/api/agent/report`;
 
-            try {
+            // Hash routing inicial
+            const hash = window.location.hash.replace("#", "") || "dashboard";
+            navigate(hash, false);
 
-                const resposta = await fetch("/dados");
+            // Carregamento inicial de dados
+            carregarDados();
 
-                const computadores = await resposta.json();
+            // Inicia ciclo de contagem regressiva
+            iniciarContador();
+        });
 
-                const container = document.getElementById("computadores");
-
-                container.innerHTML = "";
-
-
-                for (const nome in computadores) {
-
-                    const computador = computadores[nome];
-
-                    const online = computador.status === "online";
-
-                    const card = document.createElement("div");
-
-                    card.className = "card";
-
-
-                    card.innerHTML = `
-
-                        <h2>${nome}</h2>
-
-                        <p class="${online ? "online" : "offline"}">
-
-                            ${online ? "🟢 Online" : "🔴 Offline"}
-
-                        </p>
-
-                        <div class="informacao">
-                            <strong>IP:</strong>
-                            ${computador.ip}
-                        </div>
-
-                        <div class="informacao">
-                            <strong>CPU:</strong>
-                            ${computador.cpu}%
-                        </div>
-
-                        <div class="informacao">
-                            <strong>RAM:</strong>
-                            ${computador.ram}%
-                        </div>
-
-                        <div class="informacao">
-                            <strong>Disco:</strong>
-                            ${computador.disco}%
-                        </div>
-
-                        <div class="informacao">
-                            <strong>Último contato:</strong>
-                            ${computador.ultimo_contato}
-                        </div>
-
-                    `;
-
-                    container.appendChild(card);
-
-                }
-
-            } catch (erro) {
-
-                console.log("Erro:", erro);
-
+        function toggleSidebar() {
+            const sb = document.getElementById("sidebar");
+            const overlay = document.getElementById("sidebar-overlay");
+            if (sb.classList.contains("-translate-x-full")) {
+                sb.classList.remove("-translate-x-full");
+                overlay.classList.remove("hidden");
+            } else {
+                sb.classList.add("-translate-x-full");
+                overlay.classList.add("hidden");
             }
-
         }
 
+        function navigate(viewName, updateHash = true) {
+            currentView = viewName;
+            if (updateHash) {
+                window.location.hash = viewName;
+            }
 
-        atualizarDados();
+            // Oculta todas as views
+            document.getElementById("view-dashboard").classList.add("hidden");
+            document.getElementById("view-computadores").classList.add("hidden");
+            document.getElementById("view-alertas").classList.add("hidden");
+            document.getElementById("view-setores").classList.add("hidden");
+            document.getElementById("view-configuracoes").classList.add("hidden");
 
-        setInterval(atualizarDados, 5000);
+            // Exibe a view selecionada
+            const target = document.getElementById(`view-${viewName}`);
+            if (target) {
+                target.classList.remove("hidden");
+            }
 
+            // Atualiza botões da sidebar
+            document.querySelectorAll(".nav-item").forEach(el => {
+                el.classList.remove("bg-slate-800/90", "text-white");
+                el.classList.add("text-slate-400");
+            });
+
+            const activeBtn = document.getElementById(`nav-${viewName}`);
+            if (activeBtn) {
+                activeBtn.classList.add("bg-slate-800/90", "text-white");
+                activeBtn.classList.remove("text-slate-400");
+            }
+
+            // Atualiza título da página
+            const titles = {
+                dashboard: ["Dashboard de Monitoramento", "Visão geral em tempo real dos computadores corporativos"],
+                computadores: ["Gerenciamento de Computadores", "Inventário e telemetria de todos os computadores"],
+                alertas: ["Central de Alertas e Incidentes", "Monitoramento de anomalias operacionais e sobrecarga"],
+                setores: ["Distribuição por Departamento", "Visão setorial e saúde dos computadores por equipe"],
+                configuracoes: ["Instalação do Agente e Parâmetros", "Instruções técnicas para implantação nos terminais"]
+            };
+
+            const [title, subtitle] = titles[viewName] || ["Monitoramento", "Givova Transportes"];
+            document.getElementById("page-title").innerText = title;
+            document.getElementById("page-subtitle").innerText = subtitle;
+
+            // Fecha sidebar em mobile
+            const overlay = document.getElementById("sidebar-overlay");
+            if (!overlay.classList.contains("hidden")) {
+                toggleSidebar();
+            }
+
+            // Renderiza views específicas
+            if (viewName === "alertas") {
+                carregarAlertas();
+            } else if (viewName === "setores") {
+                renderizarSetores();
+            }
+        }
+
+        function iniciarContador() {
+            clearInterval(countdownTimer);
+            refreshSeconds = 5;
+            countdownTimer = setInterval(() => {
+                refreshSeconds--;
+                if (refreshSeconds <= 0) {
+                    carregarDados();
+                    refreshSeconds = 5;
+                }
+                document.getElementById("sync-countdown").innerText = `${refreshSeconds}s`;
+            }, 1000);
+        }
+
+        async function carregarDados(manual = false) {
+            const refreshIcon = document.getElementById("refresh-icon");
+            if (manual) refreshIcon.classList.add("animate-spin");
+
+            try {
+                const [respStats, respDevices] = await Promise.all([
+                    fetch("/api/stats"),
+                    fetch("/api/devices")
+                ]);
+
+                if (!respStats.ok || !respDevices.ok) {
+                    throw new Error("Erro de comunicação com o backend");
+                }
+
+                estatisticasGerais = await respStats.json();
+                todosDispositivos = await respDevices.json();
+
+                // Oculta aviso de erro se visível
+                document.getElementById("connection-alert").classList.add("hidden");
+                document.getElementById("sync-text").innerText = "Sincronizado";
+                document.getElementById("sync-dot").className = "relative inline-flex rounded-full h-2 w-2 bg-emerald-500";
+                document.getElementById("sync-ping").className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
+
+                // Atualiza KPIs do Dashboard
+                atualizarKPIs(estatisticasGerais);
+
+                // Atualiza Gráficos do Dashboard
+                atualizarGraficosDashboard(estatisticasGerais);
+
+                // Atualiza Rankings
+                atualizarRankings(estatisticasGerais);
+
+                // Atualiza Tabela de Computadores
+                aplicarFiltrosDispositivos();
+
+                // Atualiza badge de alertas
+                const badge = document.getElementById("badge-alertas-count");
+                if (estatisticasGerais.active_alerts_count > 0) {
+                    badge.innerText = estatisticasGerais.active_alerts_count;
+                    badge.classList.remove("hidden");
+                } else {
+                    badge.classList.add("hidden");
+                }
+
+                // Atualiza modal ativo se estiver aberto
+                if (activeDeviceId) {
+                    atualizarModalAtivo();
+                }
+
+                if (currentView === "setores") {
+                    renderizarSetores();
+                }
+
+            } catch (err) {
+                console.error("Erro ao carregar telemetria:", err);
+                document.getElementById("connection-alert").classList.remove("hidden");
+                document.getElementById("sync-text").innerText = "Reconectando";
+                document.getElementById("sync-dot").className = "relative inline-flex rounded-full h-2 w-2 bg-amber-500";
+                document.getElementById("sync-ping").className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75";
+            } finally {
+                if (manual) {
+                    setTimeout(() => refreshIcon.classList.remove("animate-spin"), 500);
+                }
+            }
+        }
+
+        function atualizarKPIs(stats) {
+            document.getElementById("kpi-total").innerText = stats.total_devices;
+            document.getElementById("kpi-online").innerText = stats.online_count;
+            document.getElementById("kpi-offline").innerText = stats.offline_count;
+            document.getElementById("kpi-warning").innerText = stats.warning_count;
+            document.getElementById("kpi-critical").innerText = stats.critical_count;
+            document.getElementById("kpi-avg-cpu").innerText = `${stats.avg_cpu}%`;
+            document.getElementById("kpi-avg-ram").innerText = `${stats.avg_ram}%`;
+            document.getElementById("kpi-disk-free").innerText = `${stats.total_disk_free_gb} GB`;
+
+            // Alertas no dashboard
+            const alertsList = document.getElementById("dashboard-alerts-list");
+            if (stats.recent_alerts && stats.recent_alerts.length > 0) {
+                alertsList.innerHTML = stats.recent_alerts.map(a => `
+                    <div class="flex items-center justify-between p-3 rounded-xl ${a.severity === 'critical' ? 'bg-rose-50 border border-rose-200/80 text-rose-900' : 'bg-amber-50 border border-amber-200/80 text-amber-900'}">
+                        <div class="flex items-center gap-3">
+                            <span class="w-2.5 h-2.5 rounded-full ${a.severity === 'critical' ? 'bg-rose-600 animate-pulse' : 'bg-amber-600'}"></span>
+                            <div>
+                                <div class="font-semibold text-xs">${a.device_name} <span class="opacity-60 text-[11px]">(${a.department})</span></div>
+                                <div class="text-[11px] opacity-85 mt-0.5">${a.message}</div>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="text-[10px] opacity-60 font-mono">${a.created_at}</span>
+                            <button onclick="resolverAlerta(${a.id})" class="px-2.5 py-1 rounded-lg bg-white/80 hover:bg-white text-xs font-semibold shadow-2xs transition-colors">Resolver</button>
+                        </div>
+                    </div>
+                `).join("");
+            } else {
+                alertsList.innerHTML = `<div class="text-xs text-slate-400 py-3 text-center">Nenhum alerta pendente no momento. Todas as máquinas estão normais.</div>`;
+            }
+        }
+
+        function atualizarGraficosDashboard(stats) {
+            // 1. Gráfico Doughnut de Status
+            const ctxStatus = document.getElementById("chart-status").getContext("2d");
+            const dataStatus = [stats.online_count, stats.warning_count, stats.critical_count, stats.offline_count];
+            
+            if (chartStatusInstance) {
+                chartStatusInstance.data.datasets[0].data = dataStatus;
+                chartStatusInstance.update();
+            } else {
+                chartStatusInstance = new Chart(ctxStatus, {
+                    type: "doughnut",
+                    data: {
+                        labels: ["Online", "Alerta", "Crítico", "Offline"],
+                        datasets: [{
+                            data: dataStatus,
+                            backgroundColor: ["#10b981", "#f59e0b", "#f43f5e", "#94a3b8"],
+                            borderWidth: 2,
+                            borderColor: "#ffffff"
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: "70%",
+                        plugins: {
+                            legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } }
+                        }
+                    }
+                });
+            }
+
+            // 2. Gráfico Bar de Setores
+            const ctxSetores = document.getElementById("chart-setores").getContext("2d");
+            const labelsSetores = Object.keys(stats.departments || {});
+            const valuesSetores = Object.values(stats.departments || {});
+
+            if (chartSetoresInstance) {
+                chartSetoresInstance.data.labels = labelsSetores;
+                chartSetoresInstance.data.datasets[0].data = valuesSetores;
+                chartSetoresInstance.update();
+            } else {
+                chartSetoresInstance = new Chart(ctxSetores, {
+                    type: "bar",
+                    data: {
+                        labels: labelsSetores,
+                        datasets: [{
+                            label: "Máquinas",
+                            data: valuesSetores,
+                            backgroundColor: "#ea580c",
+                            borderRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 10 } } },
+                            x: { ticks: { font: { size: 11 } } }
+                        },
+                        plugins: {
+                            legend: { display: false }
+                        }
+                    }
+                });
+            }
+        }
+
+        function atualizarRankings(stats) {
+            const cpuList = document.getElementById("top-cpu-list");
+            if (stats.top_cpu_devices && stats.top_cpu_devices.length > 0) {
+                cpuList.innerHTML = stats.top_cpu_devices.map(d => `
+                    <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-100/70 transition-colors">
+                        <div class="min-w-0">
+                            <div class="font-semibold text-xs text-slate-800 truncate">${d.name}</div>
+                            <div class="text-[10px] text-slate-400">${d.department}</div>
+                        </div>
+                        <div class="text-right">
+                            <span class="px-2 py-0.5 rounded-md font-bold text-xs ${d.cpu >= 90 ? 'bg-rose-100 text-rose-700' : 'bg-slate-200/80 text-slate-700'}">${d.cpu}%</span>
+                        </div>
+                    </div>
+                `).join("");
+            } else {
+                cpuList.innerHTML = `<div class="text-xs text-slate-400 py-3 text-center">Nenhum dado registrado.</div>`;
+            }
+
+            const ramList = document.getElementById("top-ram-list");
+            if (stats.top_ram_devices && stats.top_ram_devices.length > 0) {
+                ramList.innerHTML = stats.top_ram_devices.map(d => `
+                    <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-100/70 transition-colors">
+                        <div class="min-w-0">
+                            <div class="font-semibold text-xs text-slate-800 truncate">${d.name}</div>
+                            <div class="text-[10px] text-slate-400">${d.department}</div>
+                        </div>
+                        <div class="text-right">
+                            <span class="px-2 py-0.5 rounded-md font-bold text-xs ${d.ram >= 90 ? 'bg-rose-100 text-rose-700' : 'bg-slate-200/80 text-slate-700'}">${d.ram}%</span>
+                        </div>
+                    </div>
+                `).join("");
+            } else {
+                ramList.innerHTML = `<div class="text-xs text-slate-400 py-3 text-center">Nenhum dado registrado.</div>`;
+            }
+        }
+
+        function aplicarFiltrosDispositivos() {
+            const query = (document.getElementById("filter-search").value || "").toLowerCase().trim();
+            const dept = document.getElementById("filter-dept").value;
+            const status = document.getElementById("filter-status").value;
+
+            const filtrados = todosDispositivos.filter(d => {
+                const matchSearch = !query || 
+                    d.display_name.toLowerCase().includes(query) ||
+                    d.hostname.toLowerCase().includes(query) ||
+                    d.user_name.toLowerCase().includes(query) ||
+                    d.ip_address.toLowerCase().includes(query);
+
+                const matchDept = (dept === "Todos") || (d.department === dept);
+                const matchStatus = (status === "Todos") || (d.status === status);
+
+                return matchSearch && matchDept && matchStatus;
+            });
+
+            document.getElementById("count-devices").innerText = `${filtrados.length} de ${todosDispositivos.length} máquinas`;
+
+            renderizarTabelaComputadores(filtrados);
+        }
+
+        function renderizarTabelaComputadores(lista) {
+            const tbody = document.getElementById("table-devices-body");
+            if (lista.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="11" class="py-12 text-center text-slate-400">
+                            <div class="max-w-xs mx-auto">
+                                <svg class="w-8 h-8 mx-auto text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                                </svg>
+                                <div>Nenhum computador encontrado com os filtros atuais.</div>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = lista.map(d => {
+                const statusBadge = getStatusBadge(d.status);
+                return `
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="py-3 px-4">
+                            <div class="font-bold text-slate-900">${d.display_name}</div>
+                            <div class="text-[11px] text-slate-400 font-mono">${d.hostname}</div>
+                        </td>
+                        <td class="py-3 px-3 text-slate-700 font-medium">${d.user_name}</td>
+                        <td class="py-3 px-3">
+                            <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium text-[11px] border border-slate-200/60">${d.department}</span>
+                        </td>
+                        <td class="py-3 px-3 font-mono text-slate-600">${d.ip_address}</td>
+                        <td class="py-3 px-3 text-slate-600">${d.os_name}</td>
+                        <td class="py-3 px-3 text-center">
+                            <span class="font-bold ${d.cpu >= 90 ? 'text-rose-600' : 'text-slate-700'}">${d.cpu}%</span>
+                        </td>
+                        <td class="py-3 px-3 text-center">
+                            <span class="font-bold ${d.ram >= 90 ? 'text-rose-600' : 'text-slate-700'}">${d.ram}%</span>
+                        </td>
+                        <td class="py-3 px-3 text-center">
+                            <span class="font-bold text-slate-700">${d.disco}%</span>
+                        </td>
+                        <td class="py-3 px-3">${statusBadge}</td>
+                        <td class="py-3 px-3 text-slate-500 font-mono text-[11px]">${d.ultimo_contato}</td>
+                        <td class="py-3 px-4 text-right">
+                            <div class="flex items-center justify-end gap-1.5">
+                                <button onclick="abrirModalDetalhes(${d.id})" class="p-1.5 rounded-lg text-slate-600 hover:text-givova-600 hover:bg-slate-100 transition-colors" title="Ver Detalhes">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                    </svg>
+                                </button>
+                                <button onclick="prepararEdicao(${d.id})" class="p-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors" title="Editar">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                                    </svg>
+                                </button>
+                                <button onclick="removerComputador(${d.id}, '${d.hostname}')" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors" title="Excluir">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join("");
+        }
+
+        function getStatusBadge(status) {
+            switch(status) {
+                case "online":
+                    return `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Online
+                    </span>`;
+                case "warning":
+                    return `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Alerta
+                    </span>`;
+                case "critical":
+                    return `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                        <span class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span> Crítico
+                    </span>`;
+                case "offline":
+                default:
+                    return `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                        <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span> Offline
+                    </span>`;
+            }
+        }
+
+        async function abrirModalDetalhes(deviceId) {
+            activeDeviceId = deviceId;
+            document.getElementById("modal-details").classList.remove("hidden");
+            await atualizarModalAtivo();
+        }
+
+        async function atualizarModalAtivo() {
+            if (!activeDeviceId) return;
+
+            try {
+                const resp = await fetch(`/api/devices/${activeDeviceId}`);
+                if (!resp.ok) return;
+
+                const data = await resp.json();
+                const d = data.device;
+
+                document.getElementById("modal-dev-name").innerText = d.display_name;
+                document.getElementById("modal-dev-hostname").innerText = d.hostname;
+                document.getElementById("modal-dev-user").innerText = d.user_name;
+                document.getElementById("modal-dev-dept").innerText = d.department;
+                document.getElementById("modal-dev-ip").innerText = d.ip_address;
+                document.getElementById("modal-dev-uptime").innerText = d.uptime;
+                document.getElementById("modal-dev-proc").innerText = `${d.processor} (${d.cpu_cores} núcleos)`;
+                document.getElementById("modal-dev-os").innerText = `${d.os_name} (${d.os_arch})`;
+                document.getElementById("modal-dev-agent").innerText = `v${d.agent_version}`;
+
+                // Status Badge
+                const badge = document.getElementById("modal-dev-status-badge");
+                badge.innerText = d.status_label;
+                badge.className = `px-2 py-0.5 rounded-md font-semibold text-[11px] ${
+                    d.status === 'online' ? 'bg-emerald-100 text-emerald-800' :
+                    d.status === 'warning' ? 'bg-amber-100 text-amber-800' :
+                    d.status === 'critical' ? 'bg-rose-100 text-rose-800' :
+                    'bg-slate-200 text-slate-700'
+                }`;
+
+                // Gauges
+                document.getElementById("modal-dev-cpu-val").innerText = `${d.cpu}%`;
+                document.getElementById("modal-dev-cpu-bar").style.width = `${Math.min(d.cpu, 100)}%`;
+
+                document.getElementById("modal-dev-ram-val").innerText = `${d.ram}%`;
+                document.getElementById("modal-dev-ram-bar").style.width = `${Math.min(d.ram, 100)}%`;
+                document.getElementById("modal-dev-ram-sub").innerText = `${d.last_ram_used_gb} GB usados de ${d.ram_total_gb} GB`;
+
+                document.getElementById("modal-dev-disk-val").innerText = `${d.disco}%`;
+                document.getElementById("modal-dev-disk-bar").style.width = `${Math.min(d.disco, 100)}%`;
+                document.getElementById("modal-dev-disk-sub").innerText = `${d.disk_free_gb} GB livres de ${d.disk_total_gb} GB`;
+
+                // Gráfico Histórico
+                renderizarGraficoHistorico(data.metrics);
+
+                // Alertas da Máquina
+                const alertsList = document.getElementById("modal-dev-alerts-list");
+                if (data.alerts && data.alerts.length > 0) {
+                    alertsList.innerHTML = data.alerts.map(a => `
+                        <div class="p-2.5 rounded-xl text-xs flex items-center justify-between ${a.is_resolved ? 'bg-slate-50 border border-slate-200 text-slate-600' : 'bg-rose-50 border border-rose-200 text-rose-800 font-medium'}">
+                            <div>
+                                <div>${a.message}</div>
+                                <div class="text-[10px] opacity-70 mt-0.5">${a.created_at} • ${a.is_resolved ? 'Resolvido' : 'Pendente'}</div>
+                            </div>
+                            ${!a.is_resolved ? `<button onclick="resolverAlerta(${a.id})" class="px-2 py-1 rounded bg-white text-slate-700 hover:bg-slate-100 shadow-2xs">Resolver</button>` : ''}
+                        </div>
+                    `).join("");
+                } else {
+                    alertsList.innerHTML = `<div class="text-slate-400 py-2">Nenhum alerta registrado para este computador.</div>`;
+                }
+
+            } catch (e) {
+                console.error("Erro ao atualizar detalhes da máquina:", e);
+            }
+        }
+
+        function renderizarGraficoHistorico(metrics) {
+            const ctx = document.getElementById("chart-device-history").getContext("2d");
+            const labels = metrics.map(m => m.timestamp);
+            const dataCpu = metrics.map(m => m.cpu);
+            const dataRam = metrics.map(m => m.ram);
+
+            if (chartHistoryInstance) {
+                chartHistoryInstance.data.labels = labels;
+                chartHistoryInstance.data.datasets[0].data = dataCpu;
+                chartHistoryInstance.data.datasets[1].data = dataRam;
+                chartHistoryInstance.update();
+            } else {
+                chartHistoryInstance = new Chart(ctx, {
+                    type: "line",
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: "CPU (%)",
+                                data: dataCpu,
+                                borderColor: "#ea580c",
+                                backgroundColor: "rgba(234, 88, 12, 0.1)",
+                                tension: 0.3,
+                                fill: true,
+                                borderWidth: 2
+                            },
+                            {
+                                label: "RAM (%)",
+                                data: dataRam,
+                                borderColor: "#2563eb",
+                                backgroundColor: "rgba(37, 99, 235, 0.05)",
+                                tension: 0.3,
+                                fill: true,
+                                borderWidth: 2
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { min: 0, max: 100, ticks: { stepSize: 20, font: { size: 10 } } },
+                            x: { ticks: { maxTicksLimit: 8, font: { size: 10 } } }
+                        },
+                        plugins: {
+                            legend: { position: "top", labels: { boxWidth: 10, font: { size: 11 } } }
+                        }
+                    }
+                });
+            }
+        }
+
+        function fecharModalDetalhes() {
+            activeDeviceId = null;
+            document.getElementById("modal-details").classList.add("hidden");
+            if (chartHistoryInstance) {
+                chartHistoryInstance.destroy();
+                chartHistoryInstance = null;
+            }
+        }
+
+        function prepararEdicao(deviceId) {
+            const dev = todosDispositivos.find(x => x.id === deviceId);
+            if (!dev) return;
+
+            document.getElementById("edit-dev-id").value = dev.id;
+            document.getElementById("edit-dev-name").value = dev.display_name;
+            document.getElementById("edit-dev-dept").value = dev.department;
+
+            document.getElementById("modal-edit").classList.remove("hidden");
+        }
+
+        function abrirModalEditar() {
+            if (activeDeviceId) {
+                prepararEdicao(activeDeviceId);
+            }
+        }
+
+        function fecharModalEditar() {
+            document.getElementById("modal-edit").classList.add("hidden");
+        }
+
+        async function salvarEdicaoDispositivo(e) {
+            e.preventDefault();
+            const id = document.getElementById("edit-dev-id").value;
+            const name = document.getElementById("edit-dev-name").value;
+            const dept = document.getElementById("edit-dev-dept").value;
+
+            try {
+                const resp = await fetch(`/api/devices/${id}/edit`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ display_name: name, department: dept })
+                });
+
+                if (resp.ok) {
+                    fecharModalEditar();
+                    carregarDados();
+                } else {
+                    alert("Não foi possível salvar alterações.");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Erro ao comunicar com o servidor.");
+            }
+        }
+
+        async function removerComputador(id, hostname) {
+            if (!confirm(`Tem certeza que deseja remover o computador '${hostname}' e seu histórico?`)) return;
+
+            try {
+                const resp = await fetch(`/api/devices/${id}`, { method: "DELETE" });
+                if (resp.ok) {
+                    carregarDados();
+                } else {
+                    alert("Não foi possível remover o dispositivo.");
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function carregarAlertas() {
+            try {
+                const resp = await fetch(`/api/alerts?status=${alertTabMode}`);
+                if (!resp.ok) return;
+
+                const alertas = await resp.json();
+                const container = document.getElementById("alerts-full-list");
+
+                if (alertas.length === 0) {
+                    container.innerHTML = `<div class="py-12 text-center text-xs text-slate-400">Nenhum alerta ${alertTabMode === 'active' ? 'ativo' : 'resolvido'} registrado.</div>`;
+                    return;
+                }
+
+                container.innerHTML = alertas.map(a => `
+                    <div class="p-4 flex items-center justify-between hover:bg-slate-50/70 transition-colors">
+                        <div class="flex items-center gap-3">
+                            <span class="w-3 h-3 rounded-full flex-shrink-0 ${a.severity === 'critical' ? 'bg-rose-600' : 'bg-amber-500'}"></span>
+                            <div>
+                                <div class="font-bold text-xs text-slate-900">${a.device_name} <span class="font-normal text-slate-400 text-[11px]">(${a.department})</span></div>
+                                <div class="text-xs text-slate-600 mt-0.5">${a.message}</div>
+                                <div class="text-[10px] text-slate-400 mt-1 font-mono">${a.created_at} ${a.is_resolved ? `• Resolvido em ${a.resolved_at}` : ''}</div>
+                            </div>
+                        </div>
+                        ${!a.is_resolved ? `
+                            <button onclick="resolverAlerta(${a.id})" class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-200 shadow-2xs transition-colors">
+                                Marcar como Resolvido
+                            </button>
+                        ` : '<span class="text-xs text-emerald-600 font-semibold">Resolvido</span>'}
+                    </div>
+                `).join("");
+
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function filtrarAlertas(mode) {
+            alertTabMode = mode;
+            if (mode === "active") {
+                document.getElementById("btn-alert-active").className = "px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs";
+                document.getElementById("btn-alert-resolved").className = "px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors";
+            } else {
+                document.getElementById("btn-alert-active").className = "px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors";
+                document.getElementById("btn-alert-resolved").className = "px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs";
+            }
+            carregarAlertas();
+        }
+
+        async function resolverAlerta(alertId) {
+            try {
+                const resp = await fetch(`/api/alerts/${alertId}/resolve`, { method: "POST" });
+                if (resp.ok) {
+                    carregarDados();
+                    if (currentView === "alertas") carregarAlertas();
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function resolverTodosAlertas() {
+            if (!confirm("Deseja marcar todos os alertas ativos como resolvidos?")) return;
+            try {
+                const resp = await fetch("/api/alerts/resolve-all", { method: "POST" });
+                if (resp.ok) {
+                    carregarDados();
+                    if (currentView === "alertas") carregarAlertas();
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function renderizarSetores() {
+            if (!estatisticasGerais || !estatisticasGerais.departments) return;
+
+            const grid = document.getElementById("sectors-grid");
+            const setores = estatisticasGerais.departments;
+            const nomesSetores = Object.keys(setores);
+
+            if (nomesSetores.length === 0) {
+                grid.innerHTML = `<div class="col-span-full py-12 text-center text-xs text-slate-400">Nenhum setor cadastrado ainda.</div>`;
+                return;
+            }
+
+            grid.innerHTML = nomesSetores.map(nome => {
+                const pcsSetor = todosDispositivos.filter(d => d.department === nome);
+                const total = pcsSetor.length;
+                const online = pcsSetor.filter(d => d.status === 'online' || d.status === 'warning' || d.status === 'critical').length;
+                const offline = total - online;
+
+                return `
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-bold text-slate-900">${nome}</h3>
+                            <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700">${total} PCs</span>
+                        </div>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex items-center justify-between text-slate-600">
+                                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> Online</span>
+                                <span class="font-bold text-emerald-600">${online}</span>
+                            </div>
+                            <div class="flex items-center justify-between text-slate-600">
+                                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-slate-400"></span> Offline</span>
+                                <span class="font-bold text-slate-600">${offline}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        }
     </script>
 
 </body>
