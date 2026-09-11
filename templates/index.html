@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Monitoramento</title>
+
+    <style>
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #f2f2f2;
+            margin: 0;
+            padding: 30px;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .computadores {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+        }
+
+        .card {
+            background: white;
+            width: 280px;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+        }
+
+        .online {
+            color: green;
+            font-weight: bold;
+        }
+
+        .offline {
+            color: red;
+            font-weight: bold;
+        }
+
+        .informacao {
+            margin: 10px 0;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+    <h1>🖥️ Monitoramento dos Computadores</h1>
+
+    <div class="computadores" id="computadores">
+        Carregando...
+    </div>
+
+
+    <script>
+
+        async function atualizarDados() {
+
+            try {
+
+                const resposta = await fetch("/dados");
+
+                const computadores = await resposta.json();
+
+                const container = document.getElementById("computadores");
+
+                container.innerHTML = "";
+
+
+                for (const nome in computadores) {
+
+                    const computador = computadores[nome];
+
+                    const online = computador.status === "online";
+
+                    const card = document.createElement("div");
+
+                    card.className = "card";
+
+
+                    card.innerHTML = `
+
+                        <h2>${nome}</h2>
+
+                        <p class="${online ? "online" : "offline"}">
+
+                            ${online ? "🟢 Online" : "🔴 Offline"}
+
+                        </p>
+
+                        <div class="informacao">
+                            <strong>IP:</strong>
+                            ${computador.ip}
+                        </div>
+
+                        <div class="informacao">
+                            <strong>CPU:</strong>
+                            ${computador.cpu}%
+                        </div>
+
+                        <div class="informacao">
+                            <strong>RAM:</strong>
+                            ${computador.ram}%
+                        </div>
+
+                        <div class="informacao">
+                            <strong>Disco:</strong>
+                            ${computador.disco}%
+                        </div>
+
+                        <div class="informacao">
+                            <strong>Último contato:</strong>
+                            ${computador.ultimo_contato}
+                        </div>
+
+                    `;
+
+                    container.appendChild(card);
+
+                }
+
+            } catch (erro) {
+
+                console.log("Erro:", erro);
+
+            }
+
+        }
+
+
+        atualizarDados();
+
+        setInterval(atualizarDados, 5000);
+
+    </script>
+
+</body>
+
+</html>
