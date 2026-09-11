@@ -46,6 +46,11 @@ class Device(db.Model):
     # Versão do agente instalado
     agent_version = db.Column(db.String(20), default="1.0.0")
     
+    # Atividade Atual em Primeiro Plano
+    active_app = db.Column(db.String(120), nullable=True)
+    active_domain = db.Column(db.String(150), nullable=True)
+    activity_updated_at = db.Column(db.DateTime, nullable=True)
+    
     # Últimas métricas instantâneas registradas
     last_cpu = db.Column(db.Float, default=0.0)
     last_ram = db.Column(db.Float, default=0.0)
@@ -101,8 +106,65 @@ class Device(db.Model):
             return f"{hours}h {minutes}m"
         return f"{minutes}m"
 
+    def get_formatted_activity(self, offline_threshold_seconds: int = 30) -> str:
+        """
+        Retorna a atividade atual formatada com ícones corporativos limpos:
+        Ex: '🌐 chatgpt.com', '📊 Microsoft Excel', '💻 VS Code', 'Sem atividade recente'
+        """
+        status = self.get_status(offline_threshold_seconds)
+        if status == "offline" or not self.active_app or not self.activity_updated_at:
+            return "Sem atividade recente"
+
+        now = datetime.now(timezone.utc)
+        act_time = self.activity_updated_at
+        if act_time.tzinfo is None:
+            act_time = act_time.replace(tzinfo=timezone.utc)
+
+        # Se a atividade não for atualizada há mais que o dobro do threshold de offline, considera desatualizada
+        if (now - act_time).total_seconds() > (offline_threshold_seconds * 2):
+            return "Sem atividade recente"
+
+        app_lower = self.active_app.lower()
+
+        # Navegadores
+        if any(b in app_lower for b in ["chrome", "edge", "chromium", "brave", "firefox"]):
+            if self.active_domain:
+                return f"🌐 {self.active_domain}"
+            return f"🌐 {self.active_app}"
+
+        # Aplicativos Corporativos e de Produtividade
+        if "excel" in app_lower:
+            return f"📊 {self.active_app}"
+        if "word" in app_lower:
+            return f"📝 {self.active_app}"
+        if "powerpoint" in app_lower or "powerpnt" in app_lower:
+            return f"📽️ {self.active_app}"
+        if "outlook" in app_lower or "thunderbird" in app_lower or "mail" in app_lower:
+            return f"📧 {self.active_app}"
+        if "code" in app_lower or "visual studio" in app_lower:
+            return f"💻 {self.active_app}"
+        if "terminal" in app_lower or "powershell" in app_lower or "cmd" in app_lower:
+            return f"⚡ {self.active_app}"
+        if "teams" in app_lower or "slack" in app_lower or "discord" in app_lower:
+            return f"💬 {self.active_app}"
+        if "explorer" in app_lower or "arquivos" in app_lower:
+            return f"📁 {self.active_app}"
+
+        return f"🖥️ {self.active_app}"
+
     def to_dict(self, offline_threshold_seconds: int = 30) -> dict:
         status = self.get_status(offline_threshold_seconds)
+        activity_formatted = self.get_formatted_activity(offline_threshold_seconds)
+        activity_time_str = self.activity_updated_at.strftime("%H:%M:%S") if self.activity_updated_at else None
+
+        is_recent_activity = False
+        if self.activity_updated_at and status != "offline":
+            now = datetime.now(timezone.utc)
+            act_time = self.activity_updated_at
+            if act_time.tzinfo is None:
+                act_time = act_time.replace(tzinfo=timezone.utc)
+            is_recent_activity = (now - act_time).total_seconds() <= (offline_threshold_seconds * 2)
+
         return {
             "id": self.id,
             "uuid": self.uuid,
@@ -135,7 +197,12 @@ class Device(db.Model):
                 "offline": "Offline"
             }.get(status, "Desconhecido"),
             "ultimo_contato": self.updated_at.strftime("%d/%m/%Y %H:%M:%S") if self.updated_at else "Nunca",
-            "ultimo_contato_iso": self.updated_at.isoformat() if self.updated_at else None
+            "ultimo_contato_iso": self.updated_at.isoformat() if self.updated_at else None,
+            "active_app": self.active_app or "—",
+            "active_domain": self.active_domain or "—",
+            "active_activity_formatted": activity_formatted,
+            "activity_updated_at": activity_time_str,
+            "activity_recent": is_recent_activity
         }
 
 

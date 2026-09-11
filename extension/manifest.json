@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Givova Transportes - Monitor de Aba Ativa",
+  "version": "1.0.0",
+  "description": "Extensão corporativa complementar ao agente de monitoramento da Givova Transportes para detecção estrita do domínio ativo em primeiro plano.",
+  "permissions": [
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:5005/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Givova Transportes - Monitor de Domínio Ativo"
+  }
+}

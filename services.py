@@ -85,6 +85,12 @@ def process_agent_payload(data: dict) -> Device:
     device.last_uptime_seconds = uptime_seconds
     device.updated_at = now
 
+    # Atualiza atividade em primeiro plano (caso habilitado na configuração)
+    if Config.ACTIVITY_MONITORING_ENABLED and "active_application" in data:
+        device.active_app = data.get("active_application")
+        device.active_domain = data.get("active_domain")
+        device.activity_updated_at = now
+
     # Registra no histórico temporal
     metric = MetricHistory(
         device_id=device.id,
@@ -259,6 +265,28 @@ def get_dashboard_stats():
     top_cpu = sorted(devices, key=lambda x: (x.last_cpu or 0.0), reverse=True)[:5]
     top_ram = sorted(devices, key=lambda x: (x.last_ram or 0.0), reverse=True)[:5]
 
+    # Atividade em tempo real de computadores online
+    recent_activities = []
+    if Config.ACTIVITY_MONITORING_ENABLED:
+        online_devices = [d for d in devices if d.get_status(Config.OFFLINE_THRESHOLD_SECONDS) in ("online", "warning", "critical")]
+        sorted_by_activity = sorted(
+            [d for d in online_devices if d.active_app and d.activity_updated_at],
+            key=lambda x: x.activity_updated_at,
+            reverse=True
+        )[:8]
+
+        for d in sorted_by_activity:
+            recent_activities.append({
+                "id": d.id,
+                "name": d.display_name or d.hostname,
+                "user_name": d.user_name or "—",
+                "department": d.department or "—",
+                "active_app": d.active_app or "—",
+                "active_domain": d.active_domain or "—",
+                "formatted_activity": d.get_formatted_activity(Config.OFFLINE_THRESHOLD_SECONDS),
+                "activity_updated_at": d.activity_updated_at.strftime("%H:%M:%S") if d.activity_updated_at else "—"
+            })
+
     return {
         "total_devices": total_devices,
         "online_count": online_count,
@@ -279,5 +307,7 @@ def get_dashboard_stats():
         "top_ram_devices": [
             {"id": d.id, "name": d.display_name or d.hostname, "department": d.department, "ram": round(d.last_ram or 0.0, 1)}
             for d in top_ram if d.last_ram is not None
-        ]
+        ],
+        "activity_monitoring_enabled": Config.ACTIVITY_MONITORING_ENABLED,
+        "recent_activities": recent_activities
     }

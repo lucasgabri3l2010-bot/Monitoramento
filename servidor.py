@@ -362,6 +362,24 @@ def resolver_todos_alertas():
 def init_db():
     with app.app_context():
         db.create_all()
+        # Migração idempotente para bases existentes (adiciona colunas de atividade se ausentes)
+        try:
+            with db.engine.connect() as conn:
+                # Verifica no SQLite via PRAGMA
+                if "sqlite" in str(db.engine.url):
+                    result = conn.execute(db.text("PRAGMA table_info(devices)")).fetchall()
+                    cols = [r[1] for r in result]
+                    if cols:
+                        if "active_app" not in cols:
+                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN active_app VARCHAR(120)"))
+                        if "active_domain" not in cols:
+                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN active_domain VARCHAR(150)"))
+                        if "activity_updated_at" not in cols:
+                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN activity_updated_at DATETIME"))
+                        conn.commit()
+        except Exception as e:
+            logger.debug(f"Verificação de colunas de atividade: {e}")
+
         # Cria usuário administrador padrão se não houver nenhum
         admin = User.query.filter_by(username=Config.ADMIN_USERNAME).first()
         if not admin:

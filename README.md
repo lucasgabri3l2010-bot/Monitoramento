@@ -183,7 +183,41 @@ Para iniciar o agente em segundo plano silenciosamente junto ao Windows:
 
 ---
 
-## 8. Guia de Deploy em Produção
+## 8. Monitoramento de Atividade Atual
+
+O sistema inclui detecção leve de aplicativo em primeiro plano e, opcionalmente, o domínio do site ativo no navegador (Google Chrome e Microsoft Edge).
+
+### 8.1 O que é coletado:
+* **Nome do aplicativo em foco** (ex: `Microsoft Excel`, `VS Code`, `Outlook`, `Google Chrome`).
+* **Domínio raiz do site ativo** (ex: `chatgpt.com`, `youtube.com`, `givovatransportes.com.br`).
+* **Horário da última alteração**.
+
+### 8.2 O que NÃO é coletado (Compromisso Estrito de Privacidade):
+* ❌ **Sem URLs completas**: Caminhos como `/busca?q=teste` ou `/painel/123` são descartados no navegador antes de qualquer envio.
+* ❌ **Sem histórico de navegação**: Não há gravação de logs históricos de navegação nem cronologia de páginas.
+* ❌ **Sem formulários, senhas ou conteúdo**: Nenhum texto digitado ou elemento da página é lido.
+* ❌ **Sem screenshots ou keylogger**.
+* ❌ **Sem monitoramento anônimo**: Abas InPrivate ou Anônimas são 100% ignoradas.
+
+### 8.3 Como Habilitar ou Desabilitar:
+* **No Servidor / Backend**: Configure a variável `ACTIVITY_MONITORING_ENABLED=true` ou `false` no `.env`.
+* **No Agente**:
+  * No arquivo `agent_config.json`: `"activity_monitoring": true` (ou `false`).
+  * Ou execute o agente com a flag: `python agente.py --sem-atividade`.
+
+### 8.4 Instalação da Extensão Corporativa Chromium (Chrome e Edge):
+A extensão complementar envia apenas o hostname da aba ativa diretamente para o agente local (`http://127.0.0.1:5005/active-tab`), sem passar por servidores externos:
+1. Abra `chrome://extensions` (no Chrome) ou `edge://extensions` (no Edge).
+2. Ative a chave **Modo do Desenvolvedor** no topo.
+3. Clique em **Carregar sem compactação** (ou *Carregar descompactada*).
+4. Selecione a pasta `extension/` deste projeto.
+5. Pronto! O domínio ativo passará a ser transmitido ao agente e refletido no dashboard.
+
+*Observação: Caso a extensão não esteja instalada ou o usuário utilize outro software, o sistema continuará operando normalmente exibindo apenas o nome do aplicativo (ex: `Google Chrome` ou `Microsoft Excel`).*
+
+---
+
+## 9. Guia de Deploy em Produção
 
 ### 8.1 Opção A: Deploy via Docker / Docker Compose
 

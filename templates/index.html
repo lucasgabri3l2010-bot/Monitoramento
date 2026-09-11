@@ -318,6 +318,37 @@
                     </div>
                 </div>
 
+                <!-- Bloco de Atividade em Tempo Real -->
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h2 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full bg-givova-600 animate-pulse"></span> Atividade em Tempo Real
+                            </h2>
+                            <p class="text-xs text-slate-500 mt-0.5">Aplicativo e domínio em primeiro plano nos postos de trabalho corporativos</p>
+                        </div>
+                        <span class="text-[11px] text-slate-400 font-medium">Janela em foco</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="bg-slate-50/70 border-b border-slate-200/60 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                                    <th class="py-2.5 px-3">Computador</th>
+                                    <th class="py-2.5 px-3">Usuário</th>
+                                    <th class="py-2.5 px-3">Setor</th>
+                                    <th class="py-2.5 px-3">Atividade Atual</th>
+                                    <th class="py-2.5 px-3 text-right">Horário</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dashboard-activity-body" class="divide-y divide-slate-100">
+                                <tr>
+                                    <td colspan="5" class="py-4 text-center text-slate-400">Aguardando telemetria de atividade...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <!-- Alertas Recentes no Dashboard -->
                 <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
                     <div class="flex items-center justify-between mb-4">
@@ -391,13 +422,14 @@
                                     <th class="py-3 px-3 text-center">RAM</th>
                                     <th class="py-3 px-3 text-center">Disco</th>
                                     <th class="py-3 px-3">Status</th>
+                                    <th class="py-3 px-3">Atividade Atual</th>
                                     <th class="py-3 px-3">Último Contato</th>
                                     <th class="py-3 px-4 text-right">Ações</th>
                                 </tr>
                             </thead>
                             <tbody id="table-devices-body" class="divide-y divide-slate-100 text-xs">
                                 <tr>
-                                    <td colspan="11" class="py-8 text-center text-slate-400">Carregando computadores...</td>
+                                    <td colspan="12" class="py-8 text-center text-slate-400">Carregando computadores...</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -587,7 +619,31 @@
                     </div>
                     <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
                         <span class="text-slate-400">Versão do Agente</span>
-                        <div id="modal-dev-agent" class="font-semibold text-slate-800 mt-0.5 truncate">v1.2.0</div>
+                        <div id="modal-dev-agent" class="font-semibold text-slate-800 mt-0.5 truncate">v1.3.0</div>
+                    </div>
+                </div>
+
+                <!-- Seção Atividade Atual do Computador -->
+                <div class="p-4 rounded-2xl border border-slate-200/80 bg-slate-50/70">
+                    <div class="flex items-center justify-between mb-2.5">
+                        <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-givova-600 animate-pulse"></span> Atividade Atual do Computador
+                        </h3>
+                        <span class="text-[11px] text-slate-400">Janela em primeiro plano</span>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                        <div class="p-3 bg-white rounded-xl border border-slate-200/70 shadow-2xs">
+                            <span class="text-slate-400">Aplicativo em Foco</span>
+                            <div id="modal-dev-active-app" class="font-bold text-slate-800 mt-0.5 truncate">—</div>
+                        </div>
+                        <div class="p-3 bg-white rounded-xl border border-slate-200/70 shadow-2xs">
+                            <span class="text-slate-400">Domínio do Site</span>
+                            <div id="modal-dev-active-domain" class="font-bold text-givova-600 mt-0.5 truncate font-mono">—</div>
+                        </div>
+                        <div class="p-3 bg-white rounded-xl border border-slate-200/70 shadow-2xs">
+                            <span class="text-slate-400">Status da Atividade</span>
+                            <div id="modal-dev-active-time" class="font-semibold text-slate-600 mt-0.5 truncate">—</div>
+                        </div>
                     </div>
                 </div>
 
@@ -914,8 +970,26 @@
                         </div>
                     </div>
                 `).join("");
+            // Atividades recentes no dashboard
+            const activityBody = document.getElementById("dashboard-activity-body");
+            if (stats.recent_activities && stats.recent_activities.length > 0) {
+                activityBody.innerHTML = stats.recent_activities.map(a => `
+                    <tr class="hover:bg-slate-50/70 transition-colors">
+                        <td class="py-2.5 px-3 font-semibold text-slate-900">${a.name}</td>
+                        <td class="py-2.5 px-3 text-slate-700">${a.user_name}</td>
+                        <td class="py-2.5 px-3">
+                            <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium text-[11px] border border-slate-200/60">${a.department}</span>
+                        </td>
+                        <td class="py-2.5 px-3">
+                            <span class="font-medium text-slate-800 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200/60 inline-flex items-center gap-1">
+                                ${a.formatted_activity}
+                            </span>
+                        </td>
+                        <td class="py-2.5 px-3 text-right font-mono text-slate-400 text-[11px]">${a.activity_updated_at}</td>
+                    </tr>
+                `).join("");
             } else {
-                alertsList.innerHTML = `<div class="text-xs text-slate-400 py-3 text-center">Nenhum alerta pendente no momento. Todas as máquinas estão normais.</div>`;
+                activityBody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-slate-400">Nenhum computador online com atividade recente no momento.</td></tr>`;
             }
         }
 
@@ -1087,6 +1161,11 @@
                             <span class="font-bold text-slate-700">${d.disco}%</span>
                         </td>
                         <td class="py-3 px-3">${statusBadge}</td>
+                        <td class="py-3 px-3">
+                            <span class="inline-flex items-center gap-1 font-medium text-slate-700 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200/60 text-[11px] truncate max-w-[170px]" title="${d.active_activity_formatted}">
+                                ${d.active_activity_formatted}
+                            </span>
+                        </td>
                         <td class="py-3 px-3 text-slate-500 font-mono text-[11px]">${d.ultimo_contato}</td>
                         <td class="py-3 px-4 text-right">
                             <div class="flex items-center justify-end gap-1.5">
@@ -1170,6 +1249,21 @@
                     d.status === 'critical' ? 'bg-rose-100 text-rose-800' :
                     'bg-slate-200 text-slate-700'
                 }`;
+
+                // Atividade Atual no Modal
+                const modalApp = document.getElementById("modal-dev-active-app");
+                const modalDomain = document.getElementById("modal-dev-active-domain");
+                const modalTime = document.getElementById("modal-dev-active-time");
+
+                if (d.status === "offline" || !d.activity_recent || !d.active_app || d.active_app === "—") {
+                    modalApp.innerText = "Sem atividade recente";
+                    modalDomain.innerText = "—";
+                    modalTime.innerText = "Inativo / Desatualizado";
+                } else {
+                    modalApp.innerText = d.active_app;
+                    modalDomain.innerText = (d.active_domain && d.active_domain !== "—") ? d.active_domain : "—";
+                    modalTime.innerText = d.activity_updated_at ? `Atualizado às ${d.activity_updated_at}` : "Ativo recentemente";
+                }
 
                 // Gauges
                 document.getElementById("modal-dev-cpu-val").innerText = `${d.cpu}%`;

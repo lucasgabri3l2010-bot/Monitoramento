@@ -31,6 +31,9 @@ class Config:
     ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
     
+    # Monitoramento de Atividade Atual (janela em primeiro plano e domínio ativo)
+    ACTIVITY_MONITORING_ENABLED = os.getenv("ACTIVITY_MONITORING_ENABLED", "true").lower() in ("true", "1", "yes")
+
     # Servidor
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", "5000"))

@@ -202,6 +202,68 @@ class SystemMonitoringTestCase(unittest.TestCase):
             dev_deleted = db.session.get(Device, dev_id)
             self.assertIsNone(dev_deleted)
 
+    def test_06_activity_monitoring_ingest_and_formatting(self):
+        """Testa ingestão de aplicativo em primeiro plano e domínio ativo com formatação"""
+        # Login
+        self.client.post("/login", data={"username": "testadmin", "password": "TestAdminPass123!"})
+
+        # 1. Envia atividade com Excel
+        payload_excel = {
+            "uuid": "test-uuid-activity-1",
+            "computador": "PC-CONTABILIDADE",
+            "setor": "Financeiro",
+            "cpu": 15.0,
+            "ram": 45.0,
+            "disco": 30.0,
+            "active_application": "Microsoft Excel",
+            "active_domain": None
+        }
+        res1 = self.client.post("/api/agent/report", json=payload_excel, headers={"X-Agent-Token": "test_secret_token_123"})
+        self.assertEqual(res1.status_code, 200)
+
+        with self.app.app_context():
+            dev = Device.query.filter_by(hostname="PC-CONTABILIDADE").first()
+            self.assertIsNotNone(dev)
+            self.assertEqual(dev.active_app, "Microsoft Excel")
+            self.assertIsNone(dev.active_domain)
+            self.assertIn("Microsoft Excel", dev.get_formatted_activity())
+
+        # 2. Envia atividade com Google Chrome e domínio corporativo
+        payload_chrome = {
+            "uuid": "test-uuid-activity-2",
+            "computador": "PC-OPERACIONAL",
+            "setor": "Logística",
+            "cpu": 25.0,
+            "ram": 55.0,
+            "disco": 20.0,
+            "active_application": "Google Chrome",
+            "active_domain": "givovatransportes.com.br"
+        }
+        res2 = self.client.post("/api/agent/report", json=payload_chrome, headers={"X-Agent-Token": "test_secret_token_123"})
+        self.assertEqual(res2.status_code, 200)
+
+        with self.app.app_context():
+            dev2 = Device.query.filter_by(hostname="PC-OPERACIONAL").first()
+            self.assertIsNotNone(dev2)
+            self.assertEqual(dev2.active_app, "Google Chrome")
+            self.assertEqual(dev2.active_domain, "givovatransportes.com.br")
+            self.assertEqual(dev2.get_formatted_activity(), "🌐 givovatransportes.com.br")
+
+        # 3. Consulta API de dispositivos e estatísticas do dashboard
+        res_devs = self.client.get("/api/devices")
+        self.assertEqual(res_devs.status_code, 200)
+        devs_data = res_devs.get_json()
+        target = next((d for d in devs_data if d["hostname"] == "PC-OPERACIONAL"), None)
+        self.assertIsNotNone(target)
+        self.assertEqual(target["active_domain"], "givovatransportes.com.br")
+        self.assertEqual(target["active_activity_formatted"], "🌐 givovatransportes.com.br")
+
+        res_stats = self.client.get("/api/stats")
+        self.assertEqual(res_stats.status_code, 200)
+        stats_data = res_stats.get_json()
+        self.assertTrue(stats_data["activity_monitoring_enabled"])
+        self.assertTrue(len(stats_data["recent_activities"]) >= 2)
+
 
 if __name__ == "__main__":
     unittest.main()

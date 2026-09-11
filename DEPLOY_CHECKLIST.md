@@ -15,6 +15,7 @@ Utilize esta checklist para homologação e publicação do **Sistema de Monitor
   - [ ] `OFFLINE_THRESHOLD_SECONDS=30` (ou ajustado conforme política interna).
   - [ ] `CPU_ALERT_PERCENT=90.0`, `RAM_ALERT_PERCENT=90.0`, `DISK_ALERT_PERCENT=90.0`.
   - [ ] `METRICS_RETENTION_DAYS=7` (ou retenção estendida conforme capacidade).
+  - [ ] `ACTIVITY_MONITORING_ENABLED=true` (ou `false` se a empresa optar por não coletar aplicativos ativos).
 - [ ] **Porta e Bind**: Garantir bind em `0.0.0.0:${PORT}` (já configurado no `Dockerfile` e `wsgi.py`).
 - [ ] **Health Check Testado**: Validar resposta `200 OK` na rota pública `GET https://seu-dominio.com/health`.
 - [ ] **Certificado SSL/HTTPS Ativo**: Tráfego criptografado para garantir segurança de tokens e telemetria.
@@ -48,6 +49,7 @@ Utilize esta checklist para homologação e publicação do **Sistema de Monitor
   - [ ] `display_name` definido para identificação amigável do posto de trabalho.
 - [ ] Execução inicial do `agente.py` validada com log de sucesso `OK [HOSTNAME] - Enviado com sucesso (HTTP 200)`.
 - [ ] Script configurado para inicialização automática no boot (Task Scheduler no Windows ou systemd no Linux).
+- [ ] *(Opcional)* Extensão corporativa Chromium carregada em `chrome://extensions` ou `edge://extensions` nas máquinas que necessitam de telemetria de domínios web.
 
 ---
 
