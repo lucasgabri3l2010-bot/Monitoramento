@@ -268,7 +268,10 @@ def enqueue_domain_classification(app_context, domain: str):
             with _pending_domains_lock:
                 _pending_domains_set.discard(clean_domain)
 
-    _classification_executor.submit(_async_task)
+    if getattr(app_context, "app", None) and app_context.app.config.get("TESTING"):
+        _async_task()
+    else:
+        _classification_executor.submit(_async_task)
 
 
 def _reevaluate_devices_for_domain(domain: str):

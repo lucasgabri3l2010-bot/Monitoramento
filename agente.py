@@ -47,7 +47,36 @@ def get_app_dir() -> str:
 
 
 APP_DIR = get_app_dir()
-CONFIG_FILE = os.getenv("GIVOVA_CONFIG_PATH", os.path.join(APP_DIR, "agent_config.json"))
+
+
+def get_config_file_path() -> str:
+    r"""
+    Retorna o caminho do arquivo de configuração priorizando:
+    1. GIVOVA_CONFIG_PATH (se definido no ambiente)
+    2. C:\ProgramData\GivovaMonitor\agent_config.json (instalação padrão no Windows)
+    3. agent_config.json no mesmo diretório do executável/script (APP_DIR)
+    """
+    env_path = os.getenv("GIVOVA_CONFIG_PATH")
+    if env_path and os.path.exists(env_path):
+        return env_path
+
+    standard_path = r"C:\ProgramData\GivovaMonitor\agent_config.json"
+    if platform.system() == "Windows" and os.path.exists(standard_path):
+        return standard_path
+
+    app_dir_path = os.path.join(APP_DIR, "agent_config.json")
+    if os.path.exists(app_dir_path):
+        return app_dir_path
+
+    if env_path:
+        return env_path
+
+    if platform.system() == "Windows":
+        return standard_path
+    return app_dir_path
+
+
+CONFIG_FILE = get_config_file_path()
 LOG_DIR = os.getenv("GIVOVA_LOG_DIR", os.path.join(APP_DIR, "logs"))
 
 try:
@@ -618,14 +647,15 @@ def load_config():
     }
 
     # 1. Lê arquivo local agent_config.json caso exista
-    if os.path.exists(CONFIG_FILE):
+    config_file_path = get_config_file_path()
+    if os.path.exists(config_file_path):
         try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            with open(config_file_path, "r", encoding="utf-8-sig") as f:
                 file_cfg = json.load(f)
                 if isinstance(file_cfg, dict):
                     cfg.update(file_cfg)
         except Exception as e:
-            logger.warning(f"Não foi possível ler {CONFIG_FILE}: {e}")
+            logger.warning(f"Não foi possível ler {config_file_path}: {e}")
 
     # 2. Variáveis de ambiente (sobrescrevem agent_config.json)
     if os.getenv("SERVER_URL"):
@@ -874,11 +904,16 @@ def run_agent():
         sys.exit(0)
 
     config = load_config()
+    config_path = get_config_file_path()
+    has_token = bool(config.get("agent_token") and str(config.get("agent_token")).strip())
 
     logger.info("=" * 65)
     logger.info("   GIVOVA TRANSPORTES - AGENTE DE MONITORAMENTO DE PCS")
-    logger.info(f"   Versão: {VERSION} | Setor: {config['department']}")
-    logger.info(f"   Servidor: {config['server_url']}")
+    logger.info(f"   Config path: {config_path}")
+    logger.info(f"   Server URL: {config['server_url']}")
+    logger.info(f"   Agent version: {VERSION}")
+    logger.info(f"   Token present: {'true' if has_token else 'false'}")
+    logger.info(f"   Setor: {config['department']}")
     logger.info(f"   Intervalo: {config['interval_seconds']}s")
     logger.info(f"   Monitoramento de Atividade: {'Habilitado' if config['activity_monitoring'] else 'Desabilitado'}")
     logger.info(f"   Auto-Update Remoto: {'Habilitado' if config['auto_update'] else 'Desabilitado'}")
@@ -894,9 +929,9 @@ def run_agent():
     start_admin_notifications_worker(config)
 
     # Cria arquivo de configuração inicial local caso não exista para facilitar customização
-    if not os.path.exists(CONFIG_FILE):
+    if not os.path.exists(config_path):
         try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            with open(config_path, "w", encoding="utf-8") as f:
                 json.dump({
                     "server_url": config["server_url"],
                     "agent_token": config["agent_token"],

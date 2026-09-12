@@ -722,6 +722,8 @@ class SystemMonitoringTestCase(unittest.TestCase):
         with self.app.app_context():
             events = PolicyEvent.query.filter_by(domain="new-unclassified-poker.com").all()
             self.assertEqual(len(events), 0)
+        import time
+        time.sleep(0.3)
 
     def test_16_confidence_threshold_and_unknown_handling(self):
         """Valida que categorização com confiança abaixo do limiar (0.80) vira 'unknown' e não gera alerta"""
@@ -741,6 +743,8 @@ class SystemMonitoringTestCase(unittest.TestCase):
 
         self.assertEqual(res1.status_code, 200)
         self.assertEqual(res2.status_code, 200)
+        import time
+        time.sleep(0.3)
 
     def test_18_internal_provider_coverage_and_status(self):
         """Valida que GET /api/policies/classification/status informa Provider: Internal e Cobertura: regras/listas locais"""

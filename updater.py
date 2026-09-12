@@ -14,6 +14,12 @@ import argparse
 import subprocess
 import shutil
 
+UPDATER_VERSION = "1.1.0"
+
+if "--version" in sys.argv or "--updater-version" in sys.argv:
+    print(f"GivovaMonitorUpdater v{UPDATER_VERSION}")
+    sys.exit(0)
+
 def setup_logging(target_dir: str):
     log_dir = os.path.join(target_dir, "logs")
     os.makedirs(log_dir, exist_ok=True)
@@ -159,6 +165,7 @@ def run_updater():
 
     logger.info("=" * 65)
     logger.info("   GIVOVA MONITOR UPDATER — ATUALIZADOR SUPERVISIONADO")
+    logger.info(f"   Versão do Updater: {UPDATER_VERSION}")
     logger.info(f"   Diretório Alvo: {target_dir}")
     logger.info(f"   Versão Alvo: {args.version}")
     if args.update_id:
