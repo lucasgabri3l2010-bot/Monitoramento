@@ -178,8 +178,32 @@ if (Test-Path -Path $compiledUpdater) {
 # 2. Copia os scripts com nomes amigáveis em português
 Copy-Item -Path (Join-Path $repoRoot "scripts\Install-GivovaMonitor.ps1") -Destination (Join-Path $deployDir "Instalar-GivovaMonitor.ps1") -Force
 Copy-Item -Path (Join-Path $repoRoot "scripts\Uninstall-GivovaMonitor.ps1") -Destination (Join-Path $deployDir "Desinstalar-GivovaMonitor.ps1") -Force
+$diagnoseSrc = Join-Path $repoRoot "scripts\Diagnose-GivovaMonitor.ps1"
+if (Test-Path -Path $diagnoseSrc) {
+    Copy-Item -Path $diagnoseSrc -Destination (Join-Path $deployDir "Diagnose-GivovaMonitor.ps1") -Force
+    Write-Host "      Script de diagnóstico Diagnose-GivovaMonitor.ps1 anexado." -ForegroundColor Green
+}
 
-# 3. Gera o agent_config.json pré-configurado
+# 3. Copia a extensão corporativa do Chrome/Edge
+$srcExtension = Join-Path $repoRoot "extension"
+$destDeployExtension = Join-Path $deployDir "extension"
+if (Test-Path -Path $srcExtension) {
+    if (Test-Path -Path $destDeployExtension) {
+        Remove-Item -Path $destDeployExtension -Recurse -Force
+    }
+    New-Item -Path $destDeployExtension -ItemType Directory -Force | Out-Null
+    Get-ChildItem -Path $srcExtension -File | Where-Object {
+        $_.Name -notin @(".git", ".gitignore") -and
+        $_.Extension -notin @(".tmp", ".bak", ".pyc")
+    } | ForEach-Object {
+        Copy-Item -Path $_.FullName -Destination $destDeployExtension -Force
+    }
+    Write-Host "      Extensão corporativa Chrome/Edge copiada para dist\GivovaMonitorDeploy\extension." -ForegroundColor Green
+} else {
+    Write-Warning "Pasta de extensão '$srcExtension' não encontrada para empacotar."
+}
+
+# 4. Gera o agent_config.json pré-configurado
 $agentCfg = @{
     server_url = $ServerUrl
     agent_token = $resolvedToken
@@ -191,14 +215,25 @@ $agentCfg = @{
 }
 $agentCfg | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $deployDir "agent_config.json") -Encoding UTF8
 
-# 4. Gera instruções rápidas em LEIAME_INSTALACAO.txt
+# 5. Gera instruções completas em LEIAME_INSTALACAO.txt
 $leiameContent = @'
 ================================================================================
    GIVOVA TRANSPORTES — SISTEMA DE MONITORAMENTO DE COMPUTADORES
    PACOTE DE IMPLANTAÇÃO AUTÔNOMO (WINDOWS)
 ================================================================================
 
+ESTRUTURA DO PACOTE:
+- GivovaMonitorAgent.exe       : Executável principal do agente (invisível em 2º plano)
+- GivovaMonitorUpdater.exe     : Supervisor autônomo de auto-update
+- Instalar-GivovaMonitor.ps1   : Instalador automático de 1 execução
+- Desinstalar-GivovaMonitor.ps1: Desinstalador limpo
+- Diagnose-GivovaMonitor.ps1   : Diagnóstico de saúde, extensão e conectividade
+- agent_config.json            : Parâmetros pré-configurados de conexão
+- extension\                   : Arquivos da extensão corporativa (Chrome e Edge)
+
+================================================================================
 COMO INSTALAR NO COMPUTADOR CLIENTE:
+================================================================================
 
 1. Copie esta pasta 'GivovaMonitorDeploy' para o computador autorizado
    (via pendrive, compartilhamento de rede ou pasta temporária).
@@ -206,24 +241,69 @@ COMO INSTALAR NO COMPUTADOR CLIENTE:
 2. Clique com o botão direito no arquivo:
    'Instalar-GivovaMonitor.ps1'
    e selecione:
-   "Executar com o PowerShell" (ou abra o terminal e execute .\Instalar-GivovaMonitor.ps1).
+   "Executar com o PowerShell" (ou execute em um terminal PowerShell elevado).
 
 3. Quando o Windows exibir a confirmação de Administrador (UAC), clique em "Sim".
 
 4. O instalador fará todo o processo de forma 100% automática:
-   - Instala em C:\ProgramData\GivovaMonitor\
+   - Instala o executável em C:\ProgramData\GivovaMonitor\
+   - Copia a extensão para C:\ProgramData\GivovaMonitor\extension\
    - Configura o início automático com o Windows (Task Scheduler)
    - Executa invisível, sem abrir janelas de CMD ou PowerShell
-   - Testa a conexão com o servidor Render
+   - Valida a conectividade com o servidor Render
    - Inicia o monitoramento imediatamente.
+
+5. LIMPEZA SEGURA DA PASTA DE DEPLOY:
+   Após a conclusão da instalação, você pode APAGAR COMPLETAMENTE a pasta
+   'GivovaMonitorDeploy' do Desktop ou pendrive.
+   Todos os arquivos necessários e a extensão agora residem permanentemente em:
+   C:\ProgramData\GivovaMonitor\
+
+================================================================================
+COMO ATIVAR A EXTENSÃO NO NAVEGADOR (CHROME / EDGE):
+================================================================================
+
+Em computadores de teste ou sem gerenciamento centralizado por GPO, a extensão
+deve ser ativada uma única vez:
+
+No Google Chrome:
+1. Abra o Chrome e acesse: chrome://extensions
+2. Ative a chave "Modo do desenvolvedor" (no canto superior direito).
+3. Clique em "Carregar sem compactação" (Load unpacked).
+4. Selecione a pasta permanente:
+   C:\ProgramData\GivovaMonitor\extension
+5. Pronto! A extensão estará ativa e enviando o domínio ao agente local.
+
+No Microsoft Edge:
+1. Abra o Edge e acesse: edge://extensions
+2. Ative a chave "Modo do desenvolvedor" (na barra lateral esquerda).
+3. Clique em "Carregar descompactada" (Load unpacked).
+4. Selecione a pasta permanente:
+   C:\ProgramData\GivovaMonitor\extension
+5. Pronto!
+
+(Para implantação corporativa silenciosa via Active Directory/GPO, consulte
+a documentação técnica em docs/EXTENSION_DEPLOYMENT.md).
+
+================================================================================
+DIAGNÓSTICO E SUPORTE:
+================================================================================
+Para testar a saúde da instalação, da extensão e da conexão com o servidor,
+execute:
+.\Diagnose-GivovaMonitor.ps1
 
 ================================================================================
 ATUALIZAÇÃO:
-Basta executar 'Instalar-GivovaMonitor.ps1' novamente. Ele substituirá o executável
-preservando o nome e as configurações já existentes do computador.
+================================================================================
+Basta executar 'Instalar-GivovaMonitor.ps1' novamente. Ele atualizará os executáveis
+e a extensão preservando as configurações e logs existentes do computador.
 
+================================================================================
 DESINSTALAÇÃO:
+================================================================================
 Clique com o botão direito em 'Desinstalar-GivovaMonitor.ps1' e execute com PowerShell.
+Para remover também configurações e logs, execute:
+.\Desinstalar-GivovaMonitor.ps1 -PurgeData
 ================================================================================
 '@
 $leiameContent | Set-Content -Path (Join-Path $deployDir "LEIAME_INSTALACAO.txt") -Encoding UTF8
@@ -240,6 +320,8 @@ Write-Host "  Destino:       $deployDir" -ForegroundColor Cyan
 Write-Host "  Executável:    GivovaMonitorAgent.exe - ${exeSizeMb} MB" -ForegroundColor Gray
 Write-Host "  Instalador:    Instalar-GivovaMonitor.ps1" -ForegroundColor Gray
 Write-Host "  Desinstalador: Desinstalar-GivovaMonitor.ps1" -ForegroundColor Gray
+Write-Host "  Diagnóstico:   Diagnose-GivovaMonitor.ps1" -ForegroundColor Gray
+Write-Host "  Extensão:      extension\ (Chrome e Edge Manifest V3)" -ForegroundColor Gray
 Write-Host "  Configuração:  agent_config.json - Servidor: $ServerUrl" -ForegroundColor Gray
 Write-Host "  Segurança:     Pasta dist/ protegida no .gitignore [zero secrets no Git]" -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Green

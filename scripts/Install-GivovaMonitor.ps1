@@ -24,7 +24,8 @@ param (
     [string]$AgentToken = "",
     [string]$Department = "Não informado",
     [string]$DisplayName = "",
-    [switch]$Force
+    [switch]$Force,
+    [switch]$NoElevate
 )
 
 # -------------------------------------------------------------------------
@@ -34,7 +35,7 @@ $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($currentIdentity)
 $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
-if (-not $isAdmin) {
+if (-not $isAdmin -and -not $NoElevate) {
     Write-Host ""
     Write-Host "================================================================" -ForegroundColor Cyan
     Write-Host "  Givova Monitor — Solicitando Permissão de Administrador [UAC]" -ForegroundColor Cyan
@@ -74,12 +75,25 @@ $installDir = "C:\ProgramData\GivovaMonitor"
 $logDir = Join-Path $installDir "logs"
 $destExe = Join-Path $installDir "GivovaMonitorAgent.exe"
 $destConfig = Join-Path $installDir "agent_config.json"
-$sourceDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$destExtension = Join-Path $installDir "extension"
+
+$sourceDir = $PSScriptRoot
 if (-not $sourceDir) {
-    $sourceDir = $PSScriptRoot
+    $sourceDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 }
+if (-not $sourceDir) {
+    $sourceDir = (Get-Location).Path
+}
+
 $sourceExe = Join-Path $sourceDir "GivovaMonitorAgent.exe"
 $sourceConfig = Join-Path $sourceDir "agent_config.json"
+$sourceExtension = Join-Path $sourceDir "extension"
+if (-not (Test-Path -Path $sourceExtension)) {
+    $fallbackExt = Join-Path (Split-Path -Parent $sourceDir) "extension"
+    if (Test-Path -Path $fallbackExt) {
+        $sourceExtension = $fallbackExt
+    }
+}
 
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor DarkYellow
@@ -143,6 +157,17 @@ $sourceUpdater = Join-Path $sourceDir "GivovaMonitorUpdater.exe"
 if (Test-Path -Path $sourceUpdater) {
     Copy-Item -Path $sourceUpdater -Destination (Join-Path $installDir "GivovaMonitorUpdater.exe") -Force
     Write-Host "      Supervisor de atualizações GivovaMonitorUpdater.exe copiado." -ForegroundColor Green
+}
+
+# Cópia da Extensão Corporativa de Monitoramento de Domínio (Chrome / Edge)
+if (Test-Path -Path $sourceExtension) {
+    if (-not (Test-Path -Path $destExtension)) {
+        New-Item -Path $destExtension -ItemType Directory -Force | Out-Null
+    }
+    Copy-Item -Path "$sourceExtension\*" -Destination $destExtension -Recurse -Force
+    Write-Host "      Extensão corporativa Chrome/Edge copiada para $destExtension." -ForegroundColor Green
+} else {
+    Write-Host "      [AVISO] Pasta da extensão não localizada em $sourceExtension." -ForegroundColor Yellow
 }
 
 # -------------------------------------------------------------------------
@@ -289,12 +314,21 @@ Write-Host "  Agente:     $statusAgente" -ForegroundColor Cyan
 Write-Host "  Servidor:   $statusServidor" -ForegroundColor Cyan
 Write-Host "  Dispositivo: $env:COMPUTERNAME" -ForegroundColor Cyan
 Write-Host "  Diretório:  $installDir" -ForegroundColor Gray
+Write-Host "  Extensão:   $destExtension" -ForegroundColor Gray
 Write-Host "  Logs:       $logDir\agente.log" -ForegroundColor Gray
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "O agente está rodando em segundo plano e iniciará automaticamente" -ForegroundColor Gray
 Write-Host "a cada reinicialização ou login de usuário no Windows." -ForegroundColor Gray
-Write-Host "Você já pode fechar esta janela." -ForegroundColor Gray
+Write-Host ""
+Write-Host "COMO ATIVAR A EXTENSÃO NO NAVEGADOR (CHROME / EDGE):" -ForegroundColor Yellow
+Write-Host "1. Abra chrome://extensions ou edge://extensions" -ForegroundColor DarkCyan
+Write-Host "2. Ative a opção 'Modo do desenvolvedor'" -ForegroundColor DarkCyan
+Write-Host "3. Clique em 'Carregar sem compactação' (ou Carregar descompactada)" -ForegroundColor DarkCyan
+Write-Host "4. Selecione a pasta permanente: $destExtension" -ForegroundColor DarkCyan
+Write-Host ""
+Write-Host "NOTA: Você já pode apagar a pasta original de instalação ($sourceDir) do Desktop ou pendrive." -ForegroundColor Gray
+Write-Host "Todos os arquivos e a extensão foram instalados permanentemente em $installDir." -ForegroundColor Gray
 Write-Host ""
 
 if (-not $Force) {

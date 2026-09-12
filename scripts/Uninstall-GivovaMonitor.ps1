@@ -1,4 +1,4 @@
-﻿﻿<#
+﻿<#
 .SYNOPSIS
     Desinstalador do Givova Monitor Agent.
 .DESCRIPTION
@@ -13,7 +13,8 @@
 [CmdletBinding()]
 param (
     [switch]$PurgeData,
-    [switch]$Force
+    [switch]$Force,
+    [switch]$NoElevate
 )
 
 # -------------------------------------------------------------------------
@@ -23,7 +24,7 @@ $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($currentIdentity)
 $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
-if (-not $isAdmin) {
+if (-not $isAdmin -and -not $NoElevate) {
     Write-Host ''
     Write-Host '================================================================' -ForegroundColor Cyan
     Write-Host '  Givova Monitor — Solicitando Permissão de Administrador [UAC]' -ForegroundColor Cyan
@@ -52,6 +53,8 @@ if (-not $isAdmin) {
 $appName = 'Givova Monitor Agent'
 $installDir = 'C:\ProgramData\GivovaMonitor'
 $destExe = Join-Path $installDir 'GivovaMonitorAgent.exe'
+$destUpdater = Join-Path $installDir 'GivovaMonitorUpdater.exe'
+$destExtension = Join-Path $installDir 'extension'
 $destConfig = Join-Path $installDir 'agent_config.json'
 $logDir = Join-Path $installDir 'logs'
 
@@ -96,12 +99,20 @@ try {
 }
 
 # -------------------------------------------------------------------------
-# 4. REMOÇÃO DE BINÁRIOS
+# 4. REMOÇÃO DE BINÁRIOS E COMPONENTES
 # -------------------------------------------------------------------------
-Write-Host '[3/4] Removendo executáveis...' -ForegroundColor Gray
+Write-Host '[3/4] Removendo executáveis e componentes...' -ForegroundColor Gray
 if (Test-Path -Path $destExe) {
     Remove-Item -Path $destExe -Force -ErrorAction SilentlyContinue
     Write-Host '      Executável GivovaMonitorAgent.exe removido.' -ForegroundColor Green
+}
+if (Test-Path -Path $destUpdater) {
+    Remove-Item -Path $destUpdater -Force -ErrorAction SilentlyContinue
+    Write-Host '      Supervisor GivovaMonitorUpdater.exe removido.' -ForegroundColor Green
+}
+if (Test-Path -Path $destExtension) {
+    Remove-Item -Path $destExtension -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host "      Extensão corporativa removida de $destExtension." -ForegroundColor Green
 }
 
 # -------------------------------------------------------------------------

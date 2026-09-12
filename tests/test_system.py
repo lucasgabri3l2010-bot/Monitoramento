@@ -780,6 +780,79 @@ class SystemMonitoringTestCase(unittest.TestCase):
             admins = User.query.filter_by(username="testadmin").all()
             self.assertEqual(len(admins), 1)
 
+    def test_20_extension_integration_optionality_and_privacy(self):
+        """Valida que o agente e opcional a extensao, privacidade de dominio e integridade do manifest"""
+        headers = {"X-Agent-Token": "test_secret_token_123"}
+
+        # 1. Sem extensão: agente reporta apenas navegador em primeiro plano
+        payload_no_ext = {
+            "uuid": "test-uuid-no-extension",
+            "computador": "PC-NO-EXT",
+            "usuario": "user1",
+            "setor": "Operacional",
+            "active_app": "Google Chrome",
+            "active_domain": None
+        }
+        res1 = self.client.post("/api/agent/report", json=payload_no_ext, headers=headers)
+        self.assertEqual(res1.status_code, 200)
+
+        with self.app.app_context():
+            dev1 = Device.query.filter_by(uuid="test-uuid-no-extension").first()
+            self.assertIsNotNone(dev1)
+            self.assertEqual(dev1.active_app, "Google Chrome")
+            self.assertIsNone(dev1.active_domain)
+
+        # 2. Com extensão: agente reporta navegador e domínio ativo
+        payload_with_ext = {
+            "uuid": "test-uuid-with-extension",
+            "computador": "PC-WITH-EXT",
+            "usuario": "user2",
+            "setor": "Financeiro",
+            "active_app": "Microsoft Edge",
+            "active_domain": "youtube.com"
+        }
+        res2 = self.client.post("/api/agent/report", json=payload_with_ext, headers=headers)
+        self.assertEqual(res2.status_code, 200)
+
+        with self.app.app_context():
+            dev2 = Device.query.filter_by(uuid="test-uuid-with-extension").first()
+            self.assertIsNotNone(dev2)
+            self.assertEqual(dev2.active_app, "Microsoft Edge")
+            self.assertEqual(dev2.active_domain, "youtube.com")
+
+        # 3. Políticas corporativas acionadas pelo domínio da extensão
+        payload_violation = {
+            "uuid": "test-uuid-policy-ext",
+            "computador": "PC-POLICY-EXT",
+            "usuario": "user3",
+            "setor": "Comercial",
+            "active_app": "Google Chrome",
+            "active_domain": "bet365.com"
+        }
+        res3 = self.client.post("/api/agent/report", json=payload_violation, headers=headers)
+        self.assertEqual(res3.status_code, 200)
+
+        with self.app.app_context():
+            event = PolicyEvent.query.filter_by(domain="bet365.com").first()
+            self.assertIsNotNone(event)
+            self.assertEqual(event.category, "Apostas")
+            self.assertEqual(event.severity, "critical")
+
+        # 4. Validação de privacidade do manifest da extensão
+        manifest_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "extension", "manifest.json")
+        self.assertTrue(os.path.exists(manifest_path))
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest_data = json.load(f)
+
+        self.assertEqual(manifest_data.get("manifest_version"), 3)
+        # Permissões estritas: apenas 'tabs' e host unicamente localhost:5005
+        self.assertEqual(manifest_data.get("permissions"), ["tabs"])
+        self.assertEqual(manifest_data.get("host_permissions"), ["http://127.0.0.1:5005/*"])
+        # Garante que não há permissões de rastreamento invasivo
+        self.assertNotIn("cookies", manifest_data.get("permissions", []))
+        self.assertNotIn("webRequest", manifest_data.get("permissions", []))
+        self.assertNotIn("<all_urls>", manifest_data.get("host_permissions", []))
+
 
 if __name__ == "__main__":
     unittest.main()
