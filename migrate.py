@@ -96,7 +96,8 @@ def run_migrations() -> bool:
                             "policy_events",
                             [
                                 ("source", "VARCHAR(50) DEFAULT 'manual_rule'", "VARCHAR(50) DEFAULT 'manual_rule'"),
-                                ("last_notification_sent_at", "TIMESTAMP", "DATETIME")
+                                ("last_notification_sent_at", "TIMESTAMP", "DATETIME"),
+                                ("resolved_by", "VARCHAR(80)", "VARCHAR(80)")
                             ]
                         )
                     ]

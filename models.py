@@ -498,6 +498,7 @@ class PolicyEvent(db.Model):
     acknowledged_at = db.Column(db.DateTime, nullable=True)
     acknowledged_by = db.Column(db.String(80), nullable=True)
     resolved_at = db.Column(db.DateTime, nullable=True)
+    resolved_by = db.Column(db.String(80), nullable=True)
 
     def format_duration(self) -> str:
         seconds = self.duration_seconds or 0
@@ -535,7 +536,9 @@ class PolicyEvent(db.Model):
             "acknowledged": self.acknowledged,
             "acknowledged_at": self.acknowledged_at.strftime("%d/%m/%Y %H:%M:%S") if self.acknowledged_at else None,
             "acknowledged_by": self.acknowledged_by,
+            "is_resolved": bool(self.resolved_at),
             "resolved_at": self.resolved_at.strftime("%d/%m/%Y %H:%M:%S") if self.resolved_at else None,
+            "resolved_by": self.resolved_by,
             "is_demo": False
         }
 

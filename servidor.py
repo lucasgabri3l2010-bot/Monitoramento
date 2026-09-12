@@ -48,6 +48,45 @@ def login_required(f):
     return decorated_function
 
 
+def admin_required(f):
+    """
+    Exige autenticação e papel administrativo (role == 'admin') para operações sensíveis.
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if "user_id" not in session:
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "Não autenticado", "code": "UNAUTHORIZED"}), 401
+            return redirect(url_for("login_page", next=request.path))
+        if session.get("role") != "admin":
+            return jsonify({"error": "Acesso restrito a administradores", "code": "FORBIDDEN"}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def get_app_timezone():
+    """
+    Retorna o fuso horário configurado da aplicação com fallback para UTC-3 (Brasília).
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(Config.APP_TIMEZONE)
+    except Exception:
+        return timezone(timedelta(hours=Config.APP_TIMEZONE_OFFSET_HOURS))
+
+
+def get_start_of_day_app_tz() -> datetime:
+    """
+    Calcula o início do dia local da empresa (00:00:00) convertido para UTC ingênuo (naive).
+    Garante precisão independente do fuso horário em que o servidor estiver hospedado.
+    """
+    tz = get_app_timezone()
+    now_local = datetime.now(timezone.utc).astimezone(tz)
+    start_of_day_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_of_day_utc = start_of_day_local.astimezone(timezone.utc)
+    return start_of_day_utc.replace(tzinfo=None)
+
+
 def require_agent_token(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -882,33 +921,107 @@ def excluir_regra_politica(rule_id):
 @login_required
 def listar_eventos_politicas():
     """
-    Lista ocorrências de violação de políticas com filtros por status, severidade e departamento.
+    Lista ocorrências de violação de políticas com filtros avançados, ordenação (first_seen DESC) e paginação server-side.
     Suporta DEMO_MODE com dados virtuais em memória.
     """
-    status_filter = request.args.get("status", "all").strip()
+    status_filter = request.args.get("status", "all").strip().lower()
     severity_filter = request.args.get("severity", "").strip()
     dept_filter = request.args.get("department", "").strip()
-    limit = min(int(request.args.get("limit", 100)), 300)
+    category_filter = request.args.get("category", "").strip()
+    source_filter = request.args.get("source", "").strip()
+    period_filter = request.args.get("period", "").strip().lower()
+    search_query = request.args.get("search", request.args.get("q", "")).strip()
+    format_opt = request.args.get("format", "").strip().lower()
 
-    query = PolicyEvent.query
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except (ValueError, TypeError):
+        page = 1
 
+    try:
+        per_page = min(max(1, int(request.args.get("per_page", 25))), 100)
+    except (ValueError, TypeError):
+        per_page = 25
+
+    query = PolicyEvent.query.join(Device, isouter=True)
+
+    # 1. Filtro por Status / Aba
     if status_filter == "active":
-        query = query.filter_by(status="active")
+        query = query.filter(PolicyEvent.status == "active")
     elif status_filter == "closed":
-        query = query.filter_by(status="closed")
+        query = query.filter(PolicyEvent.status == "closed")
+    elif status_filter == "recognized":
+        query = query.filter(PolicyEvent.acknowledged == True)
+    elif status_filter == "critical":
+        query = query.filter(PolicyEvent.severity == "critical")
+    # 'all' ou vazio: não filtra por status, retorna histórico completo
 
+    # 2. Filtro por Severidade
     if severity_filter and severity_filter != "Todos":
-        query = query.filter_by(severity=severity_filter.lower())
+        query = query.filter(PolicyEvent.severity == severity_filter.lower())
 
+    # 3. Filtro por Departamento / Setor
     if dept_filter and dept_filter != "Todos":
-        query = query.join(Device).filter(Device.department == dept_filter)
+        query = query.filter(Device.department == dept_filter)
 
-    events = query.order_by(PolicyEvent.last_seen.desc()).limit(limit).all()
+    # 4. Filtro por Categoria
+    if category_filter and category_filter != "Todos":
+        query = query.filter(PolicyEvent.category == category_filter)
+
+    # 5. Filtro por Origem
+    if source_filter and source_filter != "Todos":
+        query = query.filter(PolicyEvent.source == source_filter)
+
+    # 6. Filtro por Período
+    now_utc = datetime.now(timezone.utc)
+    if period_filter == "today":
+        start_today = get_start_of_day_app_tz()
+        query = query.filter(PolicyEvent.first_seen >= start_today)
+    elif period_filter == "7d":
+        cutoff_7d = (now_utc - timedelta(days=7)).replace(tzinfo=None)
+        query = query.filter(PolicyEvent.first_seen >= cutoff_7d)
+    elif period_filter == "30d":
+        cutoff_30d = (now_utc - timedelta(days=30)).replace(tzinfo=None)
+        query = query.filter(PolicyEvent.first_seen >= cutoff_30d)
+
+    # 7. Busca Textual
+    if search_query:
+        term = f"%{search_query.lower()}%"
+        query = query.filter(db.or_(
+            db.func.lower(Device.hostname).like(term),
+            db.func.lower(Device.display_name).like(term),
+            db.func.lower(Device.user_name).like(term),
+            db.func.lower(Device.department).like(term),
+            db.func.lower(PolicyEvent.domain).like(term),
+            db.func.lower(PolicyEvent.application).like(term),
+            db.func.lower(PolicyEvent.category).like(term)
+        ))
+
+    # Ordenação padrão: mais recentes primeiro (first_seen DESC)
+    query = query.order_by(PolicyEvent.first_seen.desc(), PolicyEvent.id.desc())
+
+    total = query.count()
+    events = query.offset((page - 1) * per_page).limit(per_page).all()
     result = [e.to_dict() for e in events]
 
-    if Config.DEMO_MODE and status_filter != "closed":
+    if Config.DEMO_MODE and page == 1 and status_filter in ("all", "active"):
         from demo_data import get_demo_policy_events
-        result = get_demo_policy_events() + result
+        demo_events = get_demo_policy_events()
+        if status_filter == "active":
+            demo_events = [d for d in demo_events if d.get("status") == "active"]
+        result = demo_events + result
+        total += len(demo_events)
+
+    has_page_param = "page" in request.args or request.args.get("paginate") == "true" or format_opt == "paginated"
+    if has_page_param and format_opt != "list":
+        pages = max(1, (total + per_page - 1) // per_page)
+        return jsonify({
+            "items": result,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": pages
+        })
 
     return jsonify(result)
 
@@ -941,29 +1054,168 @@ def reconhecer_evento_politica(event_id):
 @login_required
 def resolver_evento_politica(event_id):
     """
-    Marca uma ocorrência de política como resolvida/fechada manualmente.
+    Marca uma ocorrência de política como tratada/resolvida manualmente por um administrador de TI.
+    Preserva a distinção entre encerramento automático da atividade (status='closed') e resolução manual.
     """
     if event_id >= 9000:
         return jsonify({"status": "ok", "message": "Ocorrência de demonstração resolvida (simulação)."})
 
     event = db.get_or_404(PolicyEvent, event_id)
     now = datetime.now(timezone.utc)
-    event.status = "closed"
     event.resolved_at = now
-    if event.first_seen:
-        f_seen = event.first_seen
-        if f_seen.tzinfo is None:
-            f_seen = f_seen.replace(tzinfo=timezone.utc)
-        event.duration_seconds = max(0, int((now - f_seen).total_seconds()))
+    event.resolved_by = session.get("username", "admin")
 
     audit = PolicyAuditLog(
         user_name=session.get("username", "admin"),
         action="EVENT_RESOLVED",
-        details=f"Ocorrência {event_id} encerrada manualmente."
+        details=f"Ocorrência {event_id} ({event.category} em {event.device.hostname if event.device else '—'}) marcada como resolvida por {session.get('username', 'admin')}."
     )
     db.session.add(audit)
     db.session.commit()
     return jsonify({"status": "ok", "event": event.to_dict()})
+
+
+@app.route("/api/policies/events/<int:event_id>", methods=["DELETE"])
+@admin_required
+def excluir_evento_politica(event_id):
+    """
+    Exclui manualmente uma ocorrência do histórico operacional.
+    Exige papel de administrador e gera registro de auditoria em PolicyAuditLog.
+    """
+    if event_id >= 9000:
+        return jsonify({"status": "ok", "message": "Ocorrência de demonstração excluída (simulação)."})
+
+    event = db.get_or_404(PolicyEvent, event_id)
+    dev_name = event.device.hostname if event.device else "—"
+    target = event.domain or event.application or "—"
+    category = event.category
+
+    audit = PolicyAuditLog(
+        user_name=session.get("username", "admin"),
+        action="policy_event_deleted",
+        details=f"Ocorrência {event.id} ({category} - {target} em {dev_name}) excluída manualmente por {session.get('username', 'admin')}."
+    )
+    db.session.add(audit)
+    db.session.delete(event)
+    db.session.commit()
+
+    logger.info(f"Ocorrência de política {event_id} excluída por {session.get('username', 'admin')}.")
+    return jsonify({"status": "ok", "message": f"Ocorrência {event_id} removida com sucesso."})
+
+
+@app.route("/api/policies/events/bulk-delete", methods=["POST"])
+@admin_required
+def excluir_eventos_em_massa():
+    """
+    Exclusão em massa de ocorrências de políticas corporativas.
+    Modos estritos:
+    - 'selected_ids': Exclui lista de event_ids especificados. Exige confirm_active=True se houver ativas.
+    - 'cleanup_older_than': Limpa ocorrências encerradas (closed) com mais de N dias.
+    Rejeita combinações ambíguas com status 400.
+    """
+    data = request.get_json(silent=True) or {}
+    mode = str(data.get("mode", "")).strip().lower()
+
+    if mode == "selected_ids":
+        event_ids = data.get("event_ids")
+        if not isinstance(event_ids, list) or len(event_ids) == 0:
+            return jsonify({
+                "error": "Parâmetro 'event_ids' deve ser uma lista não vazia de identificadores.",
+                "code": "INVALID_EVENT_IDS"
+            }), 400
+
+        if "days" in data or "filter_closed_older_than_days" in data:
+            return jsonify({
+                "error": "Não misture o modo 'selected_ids' com filtros de dias.",
+                "code": "AMBIGUOUS_BULK_PAYLOAD"
+            }), 400
+
+        # Filtra apenas IDs válidos de inteiros
+        valid_ids = [int(i) for i in event_ids if str(i).isdigit()]
+        real_ids = [i for i in valid_ids if i < 9000]
+
+        # Verifica se existem ocorrências ativas entre as selecionadas
+        active_count = PolicyEvent.query.filter(PolicyEvent.id.in_(real_ids), PolicyEvent.status == "active").count()
+        if active_count > 0 and not data.get("confirm_active"):
+            return jsonify({
+                "error": f"Existem {active_count} ocorrências ativas selecionadas. Confirme explicitamente a exclusão de ocorrências ativas.",
+                "code": "CONFIRM_ACTIVE_REQUIRED",
+                "active_count": active_count
+            }), 400
+
+        targets = PolicyEvent.query.filter(PolicyEvent.id.in_(real_ids)).all()
+        deleted_count = len(targets)
+
+        audit = PolicyAuditLog(
+            user_name=session.get("username", "admin"),
+            action="policy_event_deleted",
+            details=f"Exclusão em massa de {deleted_count} ocorrências selecionadas realizada por {session.get('username', 'admin')}."
+        )
+        db.session.add(audit)
+
+        for event in targets:
+            db.session.delete(event)
+
+        db.session.commit()
+        logger.info(f"Exclusão em massa de {deleted_count} ocorrências de políticas realizada por {session.get('username')}.")
+        return jsonify({
+            "status": "ok",
+            "deleted_count": deleted_count,
+            "mode": "selected_ids"
+        })
+
+    elif mode == "cleanup_older_than":
+        if "event_ids" in data:
+            return jsonify({
+                "error": "Não misture o modo 'cleanup_older_than' com lista de 'event_ids'.",
+                "code": "AMBIGUOUS_BULK_PAYLOAD"
+            }), 400
+
+        days_val = data.get("days") or data.get("filter_closed_older_than_days")
+        try:
+            days_int = int(days_val)
+            if days_int <= 0:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return jsonify({
+                "error": "Parâmetro 'days' deve ser um número inteiro positivo.",
+                "code": "INVALID_DAYS"
+            }), 400
+
+        cutoff_utc = datetime.now(timezone.utc) - timedelta(days=days_int)
+        cutoff_naive = cutoff_utc.replace(tzinfo=None)
+
+        # Remove apenas ocorrências que estejam estritamente ENCERRADAS (closed)
+        closed_targets = PolicyEvent.query.filter(
+            PolicyEvent.status == "closed",
+            PolicyEvent.first_seen < cutoff_naive
+        ).all()
+        deleted_count = len(closed_targets)
+
+        audit = PolicyAuditLog(
+            user_name=session.get("username", "admin"),
+            action="policy_event_deleted",
+            details=f"Limpeza de {deleted_count} ocorrências encerradas há mais de {days_int} dias realizada por {session.get('username', 'admin')}."
+        )
+        db.session.add(audit)
+
+        for event in closed_targets:
+            db.session.delete(event)
+
+        db.session.commit()
+        logger.info(f"Limpeza de {deleted_count} ocorrências encerradas (> {days_int} dias) realizada por {session.get('username')}.")
+        return jsonify({
+            "status": "ok",
+            "deleted_count": deleted_count,
+            "mode": "cleanup_older_than",
+            "days": days_int
+        })
+
+    else:
+        return jsonify({
+            "error": "Modo de exclusão em massa inválido. Especifique 'mode': 'selected_ids' ou 'mode': 'cleanup_older_than'.",
+            "code": "INVALID_BULK_MODE"
+        }), 400
 
 
 @app.route("/api/policies/stats", methods=["GET"])
@@ -971,13 +1223,25 @@ def resolver_evento_politica(event_id):
 def estatisticas_politicas():
     """
     Relatório consolidado de violações de políticas para gestão de risco e conformidade.
+    Calcula indicadores temporais (como ocorrências hoje) respeitando o fuso horário da empresa.
     """
+    start_today = get_start_of_day_app_tz()
+
+    active_rules_count = PolicyRule.query.filter_by(enabled=True).count()
+    active_violations_count = PolicyEvent.query.filter_by(status="active").count()
+    today_violations_count = PolicyEvent.query.filter(PolicyEvent.first_seen >= start_today).count()
+    critical_active_count = PolicyEvent.query.filter(PolicyEvent.severity == "critical", PolicyEvent.status == "active").count()
+
     all_events = PolicyEvent.query.all()
     events_dicts = [e.to_dict() for e in all_events]
 
     if Config.DEMO_MODE:
         from demo_data import get_demo_policy_events
-        events_dicts = get_demo_policy_events() + events_dicts
+        demo_events = get_demo_policy_events()
+        events_dicts = demo_events + events_dicts
+        active_violations_count += sum(1 for d in demo_events if d.get("status") == "active")
+        today_violations_count += len(demo_events)
+        critical_active_count += sum(1 for d in demo_events if d.get("severity") == "critical" and d.get("status") == "active")
 
     categories_count = {}
     departments_count = {}
@@ -995,8 +1259,12 @@ def estatisticas_politicas():
             severity_count[sev] += 1
 
     return jsonify({
+        "active_rules": active_rules_count,
+        "active_violations": active_violations_count,
+        "today_violations": today_violations_count,
+        "critical_violations": critical_active_count,
         "total_events": len(events_dicts),
-        "active_events": sum(1 for e in events_dicts if e.get("status") == "active"),
+        "active_events": active_violations_count,
         "by_category": categories_count,
         "by_department": departments_count,
         "by_severity": severity_count

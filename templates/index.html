@@ -570,31 +570,79 @@
 
                 <!-- SUB-ABA 1: OCORRÊNCIAS & VIOLAÇÕES -->
                 <div id="subtab-pol-ocorrencias" class="space-y-4">
-                    <!-- Filtros de Ocorrências -->
+                    <!-- Barra de Abas e Ações Rápidas -->
                     <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
-                        <div class="flex items-center gap-2">
-                            <button onclick="filtrarEventosPolitica('active')" id="btn-pol-filter-active"
-                                    class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs">
-                                Ativas
-                            </button>
+                        <div class="flex flex-wrap items-center gap-1.5">
                             <button onclick="filtrarEventosPolitica('all')" id="btn-pol-filter-all"
-                                    class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+                                    class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs">
                                 Todas
+                            </button>
+                            <button onclick="filtrarEventosPolitica('active')" id="btn-pol-filter-active"
+                                    class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+                                Ativas
                             </button>
                             <button onclick="filtrarEventosPolitica('closed')" id="btn-pol-filter-closed"
                                     class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
-                                Resolvidas
+                                Encerradas
+                            </button>
+                            <button onclick="filtrarEventosPolitica('recognized')" id="btn-pol-filter-recognized"
+                                    class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+                                Reconhecidas
+                            </button>
+                            <button onclick="filtrarEventosPolitica('critical')" id="btn-pol-filter-critical"
+                                    class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+                                Críticas
                             </button>
                         </div>
 
-                        <div class="flex items-center gap-2 text-xs">
-                            <select id="filter-pol-severity" onchange="carregarEventosPolitica()"
+                        <div class="flex items-center gap-2">
+                            <button onclick="abrirModalLimpezaEncerradas()"
+                                    class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 transition-colors flex items-center gap-1.5"
+                                    title="Limpar ocorrências encerradas com filtros por período">
+                                <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                <span>Limpar Encerradas Antigas</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Linha de Filtros Avançados & Busca Textual -->
+                    <div class="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <select id="filter-pol-period" onchange="resetarPaginaECarregarEventos()"
+                                    class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-none">
+                                <option value="all">Todos os Períodos</option>
+                                <option value="today">Hoje</option>
+                                <option value="7d">Últimos 7 dias</option>
+                                <option value="30d">Últimos 30 dias</option>
+                            </select>
+
+                            <select id="filter-pol-severity" onchange="resetarPaginaECarregarEventos()"
                                     class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-none">
                                 <option value="Todos">Todas as Severidades</option>
                                 <option value="critical">Crítico</option>
                                 <option value="warning">Alerta</option>
                                 <option value="info">Informativo</option>
                             </select>
+
+                            <select id="filter-pol-source" onchange="resetarPaginaECarregarEventos()"
+                                    class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-none">
+                                <option value="Todos">Todas as Origens</option>
+                                <option value="manual_rule">Regra Manual</option>
+                                <option value="automatic_classification">Classificação Automática</option>
+                            </select>
+                        </div>
+
+                        <div class="flex items-center gap-2 flex-1 max-w-sm">
+                            <div class="relative w-full">
+                                <input type="text" id="filter-pol-search" oninput="debounceBuscaEventos()"
+                                       placeholder="Buscar computador, usuário, domínio..."
+                                       class="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-givova-500/20 focus:border-givova-600">
+                                <svg class="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                            </div>
 
                             <button onclick="carregarEventosPolitica()" title="Recarregar ocorrências"
                                     class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition-colors">
@@ -605,25 +653,78 @@
                         </div>
                     </div>
 
+                    <!-- Barra de Ações em Massa (Aparece se houver checkboxes selecionados) -->
+                    <div id="pol-bulk-bar" class="hidden bg-amber-50 border border-amber-200 p-3 rounded-2xl flex items-center justify-between gap-3 text-xs animate-in fade-in duration-150">
+                        <div class="flex items-center gap-2 text-amber-900 font-semibold">
+                            <span id="pol-selected-count">0 ocorrências selecionadas</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="desmarcarTodasOcorrencias()" class="px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-slate-700 hover:bg-amber-100/50 font-medium transition-colors">
+                                Desmarcar Todas
+                            </button>
+                            <button onclick="abrirModalExclusaoEmMassa()" class="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold shadow-xs flex items-center gap-1.5 transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                <span>Excluir Selecionadas</span>
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Tabela de Ocorrências -->
                     <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
                         <div class="overflow-x-auto">
                             <table class="w-full text-left text-xs">
                                 <thead class="bg-slate-50/80 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200/80 text-[11px]">
                                     <tr>
-                                        <th class="py-3 px-4">Computador</th>
+                                        <th class="py-3 px-3 text-center w-8">
+                                            <input type="checkbox" id="pol-select-all" onchange="toggleSelectAllOcorrencias(this.checked)" class="rounded text-givova-600 focus:ring-givova-500 cursor-pointer">
+                                        </th>
+                                        <th class="py-3 px-3">Computador / Responsável</th>
                                         <th class="py-3 px-3">Alvo Detectado</th>
                                         <th class="py-3 px-3">Categoria</th>
-                                        <th class="py-3 px-3 text-center">Severidade</th>
-                                        <th class="py-3 px-3">Início / Duração</th>
-                                        <th class="py-3 px-3 text-center">Status</th>
-                                        <th class="py-3 px-4 text-right">Ações</th>
+                                        <th class="py-3 px-2 text-center">Severidade</th>
+                                        <th class="py-3 px-3">Início</th>
+                                        <th class="py-3 px-3">Fim / Resolução</th>
+                                        <th class="py-3 px-2">Duração</th>
+                                        <th class="py-3 px-2 text-center">Atividade</th>
+                                        <th class="py-3 px-2 text-center">Tratamento TI</th>
+                                        <th class="py-3 px-2 text-center">Origem</th>
+                                        <th class="py-3 px-3 text-right">Ações</th>
                                     </tr>
                                 </thead>
                                 <tbody id="table-pol-events-body" class="divide-y divide-slate-100">
-                                    <tr><td colspan="7" class="py-12 text-center text-slate-400">Carregando ocorrências...</td></tr>
+                                    <tr><td colspan="12" class="py-12 text-center text-slate-400">Carregando ocorrências...</td></tr>
                                 </tbody>
                             </table>
+                        </div>
+
+                        <!-- Barra de Paginação Server-Side -->
+                        <div class="p-3 bg-slate-50/80 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+                            <div class="text-slate-500">
+                                Exibindo <span id="pol-page-range" class="font-semibold text-slate-800">0</span> de <span id="pol-total-count" class="font-semibold text-slate-800">0</span> ocorrências
+                            </div>
+
+                            <div class="flex items-center gap-3">
+                                <div class="flex items-center gap-1.5 text-slate-500">
+                                    <span>Por página:</span>
+                                    <select id="pol-per-page" onchange="mudarItensPorPaginaPolitica(this.value)" class="bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-700 text-xs focus:outline-none">
+                                        <option value="25" selected>25</option>
+                                        <option value="50">50</option>
+                                        <option value="100">100</option>
+                                    </select>
+                                </div>
+
+                                <div class="flex items-center gap-1">
+                                    <button id="btn-pol-page-prev" onclick="mudarPaginaPolitica(-1)" class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                                        Anterior
+                                    </button>
+                                    <span id="pol-page-info" class="px-2 text-slate-600 font-medium font-mono text-[11px]">Página 1 de 1</span>
+                                    <button id="btn-pol-page-next" onclick="mudarPaginaPolitica(1)" class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                                        Próxima
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1264,6 +1365,149 @@
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- MODAL: CONFIRMAÇÃO DE EXCLUSÃO DE OCORRÊNCIA INDIVIDUAL           -->
+    <!-- ================================================================= -->
+    <div id="modal-delete-policy-event" class="fixed inset-0 z-55 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div class="flex items-center gap-3 text-rose-600">
+                <div class="w-10 h-10 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-base font-bold text-slate-900">Excluir ocorrência?</h3>
+                    <p class="text-xs text-slate-500">Esta ação removerá este registro do histórico operacional.</p>
+                </div>
+            </div>
+
+            <div class="bg-slate-50 rounded-2xl p-3.5 border border-slate-200/80 text-xs space-y-1.5 font-mono">
+                <div class="flex justify-between text-slate-600">
+                    <span class="text-slate-400 font-sans">Computador:</span>
+                    <span id="del-event-computer" class="font-bold text-slate-800">—</span>
+                </div>
+                <div class="flex justify-between text-slate-600">
+                    <span class="text-slate-400 font-sans">Alvo Detectado:</span>
+                    <span id="del-event-target" class="font-semibold text-slate-800">—</span>
+                </div>
+                <div class="flex justify-between text-slate-600">
+                    <span class="text-slate-400 font-sans">Categoria:</span>
+                    <span id="del-event-category" class="font-semibold text-slate-800">—</span>
+                </div>
+                <div class="flex justify-between text-slate-600">
+                    <span class="text-slate-400 font-sans">Status Atual:</span>
+                    <span id="del-event-status" class="font-semibold text-slate-800">—</span>
+                </div>
+            </div>
+
+            <div class="text-[11px] text-slate-500 leading-relaxed bg-amber-50/70 border border-amber-200/80 p-3 rounded-xl">
+                A ocorrência deixará de constar no histórico e nas estatísticas, mas a exclusão ficará registrada em <strong>PolicyAuditLog</strong> para conformidade e segurança da TI.
+            </div>
+
+            <input type="hidden" id="del-event-id">
+
+            <div class="pt-2 flex items-center justify-end gap-2">
+                <button type="button" onclick="fecharModalExclusaoEvento()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+                    Cancelar
+                </button>
+                <button type="button" onclick="confirmarExclusaoEvento()" id="btn-confirm-delete-event" class="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-colors">
+                    Excluir Ocorrência
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- MODAL: CONFIRMAÇÃO DE EXCLUSÃO EM MASSA                           -->
+    <!-- ================================================================= -->
+    <div id="modal-bulk-delete-policy-event" class="fixed inset-0 z-55 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div class="flex items-center gap-3 text-rose-600">
+                <div class="w-10 h-10 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-base font-bold text-slate-900">Excluir ocorrências selecionadas?</h3>
+                    <p class="text-xs text-slate-500" id="bulk-delete-count-msg">Você está prestes a remover ocorrências do histórico.</p>
+                </div>
+            </div>
+
+            <!-- Alerta condicional de ocorrências ativas -->
+            <div id="bulk-active-warning" class="hidden p-3.5 bg-rose-50 border border-rose-200 rounded-2xl space-y-2">
+                <div class="flex items-start gap-2 text-rose-800 font-bold text-xs">
+                    <span class="text-base leading-none">⚠️</span>
+                    <span>ATENÇÃO: Existem ocorrências ATIVAS selecionadas!</span>
+                </div>
+                <p class="text-[11px] text-rose-700 leading-snug">
+                    Remover ocorrências ativas interrompe o rastreamento do evento antes que a atividade seja encerrada.
+                </p>
+                <label class="flex items-center gap-2 pt-1 border-t border-rose-200/60 cursor-pointer">
+                    <input type="checkbox" id="chk-confirm-active-bulk" class="rounded text-rose-600 focus:ring-rose-500">
+                    <span class="text-xs font-semibold text-rose-900">Confirmo a exclusão de ocorrências ativas</span>
+                </label>
+            </div>
+
+            <div class="text-[11px] text-slate-500 leading-relaxed bg-slate-50 border border-slate-200 p-3 rounded-xl">
+                A ação removerá os registros selecionados do histórico operacional e registrará o log administrativo com os IDs e usuário responsável.
+            </div>
+
+            <div class="pt-2 flex items-center justify-end gap-2">
+                <button type="button" onclick="fecharModalExclusaoEmMassa()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+                    Cancelar
+                </button>
+                <button type="button" onclick="confirmarExclusaoEmMassa()" id="btn-confirm-bulk-delete" class="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-colors">
+                    Confirmar Exclusão em Massa
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- MODAL: LIMPEZA DE OCORRÊNCIAS ENCERRADAS ANTIGAS                  -->
+    <!-- ================================================================= -->
+    <div id="modal-cleanup-old-events" class="fixed inset-0 z-55 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div class="flex items-center gap-3 text-slate-700">
+                <div class="w-10 h-10 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0">
+                    <svg class="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-base font-bold text-slate-900">Limpar Histórico Antigo</h3>
+                    <p class="text-xs text-slate-500">Expurgo seguro apenas de ocorrências encerradas.</p>
+                </div>
+            </div>
+
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="block font-semibold text-slate-700 uppercase tracking-wider mb-1">Período de Limpeza</label>
+                    <select id="cleanup-days-select" class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none">
+                        <option value="30">Mais antigas que 30 dias</option>
+                        <option value="60">Mais antigas que 60 dias</option>
+                        <option value="90">Mais antigas que 90 dias</option>
+                    </select>
+                </div>
+
+                <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-[11px] leading-snug">
+                    ✓ <strong>Garantia de integridade:</strong> Somente ocorrências com status <code>ENCERRADA</code> serão removidas. Ocorrências ativas nunca serão afetadas por esta limpeza.
+                </div>
+            </div>
+
+            <div class="pt-2 flex items-center justify-end gap-2">
+                <button type="button" onclick="fecharModalLimpezaEncerradas()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+                    Cancelar
+                </button>
+                <button type="button" onclick="confirmarLimpezaEncerradas()" id="btn-confirm-cleanup" class="px-4 py-2 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-900 rounded-xl shadow-xs transition-colors">
+                    Executar Limpeza
+                </button>
+            </div>
         </div>
     </div>
 
@@ -2162,7 +2406,15 @@
         // GERENCIAMENTO DE POLÍTICAS CORPORATIVAS (SITES & SOFTWARES)
         // =============================================================
         let abaPoliticaAtiva = 'ocorrencias';
-        let filtroEventoStatus = 'active';
+        let filtroEventoStatus = 'all'; // Padrão: exibe histórico completo
+        let paginaAtualEventos = 1;
+        let totalPaginasEventos = 1;
+        let totalOcorrencias = 0;
+        let itensPorPaginaEventos = 25;
+        let ocorrenciasSelecionadas = new Set();
+        let ocorrenciasCarregadas = [];
+        let debounceBuscaTimer = null;
+        let idEventoExcluir = null;
         let todasRegrasPolitica = [];
 
         const CANONICAL_CATEGORIES_MAP = {
@@ -2388,11 +2640,12 @@
 
         function filtrarEventosPolitica(status) {
             filtroEventoStatus = status;
-            ['active', 'all', 'closed'].forEach(s => {
+            paginaAtualEventos = 1;
+            ['all', 'active', 'closed', 'recognized', 'critical'].forEach(s => {
                 const btn = document.getElementById(`btn-pol-filter-${s}`);
                 if (btn) {
                     if (s === status) {
-                        btn.className = "px-3 py-1.5 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs";
+                        btn.className = "px-3 py-1.5 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs transition-colors";
                     } else {
                         btn.className = "px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors";
                     }
@@ -2401,29 +2654,90 @@
             carregarEventosPolitica();
         }
 
+        function resetarPaginaECarregarEventos() {
+            paginaAtualEventos = 1;
+            carregarEventosPolitica();
+        }
+
+        function debounceBuscaEventos() {
+            clearTimeout(debounceBuscaTimer);
+            debounceBuscaTimer = setTimeout(() => {
+                paginaAtualEventos = 1;
+                carregarEventosPolitica();
+            }, 300);
+        }
+
+        function mudarPaginaPolitica(delta) {
+            const novaPagina = paginaAtualEventos + delta;
+            if (novaPagina >= 1 && novaPagina <= totalPaginasEventos) {
+                paginaAtualEventos = novaPagina;
+                carregarEventosPolitica();
+            }
+        }
+
+        function mudarItensPorPaginaPolitica(val) {
+            itensPorPaginaEventos = parseInt(val) || 25;
+            paginaAtualEventos = 1;
+            carregarEventosPolitica();
+        }
+
         async function carregarEventosPolitica() {
             const tbody = document.getElementById("table-pol-events-body");
-            const severityEl = document.getElementById("filter-pol-severity");
-            const severity = severityEl ? severityEl.value : "Todos";
+            if (!tbody) return;
 
-            let url = `/api/policies/events?status=${filtroEventoStatus}`;
-            if (severity && severity !== "Todos") {
-                url += `&severity=${severity}`;
-            }
+            const periodEl = document.getElementById("filter-pol-period");
+            const severityEl = document.getElementById("filter-pol-severity");
+            const sourceEl = document.getElementById("filter-pol-source");
+            const searchEl = document.getElementById("filter-pol-search");
+
+            const period = periodEl ? periodEl.value : "all";
+            const severity = severityEl ? severityEl.value : "Todos";
+            const source = sourceEl ? sourceEl.value : "Todos";
+            const search = searchEl ? searchEl.value.trim() : "";
+
+            let url = `/api/policies/events?status=${filtroEventoStatus}&page=${paginaAtualEventos}&per_page=${itensPorPaginaEventos}`;
+            if (period && period !== "all") url += `&period=${period}`;
+            if (severity && severity !== "Todos") url += `&severity=${severity}`;
+            if (source && source !== "Todos") url += `&source=${source}`;
+            if (search) url += `&search=${encodeURIComponent(search)}`;
 
             try {
                 const resp = await fetch(url);
-                if (!resp.ok) throw new Error("Erro ao listar ocorrências");
-                const events = await resp.json();
+                if (!resp.ok) throw new Error("Erro ao listar ocorrências de políticas");
+                const data = await resp.json();
+
+                const events = Array.isArray(data) ? data : (data.items || []);
+                totalOcorrencias = data.total ?? events.length;
+                totalPaginasEventos = data.pages ?? 1;
+                paginaAtualEventos = data.page ?? paginaAtualEventos;
+                ocorrenciasCarregadas = events;
+
+                // Atualiza controles de paginação
+                const elPageRange = document.getElementById("pol-page-range");
+                const elTotalCount = document.getElementById("pol-total-count");
+                const elPageInfo = document.getElementById("pol-page-info");
+                const btnPrev = document.getElementById("btn-pol-page-prev");
+                const btnNext = document.getElementById("btn-pol-page-next");
+
+                const startIdx = totalOcorrencias === 0 ? 0 : (paginaAtualEventos - 1) * itensPorPaginaEventos + 1;
+                const endIdx = Math.min(paginaAtualEventos * itensPorPaginaEventos, totalOcorrencias);
+
+                if (elPageRange) elPageRange.innerText = totalOcorrencias === 0 ? "0" : `${startIdx}-${endIdx}`;
+                if (elTotalCount) elTotalCount.innerText = totalOcorrencias;
+                if (elPageInfo) elPageInfo.innerText = `Página ${paginaAtualEventos} de ${totalPaginasEventos}`;
+                if (btnPrev) btnPrev.disabled = (paginaAtualEventos <= 1);
+                if (btnNext) btnNext.disabled = (paginaAtualEventos >= totalPaginasEventos);
 
                 if (events.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="7" class="py-12 text-center text-slate-400">Nenhuma ocorrência de política corporativa encontrada com os filtros atuais.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="12" class="py-12 text-center text-slate-400">Nenhuma ocorrência encontrada com os filtros atuais.</td></tr>`;
+                    atualizarBarraAcoesEmMassa();
                     return;
                 }
 
                 tbody.innerHTML = events.map(e => {
                     const devName = e.device_name || e.hostname || 'Desconhecido';
                     const dept = e.department || '—';
+                    const userName = e.user_name && e.user_name !== '—' ? e.user_name : '';
                     const target = e.domain ? `${e.domain}` : (e.application ? `${e.application}` : '—');
                     const targetTypeIcon = e.domain ? '🌐' : '💻';
                     
@@ -2433,62 +2747,168 @@
                             ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">Alerta</span>'
                             : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">Info</span>');
 
-                    const statusBadge = e.status === 'active'
+                    // 1. Badge de Status da Atividade (Ativa vs Encerrada)
+                    const activityBadge = e.status === 'active'
                         ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span> Ativa</span>'
-                        : '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200"><span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span> Fechada</span>';
+                        : '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200"><span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span> Encerrada</span>';
 
-                    const durationMin = Math.round((e.duration_seconds || 0) / 60);
-                    const durText = durationMin > 0 ? `${durationMin} min` : `${e.duration_seconds || 0}s`;
+                    // 2. Badge de Tratamento pela TI (Resolvida vs Reconhecida vs Pendente)
+                    let treatmentBadge = '';
+                    if (e.is_resolved) {
+                        treatmentBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200" title="Resolvido por ${e.resolved_by || 'admin'}">Resolvida</span>`;
+                    } else if (e.acknowledged) {
+                        treatmentBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200" title="Reconhecido por ${e.acknowledged_by || 'admin'}">Reconhecida</span>`;
+                    } else {
+                        treatmentBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-800 border border-amber-200/60">Pendente</span>';
+                    }
+
+                    // 3. Badge de Origem da Detecção
+                    const originBadge = e.source === 'automatic_classification'
+                        ? '<span class="px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 text-[10px] font-semibold border border-purple-200" title="Classificação Automática por IA/Heurística">Classificação</span>'
+                        : '<span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-semibold border border-slate-200" title="Regra Corporativa Manual">Regra</span>';
+
+                    // Resolução / Fim
+                    let fimHtml = '';
+                    if (e.is_resolved) {
+                        fimHtml = `<div class="text-emerald-700 font-semibold font-mono text-[11px]">${e.resolved_at}</div><div class="text-[10px] text-slate-400">por ${e.resolved_by || 'admin'}</div>`;
+                    } else if (e.status === 'closed') {
+                        fimHtml = `<div class="text-slate-600 font-mono text-[11px]">${e.last_seen || '—'}</div><div class="text-[10px] text-slate-400">atividade cessou</div>`;
+                    } else {
+                        fimHtml = `<span class="inline-flex items-center gap-1 text-amber-600 font-semibold text-[11px]"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span> Em andamento</span>`;
+                    }
+
+                    const isChecked = ocorrenciasSelecionadas.has(e.id);
 
                     return `
-                        <tr class="hover:bg-slate-50/80 transition-colors">
-                            <td class="py-3 px-4">
+                        <tr class="hover:bg-slate-50/80 transition-colors ${isChecked ? 'bg-amber-50/40' : ''}">
+                            <td class="py-3 px-3 text-center">
+                                <input type="checkbox" onchange="toggleSelectOcorrencia(${e.id}, this.checked)" ${isChecked ? 'checked' : ''} class="rounded text-givova-600 focus:ring-givova-500 cursor-pointer">
+                            </td>
+                            <td class="py-3 px-3">
                                 <div class="font-bold text-slate-900 flex items-center gap-1.5">
                                     <span>${devName}</span>
                                     ${e.is_demo ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-100 text-amber-800 border border-amber-300">DEMO</span>' : ''}
                                 </div>
-                                <div class="text-[11px] text-slate-400 font-mono">${dept}</div>
+                                <div class="text-[11px] text-slate-400 font-mono">
+                                    ${userName ? `<span class="text-slate-600">${userName}</span> • ` : ''}${dept}
+                                </div>
                             </td>
                             <td class="py-3 px-3">
-                                <span class="font-semibold text-slate-800 font-mono inline-flex items-center gap-1">${targetTypeIcon} ${target}</span>
+                                <span class="font-semibold text-slate-800 font-mono inline-flex items-center gap-1.5 max-w-[200px] truncate" title="${target}">
+                                    <span>${targetTypeIcon}</span> <span>${target}</span>
+                                </span>
                             </td>
                             <td class="py-3 px-3">
                                 <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium text-[11px]">${formatCategory(e.category)}</span>
                             </td>
-                            <td class="py-3 px-3 text-center">${sevBadge}</td>
+                            <td class="py-3 px-2 text-center">${sevBadge}</td>
                             <td class="py-3 px-3">
                                 <div class="text-slate-800 font-mono text-[11px]">${e.first_seen || '—'}</div>
-                                <div class="text-slate-400 text-[10px]">Duração: ${durText}</div>
                             </td>
-                            <td class="py-3 px-3 text-center">${statusBadge}</td>
-                            <td class="py-3 px-4 text-right">
-                                <div class="flex items-center justify-end gap-1.5">
-                                    ${!e.acknowledged && e.status === 'active' ? `
-                                        <button onclick="reconhecerEventoPolitica(${e.id})" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-200 shadow-2xs transition-colors" title="Reconhecer ciente">
+                            <td class="py-3 px-3">
+                                ${fimHtml}
+                            </td>
+                            <td class="py-3 px-2">
+                                <span class="text-slate-600 font-mono text-[11px] font-semibold">${e.duration_formatted || '0s'}</span>
+                            </td>
+                            <td class="py-3 px-2 text-center">${activityBadge}</td>
+                            <td class="py-3 px-2 text-center">${treatmentBadge}</td>
+                            <td class="py-3 px-2 text-center">${originBadge}</td>
+                            <td class="py-3 px-3 text-right">
+                                <div class="flex items-center justify-end gap-1">
+                                    ${!e.acknowledged ? `
+                                        <button onclick="reconhecerEventoPolitica(${e.id})" class="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold border border-slate-200 shadow-2xs transition-colors" title="Reconhecer ocorrência">
                                             Reconhecer
                                         </button>
                                     ` : ''}
-                                    ${e.status === 'active' ? `
-                                        <button onclick="resolverEventoPolitica(${e.id})" class="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold border border-emerald-200 shadow-2xs transition-colors" title="Encerrar ocorrência">
+                                    ${!e.is_resolved ? `
+                                        <button onclick="resolverEventoPolitica(${e.id})" class="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold border border-emerald-200 shadow-2xs transition-colors" title="Marcar como resolvida pela TI">
                                             Resolver
                                         </button>
-                                    ` : '<span class="text-slate-400 text-[11px]">Concluída</span>'}
+                                    ` : ''}
+                                    <button onclick="abrirModalExclusaoEvento(${e.id})" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors" title="Excluir ocorrência do histórico operacional">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    </button>
                                 </div>
                             </td>
                         </tr>
                     `;
                 }).join("");
+
+                atualizarBarraAcoesEmMassa();
+
             } catch (err) {
                 console.error("Erro ao carregar eventos:", err);
-                tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-rose-500">Erro ao carregar ocorrências corporativas.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="12" class="py-6 text-center text-rose-500">Erro ao carregar ocorrências corporativas.</td></tr>`;
             }
         }
 
+        // =============================================================
+        // SELEÇÃO EM MASSA DE OCORRÊNCIAS
+        // =============================================================
+        function toggleSelectOcorrencia(id, checked) {
+            if (checked) {
+                ocorrenciasSelecionadas.add(id);
+            } else {
+                ocorrenciasSelecionadas.delete(id);
+            }
+            atualizarBarraAcoesEmMassa();
+        }
+
+        function toggleSelectAllOcorrencias(checked) {
+            ocorrenciasCarregadas.forEach(e => {
+                if (checked) {
+                    ocorrenciasSelecionadas.add(e.id);
+                } else {
+                    ocorrenciasSelecionadas.delete(e.id);
+                }
+            });
+            atualizarBarraAcoesEmMassa();
+            carregarEventosPolitica();
+        }
+
+        function desmarcarTodasOcorrencias() {
+            ocorrenciasSelecionadas.clear();
+            const chkAll = document.getElementById("pol-select-all");
+            if (chkAll) chkAll.checked = false;
+            atualizarBarraAcoesEmMassa();
+            carregarEventosPolitica();
+        }
+
+        function atualizarBarraAcoesEmMassa() {
+            const bar = document.getElementById("pol-bulk-bar");
+            const countEl = document.getElementById("pol-selected-count");
+            const chkAll = document.getElementById("pol-select-all");
+
+            const count = ocorrenciasSelecionadas.size;
+            if (bar) {
+                if (count > 0) {
+                    bar.classList.remove("hidden");
+                    if (countEl) countEl.innerText = `${count} ${count === 1 ? 'ocorrência selecionada' : 'ocorrências selecionadas'}`;
+                } else {
+                    bar.classList.add("hidden");
+                }
+            }
+
+            if (chkAll && ocorrenciasCarregadas.length > 0) {
+                const allSelected = ocorrenciasCarregadas.every(e => ocorrenciasSelecionadas.has(e.id));
+                chkAll.checked = allSelected;
+            }
+        }
+
+        // =============================================================
+        // AÇÕES: RECONHECER, RESOLVER E EXCLUIR
+        // =============================================================
         async function reconhecerEventoPolitica(id) {
             try {
                 const resp = await fetch(`/api/policies/events/${id}/acknowledge`, { method: "POST" });
                 if (resp.ok) {
                     carregarEventosPolitica();
+                    carregarPoliticas();
+                } else {
+                    alert("Erro ao reconhecer ocorrência.");
                 }
             } catch (err) {
                 console.error(err);
@@ -2499,11 +2919,172 @@
             try {
                 const resp = await fetch(`/api/policies/events/${id}/resolve`, { method: "POST" });
                 if (resp.ok) {
-                    carregarDados();
                     carregarEventosPolitica();
+                    carregarPoliticas();
+                } else {
+                    alert("Erro ao resolver ocorrência.");
                 }
             } catch (err) {
                 console.error(err);
+            }
+        }
+
+        function abrirModalExclusaoEvento(id) {
+            idEventoExcluir = id;
+            const event = ocorrenciasCarregadas.find(e => e.id === id);
+            if (event) {
+                const devEl = document.getElementById("del-event-computer");
+                const targetEl = document.getElementById("del-event-target");
+                const catEl = document.getElementById("del-event-category");
+                const statusEl = document.getElementById("del-event-status");
+                if (devEl) devEl.innerText = event.device_name || event.hostname || '—';
+                if (targetEl) targetEl.innerText = event.domain || event.application || '—';
+                if (catEl) catEl.innerText = formatCategory(event.category);
+                if (statusEl) statusEl.innerText = event.status === 'active' ? 'Ativa (em andamento)' : 'Encerrada';
+            }
+            document.getElementById("modal-delete-policy-event").classList.remove("hidden");
+        }
+
+        function fecharModalExclusaoEvento() {
+            idEventoExcluir = null;
+            document.getElementById("modal-delete-policy-event").classList.add("hidden");
+        }
+
+        async function confirmarExclusaoEvento() {
+            if (!idEventoExcluir) return;
+            const btn = document.getElementById("btn-confirm-delete-event");
+            if (btn) btn.disabled = true;
+
+            try {
+                const resp = await fetch(`/api/policies/events/${idEventoExcluir}`, { method: "DELETE" });
+                const resData = await resp.json();
+                if (resp.ok) {
+                    ocorrenciasSelecionadas.delete(idEventoExcluir);
+                    fecharModalExclusaoEvento();
+                    carregarEventosPolitica();
+                    carregarPoliticas();
+                } else {
+                    alert(resData.error || "Erro ao excluir ocorrência.");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Falha de comunicação ao excluir ocorrência.");
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        function abrirModalExclusaoEmMassa() {
+            const count = ocorrenciasSelecionadas.size;
+            if (count === 0) return;
+
+            const countMsg = document.getElementById("bulk-delete-count-msg");
+            if (countMsg) {
+                countMsg.innerText = `Você selecionou ${count} ${count === 1 ? 'ocorrência' : 'ocorrências'} para remoção permanente.`;
+            }
+
+            // Verifica se há ativas entre as selecionadas
+            const activeSelected = ocorrenciasCarregadas.filter(e => ocorrenciasSelecionadas.has(e.id) && e.status === 'active').length;
+            const warningEl = document.getElementById("bulk-active-warning");
+            const chkConfirmActive = document.getElementById("chk-confirm-active-bulk");
+
+            if (warningEl) {
+                if (activeSelected > 0) {
+                    warningEl.classList.remove("hidden");
+                    if (chkConfirmActive) chkConfirmActive.checked = false;
+                } else {
+                    warningEl.classList.add("hidden");
+                    if (chkConfirmActive) chkConfirmActive.checked = true;
+                }
+            }
+
+            document.getElementById("modal-bulk-delete-policy-event").classList.remove("hidden");
+        }
+
+        function fecharModalExclusaoEmMassa() {
+            document.getElementById("modal-bulk-delete-policy-event").classList.add("hidden");
+        }
+
+        async function confirmarExclusaoEmMassa() {
+            const eventIds = Array.from(ocorrenciasSelecionadas);
+            if (eventIds.length === 0) return;
+
+            const chkConfirmActive = document.getElementById("chk-confirm-active-bulk");
+            const warningEl = document.getElementById("bulk-active-warning");
+            const hasActiveWarning = warningEl && !warningEl.classList.contains("hidden");
+
+            if (hasActiveWarning && chkConfirmActive && !chkConfirmActive.checked) {
+                alert("Por favor, marque a confirmação para permitir a exclusão de ocorrências ativas.");
+                return;
+            }
+
+            const btn = document.getElementById("btn-confirm-bulk-delete");
+            if (btn) btn.disabled = true;
+
+            try {
+                const resp = await fetch("/api/policies/events/bulk-delete", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        mode: "selected_ids",
+                        event_ids: eventIds,
+                        confirm_active: chkConfirmActive ? chkConfirmActive.checked : false
+                    })
+                });
+                const resData = await resp.json();
+                if (resp.ok) {
+                    ocorrenciasSelecionadas.clear();
+                    fecharModalExclusaoEmMassa();
+                    carregarEventosPolitica();
+                    carregarPoliticas();
+                } else {
+                    alert(resData.error || "Erro ao excluir ocorrências em massa.");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Falha de conexão ao executar exclusão em massa.");
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        function abrirModalLimpezaEncerradas() {
+            document.getElementById("modal-cleanup-old-events").classList.remove("hidden");
+        }
+
+        function fecharModalLimpezaEncerradas() {
+            document.getElementById("modal-cleanup-old-events").classList.add("hidden");
+        }
+
+        async function confirmarLimpezaEncerradas() {
+            const select = document.getElementById("cleanup-days-select");
+            const days = select ? parseInt(select.value) : 30;
+            const btn = document.getElementById("btn-confirm-cleanup");
+            if (btn) btn.disabled = true;
+
+            try {
+                const resp = await fetch("/api/policies/events/bulk-delete", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        mode: "cleanup_older_than",
+                        days: days
+                    })
+                });
+                const resData = await resp.json();
+                if (resp.ok) {
+                    fecharModalLimpezaEncerradas();
+                    alert(`Limpeza concluída com sucesso! ${resData.deleted_count} ocorrências encerradas antigas foram removidas.`);
+                    carregarEventosPolitica();
+                    carregarPoliticas();
+                } else {
+                    alert(resData.error || "Erro ao executar limpeza de ocorrências antigas.");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Falha de conexão ao executar limpeza.");
+            } finally {
+                if (btn) btn.disabled = false;
             }
         }
 

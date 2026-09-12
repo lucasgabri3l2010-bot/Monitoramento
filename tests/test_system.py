@@ -570,7 +570,8 @@ class SystemMonitoringTestCase(unittest.TestCase):
             self.assertEqual(len(active_events), 0)
             closed_events = PolicyEvent.query.filter_by(status="closed").all()
             self.assertEqual(len(closed_events), 1)
-            self.assertIsNotNone(closed_events[0].resolved_at)
+            self.assertEqual(closed_events[0].status, "closed")
+            self.assertIsNone(closed_events[0].resolved_at)
 
     def test_11_admin_alerts_security_and_device_authorization(self):
         """Valida que apenas terminais com is_admin_device=True conseguem consumir alertas de TI"""
@@ -852,6 +853,333 @@ class SystemMonitoringTestCase(unittest.TestCase):
         self.assertNotIn("cookies", manifest_data.get("permissions", []))
         self.assertNotIn("webRequest", manifest_data.get("permissions", []))
         self.assertNotIn("<all_urls>", manifest_data.get("host_permissions", []))
+
+
+    def test_21_policy_occurrences_lifecycle_and_persistence(self):
+        """
+        Validação completa do ciclo de vida, persistência e auditoria de ocorrências de políticas:
+        1. Criação de ocorrência (PolicyEvent status='active')
+        2. Ocorrência ativa aparece em /api/policies/events
+        3. Término de atividade proibida pelo usuário
+        4. Ocorrência muda para 'closed' sem confundir com 'resolved' (resolved_at é nulo)
+        5. Ocorrência fechada CONTINUA aparecendo em /api/policies/events (status='all')
+        6. Filtro ?status=active não retorna ocorrência fechada
+        7. Filtro ?status=closed retorna ocorrência fechada
+        8. Contador active_violations diminui
+        9. Contador today_violations permanece no fuso horário corporativo
+        10. Exclusão manual por administrador autenticado
+        11. Bloqueio de exclusão para usuário não-admin (403) e não autenticado (401)
+        12. Auditoria de exclusão em PolicyAuditLog (action='policy_event_deleted')
+        13. Exclusão em massa com modos estritos (selected_ids e cleanup_older_than)
+        14. Retenção automática preserva ocorrências recentes
+        15. Isolamento seguro de DEMO_MODE
+        """
+        from services import cleanup_old_policy_events
+        headers = {"X-Agent-Token": Config.AGENT_SECRET_TOKEN}
+
+        # 1. Agente reporta atividade em domínio de apostas proibido
+        payload_violation = {
+            "uuid": "test-uuid-lifecycle-01",
+            "computador": "PC-FINANCEIRO-01",
+            "usuario": "carlos.souza",
+            "setor": "Financeiro",
+            "cpu": 15.0,
+            "ram": 30.0,
+            "disco": 45.0,
+            "active_app": "Google Chrome",
+            "active_domain": "betano.com"
+        }
+        res_rep1 = self.client.post("/api/agent/report", json=payload_violation, headers=headers)
+        self.assertEqual(res_rep1.status_code, 200)
+
+        # Autentica como admin na sessão web
+        with self.app.app_context():
+            admin_user = User.query.filter_by(username="testadmin").first()
+            event_db = PolicyEvent.query.filter_by(domain="betano.com").first()
+            self.assertIsNotNone(event_db)
+            event_id = event_db.id
+            self.assertEqual(event_db.status, "active")
+
+        # 2. Ocorrência ativa aparece na API web autenticada
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = admin_user.id
+            sess["username"] = "testadmin"
+            sess["role"] = "admin"
+
+        res_list_active = self.client.get("/api/policies/events?status=active")
+        self.assertEqual(res_list_active.status_code, 200)
+        data_active = res_list_active.get_json()
+        items_active = data_active.get("items", data_active) if isinstance(data_active, dict) else data_active
+        self.assertTrue(any(e["id"] == event_id and e["status"] == "active" for e in items_active))
+
+        # 3. Usuário navega para site permitido (atividade proibida cessa)
+        payload_compliant = payload_violation.copy()
+        payload_compliant["active_domain"] = "intranet.givovatransportes.com.br"
+        res_rep2 = self.client.post("/api/agent/report", json=payload_compliant, headers=headers)
+        self.assertEqual(res_rep2.status_code, 200)
+
+        # 4. Ocorrência mudou para status='closed', MAS NÃO confunde com 'resolved' (resolved_at continua None)
+        with self.app.app_context():
+            event_closed = db.session.get(PolicyEvent, event_id)
+            self.assertEqual(event_closed.status, "closed")
+            self.assertIsNone(event_closed.resolved_at)
+            self.assertIsNone(event_closed.resolved_by)
+            self.assertFalse(event_closed.to_dict()["is_resolved"])
+
+        def extract_items(res):
+            data = res.get_json()
+            return data.get("items", []) if isinstance(data, dict) else data
+
+        # 5. Ocorrência fechada CONTINUA retornada por /api/policies/events (padrão: todas)
+        res_list_all = self.client.get("/api/policies/events")
+        self.assertEqual(res_list_all.status_code, 200)
+        items_all = extract_items(res_list_all)
+        found_in_all = next((e for e in items_all if e["id"] == event_id), None)
+        self.assertIsNotNone(found_in_all, "Ocorrência fechada deve continuar no histórico geral!")
+        self.assertEqual(found_in_all["status"], "closed")
+
+        # 5b. Validação explícita de paginação server-side
+        res_pag = self.client.get("/api/policies/events?page=1&per_page=10")
+        self.assertEqual(res_pag.status_code, 200)
+        data_pag = res_pag.get_json()
+        self.assertIsInstance(data_pag, dict)
+        self.assertIn("items", data_pag)
+        self.assertIn("total", data_pag)
+        self.assertIn("pages", data_pag)
+        self.assertEqual(data_pag["page"], 1)
+        self.assertEqual(data_pag["per_page"], 10)
+
+        # 6. Filtro status=active NÃO deve retornar a ocorrência fechada
+        res_filter_active = self.client.get("/api/policies/events?status=active")
+        items_filter_active = extract_items(res_filter_active)
+        self.assertFalse(any(e["id"] == event_id for e in items_filter_active))
+
+        # 7. Filtro status=closed DEVE retornar a ocorrência fechada
+        res_filter_closed = self.client.get("/api/policies/events?status=closed")
+        items_filter_closed = extract_items(res_filter_closed)
+        self.assertTrue(any(e["id"] == event_id for e in items_filter_closed))
+
+        # 8 & 9. Contadores do Dashboard: active_violations diminui, today_violations permanece
+        res_stats = self.client.get("/api/policies/stats")
+        self.assertEqual(res_stats.status_code, 200)
+        stats = res_stats.get_json()
+        self.assertEqual(stats["active_violations"], 0)
+        self.assertGreaterEqual(stats["today_violations"], 1)
+        self.assertGreaterEqual(stats["active_rules"], 1)
+
+        # 10. Resolução manual pelo administrador (distinção entre closed e resolved)
+        res_resolve = self.client.post(f"/api/policies/events/{event_id}/resolve")
+        self.assertEqual(res_resolve.status_code, 200)
+        resolved_dict = res_resolve.get_json()["event"]
+        self.assertTrue(resolved_dict["is_resolved"])
+        self.assertIsNotNone(resolved_dict["resolved_at"])
+        self.assertEqual(resolved_dict["resolved_by"], "testadmin")
+
+        with self.app.app_context():
+            audit_res = PolicyAuditLog.query.filter_by(action="EVENT_RESOLVED").order_by(PolicyAuditLog.id.desc()).first()
+            self.assertIsNotNone(audit_res)
+            self.assertIn(str(event_id), audit_res.details)
+
+        # 11. Segurança de Exclusão: Usuário não autenticado e Usuário não-admin são bloqueados
+        unauth_client = self.app.test_client()
+        res_del_unauth = unauth_client.delete(f"/api/policies/events/{event_id}")
+        self.assertEqual(res_del_unauth.status_code, 401)
+
+        with self.client.session_transaction() as sess:
+            sess["role"] = "operator"  # Papel não-admin
+        res_del_forbidden = self.client.delete(f"/api/policies/events/{event_id}")
+        self.assertEqual(res_del_forbidden.status_code, 403)
+
+        # 12. Administrador autenticado exclui a ocorrência com registro em PolicyAuditLog
+        with self.client.session_transaction() as sess:
+            sess["role"] = "admin"
+        res_del_admin = self.client.delete(f"/api/policies/events/{event_id}")
+        self.assertEqual(res_del_admin.status_code, 200)
+
+        with self.app.app_context():
+            self.assertIsNone(db.session.get(PolicyEvent, event_id))
+            audit_del = PolicyAuditLog.query.filter_by(action="policy_event_deleted").order_by(PolicyAuditLog.id.desc()).first()
+            self.assertIsNotNone(audit_del)
+            self.assertIn(str(event_id), audit_del.details)
+            self.assertEqual(audit_del.user_name, "testadmin")
+
+        # 13. Exclusão em Massa com Modos Estritos
+        with self.app.app_context():
+            dev = Device.query.filter_by(uuid="test-uuid-lifecycle-01").first()
+            e1 = PolicyEvent(device_id=dev.id, event_type="domain", category="Jogos", severity="warning", domain="jogos1.com", status="active")
+            e2 = PolicyEvent(device_id=dev.id, event_type="domain", category="Jogos", severity="warning", domain="jogos2.com", status="closed")
+            db.session.add_all([e1, e2])
+            db.session.commit()
+            id_active = e1.id
+            id_closed = e2.id
+
+        # 13a. Rejeita mistura ambígua de parâmetros com 400
+        res_ambiguous = self.client.post("/api/policies/events/bulk-delete", json={
+            "mode": "selected_ids",
+            "event_ids": [id_closed],
+            "days": 30
+        })
+        self.assertEqual(res_ambiguous.status_code, 400)
+        self.assertEqual(res_ambiguous.get_json()["code"], "AMBIGUOUS_BULK_PAYLOAD")
+
+        # 13b. Bloqueia exclusão de ocorrências ativas sem confirmação explícita
+        res_active_blocked = self.client.post("/api/policies/events/bulk-delete", json={
+            "mode": "selected_ids",
+            "event_ids": [id_active, id_closed],
+            "confirm_active": False
+        })
+        self.assertEqual(res_active_blocked.status_code, 400)
+        self.assertEqual(res_active_blocked.get_json()["code"], "CONFIRM_ACTIVE_REQUIRED")
+
+        # 13c. Sucesso na exclusão em massa com confirm_active=True
+        res_bulk_ok = self.client.post("/api/policies/events/bulk-delete", json={
+            "mode": "selected_ids",
+            "event_ids": [id_active, id_closed],
+            "confirm_active": True
+        })
+        self.assertEqual(res_bulk_ok.status_code, 200)
+        self.assertEqual(res_bulk_ok.get_json()["deleted_count"], 2)
+
+        # 13d. Modo cleanup_older_than remove apenas encerradas antigas e rejeita event_ids misturados
+        res_cleanup_invalid = self.client.post("/api/policies/events/bulk-delete", json={
+            "mode": "cleanup_older_than",
+            "event_ids": [123],
+            "days": 30
+        })
+        self.assertEqual(res_cleanup_invalid.status_code, 400)
+
+        res_cleanup_ok = self.client.post("/api/policies/events/bulk-delete", json={
+            "mode": "cleanup_older_than",
+            "days": 30
+        })
+        self.assertEqual(res_cleanup_ok.status_code, 200)
+
+        # 14. Retenção automática preserva ocorrências recentes (< 90 dias)
+        with self.app.app_context():
+            dev = Device.query.filter_by(uuid="test-uuid-lifecycle-01").first()
+            e_recent = PolicyEvent(device_id=dev.id, event_type="domain", category="Mídia", severity="info", domain="spotify.com", status="closed")
+            db.session.add(e_recent)
+            db.session.commit()
+            id_recent = e_recent.id
+
+        with self.app.app_context():
+            cleanup_old_policy_events()
+            # Evento recente fechado continua intacto!
+            self.assertIsNotNone(db.session.get(PolicyEvent, id_recent))
+
+        # 15. DEMO_MODE: Operações em IDs virtuais (>= 9000) não persistem dados reais
+        res_demo_ack = self.client.post("/api/policies/events/9001/acknowledge")
+        self.assertEqual(res_demo_ack.status_code, 200)
+
+        res_demo_res = self.client.post("/api/policies/events/9001/resolve")
+        self.assertEqual(res_demo_res.status_code, 200)
+
+        res_demo_del = self.client.delete("/api/policies/events/9001")
+        self.assertEqual(res_demo_del.status_code, 200)
+
+        with self.app.app_context():
+            self.assertIsNone(db.session.get(PolicyEvent, 9001))
+
+
+    def test_22_real_world_scenario_simulation(self):
+        """
+        Simulação do cenário real (Item 17 do requisito):
+        example-policy-test.local -> gera PolicyEvent -> aparece na tela (Todas e Ativas)
+        -> muda para domínio permitido -> PolicyEvent vira 'closed'
+        -> CONTINUA visível na aba 'Todas'
+        -> aparece também na aba 'Encerradas'
+        -> NÃO aparece na aba 'Ativas'
+        -> Excluir com admin -> confirmação/deleção -> evento desaparece
+        -> PolicyAuditLog registra a ação.
+        """
+        headers = {"X-Agent-Token": Config.AGENT_SECRET_TOKEN}
+
+        # Cria regra para example-policy-test.local
+        with self.app.app_context():
+            rule = PolicyRule(
+                name="Regra Teste Real",
+                rule_type="domain",
+                pattern="example-policy-test.local",
+                category="Jogos",
+                severity="critical",
+                scope_type="global",
+                enabled=True
+            )
+            db.session.add(rule)
+            db.session.commit()
+            invalidate_policy_rules_cache()
+
+        # Terminal reporta navegação para example-policy-test.local
+        report_violation = {
+            "uuid": "test-uuid-real-world-17",
+            "computador": "PC-REAL-TEST",
+            "usuario": "roberta.lima",
+            "setor": "Operações",
+            "active_app": "Google Chrome",
+            "active_domain": "example-policy-test.local"
+        }
+        res1 = self.client.post("/api/agent/report", json=report_violation, headers=headers)
+        self.assertEqual(res1.status_code, 200)
+
+        # Autentica admin
+        with self.app.app_context():
+            admin_user = User.query.filter_by(username="testadmin").first()
+            event = PolicyEvent.query.filter_by(domain="example-policy-test.local").first()
+            self.assertIsNotNone(event)
+            event_id = event.id
+
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = admin_user.id
+            sess["username"] = "testadmin"
+            sess["role"] = "admin"
+
+        def extract_items(res):
+            data = res.get_json()
+            return data.get("items", []) if isinstance(data, dict) else data
+
+        # Ocorrência ativa visível na aba Todas e na aba Ativas
+        res_all_1 = self.client.get("/api/policies/events?status=all")
+        self.assertTrue(any(e["id"] == event_id for e in extract_items(res_all_1)))
+
+        res_act_1 = self.client.get("/api/policies/events?status=active")
+        self.assertTrue(any(e["id"] == event_id for e in extract_items(res_act_1)))
+
+        # Usuário muda atividade para domínio permitido
+        report_allowed = report_violation.copy()
+        report_allowed["active_domain"] = "sistema.empresa.local"
+        res2 = self.client.post("/api/agent/report", json=report_allowed, headers=headers)
+        self.assertEqual(res2.status_code, 200)
+
+        # PolicyEvent virou closed
+        with self.app.app_context():
+            event_closed = db.session.get(PolicyEvent, event_id)
+            self.assertEqual(event_closed.status, "closed")
+            self.assertIsNone(event_closed.resolved_at)
+
+        # CONTINUA visível na aba 'Todas'
+        res_all_2 = self.client.get("/api/policies/events?status=all")
+        self.assertTrue(any(e["id"] == event_id and e["status"] == "closed" for e in extract_items(res_all_2)))
+
+        # Aparece na aba 'Encerradas'
+        res_closed_2 = self.client.get("/api/policies/events?status=closed")
+        self.assertTrue(any(e["id"] == event_id for e in extract_items(res_closed_2)))
+
+        # NÃO aparece na aba 'Ativas'
+        res_act_2 = self.client.get("/api/policies/events?status=active")
+        self.assertFalse(any(e["id"] == event_id for e in extract_items(res_act_2)))
+
+        # Executa Exclusão pelo Administrador
+        res_del = self.client.delete(f"/api/policies/events/{event_id}")
+        self.assertEqual(res_del.status_code, 200)
+
+        # Evento desaparece do banco
+        with self.app.app_context():
+            self.assertIsNone(db.session.get(PolicyEvent, event_id))
+            # PolicyAuditLog registra a ação
+            audit = PolicyAuditLog.query.filter_by(action="policy_event_deleted").order_by(PolicyAuditLog.id.desc()).first()
+            self.assertIsNotNone(audit)
+            self.assertIn("example-policy-test.local", audit.details)
+            self.assertEqual(audit.user_name, "testadmin")
 
 
 if __name__ == "__main__":

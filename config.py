@@ -51,6 +51,10 @@ class Config:
     # Modo de Demonstração Opcional (dados fictícios em memória com badge DEMO, padrão: false)
     DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() in ("true", "1", "yes")
 
+    # Fuso Horário Corporativo (para cálculo correto de indicadores diários/KPIs)
+    APP_TIMEZONE = os.getenv("APP_TIMEZONE", "America/Sao_Paulo").strip()
+    APP_TIMEZONE_OFFSET_HOURS = int(os.getenv("APP_TIMEZONE_OFFSET_HOURS", "-3"))
+
     # Políticas de Uso Corporativo (bloqueios, detecções, alertas)
     POLICY_MONITORING_ENABLED = os.getenv("POLICY_MONITORING_ENABLED", "true").lower() in ("true", "1", "yes")
     ADMIN_NOTIFICATIONS_ENABLED = os.getenv("ADMIN_NOTIFICATIONS_ENABLED", "true").lower() in ("true", "1", "yes")

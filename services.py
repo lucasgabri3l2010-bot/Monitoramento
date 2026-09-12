@@ -640,6 +640,8 @@ def _create_or_update_policy_event(device: Device, rule_id: int | None, event_ty
 def _close_open_policy_events(device: Device, now: datetime, except_domain: str | None = None, except_app: str | None = None):
     """
     Encerra eventos que o usuário parou de utilizar, calculando a duração final.
+    NOTA: Encerramento de atividade (status='closed') indica apenas que o usuário saiu do site/app.
+    Não confunde com resolved_at/resolved_by, que é preenchido manualmente quando o administrador resolve a ocorrência.
     """
     query = PolicyEvent.query.filter(
         PolicyEvent.device_id == device.id,
@@ -652,7 +654,7 @@ def _close_open_policy_events(device: Device, now: datetime, except_domain: str 
             continue
 
         event.status = "closed"
-        event.resolved_at = now
+        event.last_seen = now
         if event.first_seen:
             f_seen = event.first_seen
             if f_seen.tzinfo is None:
