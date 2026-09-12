@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Script de diagnostico de saude e integridade do Givova Monitor Agent e Extensao.
 .DESCRIPTION
@@ -7,7 +7,7 @@
     status do receptor HTTP local na porta 5005 e conectividade com o servidor Render.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding=$false)]
 param (
     [switch]$Detailed
 )
@@ -57,25 +57,55 @@ if (Test-Path -Path $updaterExe) {
 # 2. CONFIGURACAO (agent_config.json)
 # -------------------------------------------------------------------------
 Write-Host ""
-Write-Host "[2/6] Verificando configuracao local..." -ForegroundColor Gray
+Write-Host "[2/6] Verificando configuracao local e variaveis de ambiente..." -ForegroundColor Gray
+
+$overridePath = $env:GIVOVA_CONFIG_PATH
+if (-not $overridePath) {
+    $overridePath = [System.Environment]::GetEnvironmentVariable('GIVOVA_CONFIG_PATH', 'User')
+}
+if (-not $overridePath) {
+    $overridePath = [System.Environment]::GetEnvironmentVariable('GIVOVA_CONFIG_PATH', 'Machine')
+}
+$overrideActive = if ($overridePath) { "YES" } else { "NO" }
+
+if ($overrideActive -eq "YES") {
+    Write-Host "  [WARNING] GIVOVA_CONFIG_PATH esta sobrescrevendo o caminho padrao: $overridePath" -ForegroundColor Yellow
+} else {
+    Write-Host "  [OK] GIVOVA_CONFIG_PATH override: NO (utilizando caminho padrao)" -ForegroundColor Green
+}
+
 $serverUrl = "https://monitoramento-gb9g.onrender.com/api/agent/report"
+$tokenPresent = "NO"
+$tokenValidation = "INVALID"
+$configPathStatus = "MISSING"
+
 if (Test-Path -Path $configFile) {
+    $configPathStatus = "OK"
     try {
         $cfg = Get-Content -Path $configFile -Raw -Encoding UTF8 | ConvertFrom-Json
         $serverUrl = if ($cfg.server_url) { $cfg.server_url } else { $serverUrl }
-        $maskedToken = if ($cfg.agent_token) {
-            $t = $cfg.agent_token.ToString()
-            if ($t.Length -gt 8) { $t.Substring(0, 4) + "..." + $t.Substring($t.Length - 4) } else { "***" }
-        } else { "nao definido" }
 
-        Write-Host "  [OK] agent_config.json valido" -ForegroundColor Green
-        Write-Host "       Servidor:   $serverUrl" -ForegroundColor Gray
-        Write-Host "       Token:      $maskedToken" -ForegroundColor Gray
-        Write-Host "       Setor:      $($cfg.department)" -ForegroundColor Gray
-        Write-Host "       Nome exibicao: $($cfg.display_name)" -ForegroundColor Gray
-        Write-Host "       Intervalo:  $($cfg.interval_seconds)s" -ForegroundColor Gray
+        if ($cfg.agent_token -and $cfg.agent_token.ToString().Trim().Length -gt 0) {
+            $tokenPresent = "YES"
+            $t = $cfg.agent_token.ToString().Trim()
+            $badWords = @('informado', 'nao informado', 'none', 'token', 'placeholder', 'your_token_here', 'copie_o_agent_secret_token')
+            if ($t.Length -ge 16 -and -not ($t -match '\s') -and ($badWords -notcontains $t.ToLower())) {
+                $tokenValidation = "VALID"
+            } else {
+                $tokenValidation = "INVALID"
+            }
+        }
+
+        Write-Host "  [OK] agent_config.json carregado com sucesso" -ForegroundColor Green
+        Write-Host "       Servidor:         $serverUrl" -ForegroundColor Gray
+        Write-Host "       Token present:    $tokenPresent" -ForegroundColor Gray
+        Write-Host "       Token validation: $tokenValidation" -ForegroundColor $(if ($tokenValidation -eq "VALID") { "Green" } else { "Red" })
+        Write-Host "       Setor:            $($cfg.department)" -ForegroundColor Gray
+        Write-Host "       Nome exibicao:    $($cfg.display_name)" -ForegroundColor Gray
+        Write-Host "       Intervalo:        $($cfg.interval_seconds)s" -ForegroundColor Gray
     } catch {
         Write-Host "  [ERRO] Falha ao ler agent_config.json: $_" -ForegroundColor Red
+        $configPathStatus = "CORRUPT"
     }
 } else {
     Write-Host "  [ERRO] Arquivo de configuracao ausente: $configFile" -ForegroundColor Red
@@ -166,9 +196,13 @@ if ($receiverListening) {
 $lastDomain = $null
 if (Test-Path -Path $logFile) {
     try {
-        $logLines = Get-Content -Path $logFile -Tail 200 -ErrorAction SilentlyContinue
-        foreach ($line in ($logLines | Select-Object -Reverse)) {
-            if ($line -match 'active_domain["'':\s]+([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})') {
+        $logLines = @(Get-Content -Path $logFile -Tail 200 -ErrorAction SilentlyContinue)
+        for ($i = $logLines.Count - 1; $i -ge 0; $i--) {
+            $line = $logLines[$i]
+            if ($line -match 'Atividade:.*?[\u2014-]\s*([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})') {
+                $lastDomain = $matches[1]
+                break
+            } elseif ($line -match 'active_domain["'':\s]+([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})') {
                 $lastDomain = $matches[1]
                 break
             } elseif ($line -match 'domain["'':\s]+([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})') {
@@ -185,51 +219,117 @@ if ($lastDomain) {
     Write-Host "  [INFO] Nenhum active_domain recente registrado nos logs locais (normal se nenhum browser navegou ainda)." -ForegroundColor Gray
 }
 
-# Verificacao do ultimo envio com sucesso registrado nos logs
-$lastSuccessReport = $null
+# Verificacao do historico recente de logs
+$lastAttempt = "Nenhum registro de envio"
+$lastHttpStatus = "N/A"
+$lastSuccessReport = "Nenhum report com sucesso ainda"
+$detectedAgentVersion = "1.4.1"
+
 if (Test-Path -Path $logFile) {
     try {
-        $logLines = Get-Content -Path $logFile -Tail 200 -ErrorAction SilentlyContinue
-        foreach ($line in ($logLines | Select-Object -Reverse)) {
-            if ($line -match 'Enviado com sucesso \(HTTP 200\)') {
-                $lastSuccessReport = $line.Trim()
-                break
+        $logLines = @(Get-Content -Path $logFile -Tail 200 -ErrorAction SilentlyContinue)
+        for ($i = $logLines.Count - 1; $i -ge 0; $i--) {
+            $line = $logLines[$i]
+            if ($lastHttpStatus -eq "N/A") {
+                if ($line -match 'HTTP (\d{3})') {
+                    $lastHttpStatus = $matches[1]
+                    $lastAttempt = $line.Trim()
+                } elseif ($line -match 'timeout|tempo de resposta esgotado|Report failed') {
+                    $lastHttpStatus = "TIMEOUT/FAIL"
+                    $lastAttempt = $line.Trim()
+                }
+            }
+            if ($lastSuccessReport -eq "Nenhum report com sucesso ainda") {
+                if ($line -match 'HTTP 200' -or $line -match 'Enviado com sucesso') {
+                    $lastSuccessReport = $line.Trim()
+                }
+            }
+            if ($line -match 'Agent version:\s*([0-9.]+)') {
+                $detectedAgentVersion = $matches[1]
             }
         }
     } catch {}
 }
 
-if ($lastSuccessReport) {
-    Write-Host "  [OK] Ultimo report confirmado: $lastSuccessReport" -ForegroundColor Green
-} else {
-    Write-Host "  [INFO] Nenhum report HTTP 200 recente encontrado nos logs locais." -ForegroundColor Gray
-}
+Write-Host "  [INFO] Ultima tentativa registrada: $lastAttempt" -ForegroundColor Gray
+Write-Host "  [INFO] Ultimo status HTTP:          $lastHttpStatus" -ForegroundColor $(if ($lastHttpStatus -eq "200") { "Green" } else { "Yellow" })
+Write-Host "  [INFO] Ultimo report confirmado:    $lastSuccessReport" -ForegroundColor $(if ($lastSuccessReport -ne "Nenhum report com sucesso ainda") { "Green" } else { "Gray" })
 
 # -------------------------------------------------------------------------
-# 6. CONECTIVIDADE COM O SERVIDOR RENDER
+# 6. CONECTIVIDADE COM O SERVIDOR RENDER (/health e /health/db)
 # -------------------------------------------------------------------------
 Write-Host ""
-Write-Host "[6/6] Verificando conectividade com o servidor..." -ForegroundColor Gray
+Write-Host "[6/6] Verificando conectividade com o servidor Render..." -ForegroundColor Gray
 
-$healthUrl = $serverUrl -replace "/api/agent/report", "/health"
+$renderHealth = "FAIL"
+$renderDb = "FAIL"
+
+$baseServerUrl = $serverUrl -replace "/api/agent/report", ""
+$baseServerUrl = $baseServerUrl.TrimEnd("/")
+$healthUrl = "$baseServerUrl/health"
+$healthDbUrl = "$baseServerUrl/health/db"
+
 try {
     $req = [System.Net.WebRequest]::Create($healthUrl)
     $req.Timeout = 5000
     $res = $req.GetResponse()
-    $code = [int]$res.StatusCode
+    $renderHealth = [int]$res.StatusCode
     $res.Close()
-    if ($code -eq 200) {
-        Write-Host "  [OK] Servidor online e respondendo em $healthUrl (Status 200)" -ForegroundColor Green
-    } else {
-        Write-Host "  [WARNING] Servidor respondeu com codigo $code em $healthUrl" -ForegroundColor Yellow
-    }
+    Write-Host "  [OK] Render /health: $renderHealth" -ForegroundColor Green
 } catch {
-    Write-Host "  [WARNING] Nao foi possivel conectar ao servidor em $healthUrl ($($_.Exception.Message))" -ForegroundColor Yellow
-    Write-Host "            (Servidores Render podem demorar ~30-50s para acordar em cold start)" -ForegroundColor Gray
+    Write-Host "  [WARNING] Falha ao conectar em $healthUrl ($($_.Exception.Message))" -ForegroundColor Yellow
 }
 
+try {
+    $reqDb = [System.Net.WebRequest]::Create($healthDbUrl)
+    $reqDb.Timeout = 5000
+    $resDb = $reqDb.GetResponse()
+    $renderDb = [int]$resDb.StatusCode
+    $resDb.Close()
+    Write-Host "  [OK] Render /health/db: $renderDb" -ForegroundColor Green
+} catch {
+    Write-Host "  [WARNING] Falha ao conectar em $healthDbUrl ($($_.Exception.Message))" -ForegroundColor Yellow
+}
+
+# -------------------------------------------------------------------------
+# RESUMO ESTRUTURADO DE DIAGNOSTICO (CONFORME ESPECIFICACAO OFICIAL)
+# -------------------------------------------------------------------------
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Cyan
-Write-Host "                 FIM DO DIAGNOSTICO                             " -ForegroundColor Cyan
+Write-Host "                PAINEL RESUMO DE DIAGNOSTICO                    " -ForegroundColor Cyan
+Write-Host "================================================================" -ForegroundColor Cyan
+
+$agentRunning = if ((Get-Process -Name "GivovaMonitorAgent" -ErrorAction SilentlyContinue)) { "OK" } else { "NO" }
+$taskState = "NOT FOUND"
+$taskLastResult = "N/A"
+try {
+    $task = Get-ScheduledTask -TaskName "Givova Monitor Agent" -ErrorAction SilentlyContinue
+    if ($task) {
+        $taskState = "OK"
+        $info = Get-ScheduledTaskInfo -TaskName "Givova Monitor Agent" -ErrorAction SilentlyContinue
+        if ($info) { $taskLastResult = $info.LastTaskResult.ToString() }
+    }
+} catch {}
+
+Write-Host "Agent installed:                   $configPathStatus"
+Write-Host "Agent running:                     $agentRunning"
+Write-Host "Agent version:                     $detectedAgentVersion"
+Write-Host ""
+Write-Host "Config path:                       $configPathStatus"
+Write-Host "Server URL:                        $(if ($serverUrl.StartsWith('https://')) { 'OK' } else { 'INSECURE' })"
+Write-Host "Token present:                     $tokenPresent"
+Write-Host "Token validation:                  $tokenValidation"
+Write-Host ""
+Write-Host "Render /health:                    $renderHealth"
+Write-Host "Render /health/db:                 $renderDb"
+Write-Host ""
+Write-Host "Last report attempt:               $lastAttempt"
+Write-Host "Last report HTTP status:           $lastHttpStatus"
+Write-Host "Last successful report:            $lastSuccessReport"
+Write-Host ""
+Write-Host "Task Scheduler:                    $taskState"
+Write-Host "Task Last Result:                  $taskLastResult"
+Write-Host ""
+Write-Host "GIVOVA_CONFIG_PATH override:       $overrideActive"
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""

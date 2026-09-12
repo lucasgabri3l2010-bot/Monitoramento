@@ -18,14 +18,27 @@
     Executa a instalacao ou atualizacao sem confirmacao interativa.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding=$false)]
 param (
+    [Parameter(Mandatory=$false)]
     [string]$ServerUrl = "https://monitoramento-gb9g.onrender.com/api/agent/report",
+
+    [Parameter(Mandatory=$false)]
     [string]$AgentToken = "",
-    [string]$Department = "Nao informado",
+
+    [Parameter(Mandatory=$false)]
+    [string]$Department = "",
+
+    [Parameter(Mandatory=$false)]
     [string]$DisplayName = "",
+
+    [Parameter(Mandatory=$false)]
     [switch]$ReplaceConfig,
+
+    [Parameter(Mandatory=$false)]
     [switch]$Force,
+
+    [Parameter(Mandatory=$false)]
     [switch]$NoElevate
 )
 
@@ -52,11 +65,19 @@ if (-not $isAdmin -and -not $NoElevate) {
         $scriptPath = $PSCommandPath
     }
 
-    $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $scriptPath)
-    if ($ServerUrl) { $argList += @("-ServerUrl", $ServerUrl) }
-    if ($AgentToken) { $argList += @("-AgentToken", $AgentToken) }
-    if ($Department) { $argList += @("-Department", $Department) }
-    if ($DisplayName) { $argList += @("-DisplayName", $DisplayName) }
+    $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$scriptPath`"")
+    if ($PSBoundParameters.ContainsKey('ServerUrl') -and $ServerUrl) {
+        $argList += @("-ServerUrl", "`"$ServerUrl`"")
+    }
+    if ($PSBoundParameters.ContainsKey('AgentToken') -and $AgentToken) {
+        $argList += @("-AgentToken", "`"$AgentToken`"")
+    }
+    if ($PSBoundParameters.ContainsKey('Department') -and $Department) {
+        $argList += @("-Department", "`"$Department`"")
+    }
+    if ($PSBoundParameters.ContainsKey('DisplayName') -and $DisplayName) {
+        $argList += @("-DisplayName", "`"$DisplayName`"")
+    }
     if ($ReplaceConfig) { $argList += "-ReplaceConfig" }
     if ($Force) { $argList += "-Force" }
 
@@ -174,9 +195,12 @@ if (-not (Test-Path -Path $logDir)) {
 
 Write-Host "[3/6] Copiando executavel autonomo..." -ForegroundColor Gray
 Copy-Item -Path $sourceExe -Destination $destExe -Force
+try { Unblock-File -Path $destExe -ErrorAction SilentlyContinue } catch {}
 $sourceUpdater = Join-Path $sourceDir "GivovaMonitorUpdater.exe"
 if (Test-Path -Path $sourceUpdater) {
-    Copy-Item -Path $sourceUpdater -Destination (Join-Path $installDir "GivovaMonitorUpdater.exe") -Force
+    $destUpdater = Join-Path $installDir "GivovaMonitorUpdater.exe"
+    Copy-Item -Path $sourceUpdater -Destination $destUpdater -Force
+    try { Unblock-File -Path $destUpdater -ErrorAction SilentlyContinue } catch {}
     Write-Host "      Supervisor de atualizacoes GivovaMonitorUpdater.exe copiado." -ForegroundColor Green
 }
 
@@ -195,6 +219,24 @@ if (Test-Path -Path $sourceExtension) {
 # 5. GERENCIAMENTO DA CONFIGURACAO (agent_config.json)
 # -------------------------------------------------------------------------
 Write-Host "[4/6] Configurando parametros do agente..." -ForegroundColor Gray
+
+function Test-ValidAgentToken([string]$tok) {
+    if (-not $tok) { return $false }
+    $clean = $tok.Trim()
+    if ($clean.Length -lt 16) { return $false }
+    if ($clean -match '\s') { return $false }
+    $badWords = @('informado', 'nao informado', 'none', 'token', 'placeholder', 'your_token_here', 'copie_o_agent_secret_token')
+    if ($badWords -contains $clean.ToLower()) { return $false }
+    return $true
+}
+
+if ($PSBoundParameters.ContainsKey('AgentToken') -and $AgentToken) {
+    if (-not (Test-ValidAgentToken $AgentToken)) {
+        Write-Host "  [ERRO] O token fornecido via CLI e invalido (deve ter pelo menos 16 caracteres e nao conter espacos)." -ForegroundColor Red
+        Write-Error "Token invalido informado via parametro -AgentToken."
+        exit 1
+    }
+}
 
 if ($isUpdate -and (Test-Path -Path $destConfig) -and -not $ReplaceConfig) {
     Write-Host "      Preservando configuracoes existentes em $destConfig..." -ForegroundColor Green
@@ -229,28 +271,48 @@ if ($isUpdate -and (Test-Path -Path $destConfig) -and -not $ReplaceConfig) {
         Write-Host "      Substituindo configuracao existente (-ReplaceConfig ativado)..." -ForegroundColor Yellow
     }
     # Nova instalacao: verifica se ha agent_config.json acompanhando o instalador
-    $effectiveToken = $AgentToken
+    $effectiveToken = ""
+    if ($PSBoundParameters.ContainsKey('AgentToken') -and (Test-ValidAgentToken $AgentToken)) {
+        $effectiveToken = $AgentToken
+    }
+
     $effectiveServer = $ServerUrl
-    $effectiveDept = if ($Department) { $Department } else { "Nao informado" }
-    $effectiveName = if ($DisplayName) { $DisplayName } else { $env:COMPUTERNAME }
+    $effectiveDept = if ($Department) { $Department } else { "" }
+    $effectiveName = if ($DisplayName) { $DisplayName } else { "" }
 
     if (Test-Path -Path $sourceConfig) {
         try {
             $srcCfg = Get-Content -Path $sourceConfig -Raw -Encoding UTF8 | ConvertFrom-Json
-            if (-not $effectiveToken -and $srcCfg.agent_token) {
+            if (-not $effectiveToken -and (Test-ValidAgentToken $srcCfg.agent_token)) {
                 $effectiveToken = $srcCfg.agent_token
             }
-            if ($srcCfg.server_url) {
+            if (-not $PSBoundParameters.ContainsKey('ServerUrl') -and $srcCfg.server_url) {
                 $effectiveServer = $srcCfg.server_url
             }
-            if ($srcCfg.department -and $srcCfg.department -ne "Nao informado") {
+            if (-not $effectiveDept -and $srcCfg.department -and $srcCfg.department -ne "Nao informado") {
                 $effectiveDept = $srcCfg.department
+            }
+            if (-not $effectiveName -and $srcCfg.display_name) {
+                $effectiveName = $srcCfg.display_name
             }
         } catch {}
     }
 
+    if (-not $effectiveDept) { $effectiveDept = "Nao informado" }
+    if (-not $effectiveName) { $effectiveName = $env:COMPUTERNAME }
+
     if (-not $effectiveToken) {
-        $effectiveToken = "givova_agent_token_dev_2026"
+        Write-Host ""
+        Write-Host "================================================================" -ForegroundColor Red
+        Write-Host "  ERRO: NENHUM TOKEN DE AUTENTICACAO VALIDO ENCONTRADO          " -ForegroundColor Red
+        Write-Host "================================================================" -ForegroundColor Red
+        Write-Host "O instalador requer um token valido (minimo 16 caracteres) para" -ForegroundColor Red
+        Write-Host "conectar ao servidor de monitoramento. Forneca o token via:" -ForegroundColor Red
+        Write-Host "  .\Instalar-GivovaMonitor.ps1 -AgentToken <SEU_TOKEN>" -ForegroundColor Yellow
+        Write-Host "ou certifique-se de que o pacote contenha um agent_config.json valido." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Error "A instalacao foi abortada por falta de credencial valida."
+        exit 1
     }
 
     $newConfig = @{

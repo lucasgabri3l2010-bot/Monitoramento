@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Desinstalador do Givova Monitor Agent.
 .DESCRIPTION
@@ -10,7 +10,7 @@
     Executa a remocao sem solicitar confirmacao interativa.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding=$false)]
 param (
     [switch]$PurgeData,
     [switch]$Force,
@@ -37,7 +37,7 @@ if (-not $isAdmin -and -not $NoElevate) {
         $scriptPath = $PSCommandPath
     }
 
-    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath)
+    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$scriptPath`"")
     if ($PurgeData) { $argList += '-PurgeData' }
     if ($Force) { $argList += '-Force' }
 

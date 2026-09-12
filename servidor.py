@@ -113,12 +113,15 @@ def require_agent_token(f):
                 if dev.device_token and dev.device_token.strip() == sent_token.strip():
                     return f(*args, **kwargs)
 
-        # 3. Fallback retrocompatível: validação contra o AGENT_SECRET_TOKEN compartilhado da empresa
+        # 3. Validação contra o AGENT_SECRET_TOKEN compartilhado da empresa
         expected_token = Config.AGENT_SECRET_TOKEN
         if expected_token:
             if not sent_token or sent_token.strip() != expected_token.strip():
                 logger.warning(f"Tentativa de acesso ao agente com token inválido de {request.remote_addr}")
                 return jsonify({"error": "Token de autenticação do agente inválido ou ausente"}), 401
+        else:
+            logger.error(f"Tentativa de acesso ao agente rejeitada: AGENT_SECRET_TOKEN não configurado no servidor ({request.remote_addr})")
+            return jsonify({"error": "Autenticação do agente não configurada no servidor"}), 401
 
         # Vincula o dispositivo à requisição se já localizado por UUID
         if not request.authenticated_device and device_uuid:

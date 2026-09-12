@@ -9,7 +9,8 @@ class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "givova_fallback_secret_key_change_in_prod")
     
     # Token de autenticação exigido dos agentes no header 'X-Agent-Token'
-    AGENT_SECRET_TOKEN = os.getenv("AGENT_SECRET_TOKEN", "givova_agent_token_dev_2026")
+    # NUNCA utilizar token hardcoded ou fallback fixo. Deve ser fornecido via variável de ambiente.
+    AGENT_SECRET_TOKEN = os.getenv("AGENT_SECRET_TOKEN", "").strip()
     
     # Conexão com o Banco de dados (adequa URLs do Postgres legadas ex: postgres:// -> postgresql://)
     _db_url = os.getenv("DATABASE_URL", "sqlite:///monitoramento.db").strip()

@@ -13,10 +13,15 @@
     Executa o build sem prompts interativos.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding=$false)]
 param (
+    [Parameter(Mandatory=$false)]
     [string]$ServerUrl = "",
+
+    [Parameter(Mandatory=$false)]
     [string]$AgentToken = "",
+
+    [Parameter(Mandatory=$false)]
     [switch]$Force
 )
 
@@ -113,36 +118,37 @@ if (-not $resolvedServerUrl) {
     }
 }
 
-if (-not $resolvedServerUrl -and (Test-Path -Path $rootAgentConfig)) {
-    try {
-        $rcfg = Get-Content -Path $rootAgentConfig -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($rcfg.server_url) { $resolvedServerUrl = $rcfg.server_url }
-        if ($rcfg.department) { $resolvedDept = $rcfg.department }
-        if ($rcfg.display_name) { $resolvedDisplayName = $rcfg.display_name }
-        if (-not $resolvedToken -and $rcfg.agent_token) { $resolvedToken = $rcfg.agent_token }
-    } catch {}
-}
-
 if (-not $resolvedServerUrl) {
     $resolvedServerUrl = "https://monitoramento-gb9g.onrender.com/api/agent/report"
 }
 
-# 3.2 Resolucao do Token
+# 3.2 Resolucao do Token (Fontes locais nao versionadas estritamente)
+# 1. Parametro explicito -AgentToken
+if (-not $resolvedToken -and ($PSBoundParameters.ContainsKey('AgentToken')) -and $AgentToken) {
+    $resolvedToken = $AgentToken
+    Write-Host "      Token obtido via parametro de linha de comando (-AgentToken)" -ForegroundColor Green
+}
+
+# 2. Variavel de ambiente local
+if (-not $resolvedToken) {
+    if ($env:AGENT_TOKEN) {
+        $resolvedToken = $env:AGENT_TOKEN
+        Write-Host "      Token obtido de variavel de ambiente AGENT_TOKEN" -ForegroundColor Green
+    } elseif ($env:AGENT_SECRET_TOKEN) {
+        $resolvedToken = $env:AGENT_SECRET_TOKEN
+        Write-Host "      Token obtido de variavel de ambiente AGENT_SECRET_TOKEN" -ForegroundColor Green
+    }
+}
+
+# 3. deploy_config.local.json (arquivo local nao versionado listado no .gitignore)
 if (-not $resolvedToken -and (Test-Path -Path $deployConfigLocal)) {
     try {
         $lcfg = Get-Content -Path $deployConfigLocal -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($lcfg.agent_token) { $resolvedToken = $lcfg.agent_token }
-    } catch {}
-}
-
-if (-not $resolvedToken -and (Test-Path -Path $envFile)) {
-    $lines = Get-Content -Path $envFile -ErrorAction SilentlyContinue
-    foreach ($line in $lines) {
-        if ($line -match '^AGENT_SECRET_TOKEN\s*=\s*(.+)$') {
-            $resolvedToken = $matches[1].Trim().Trim('"').Trim("'")
-            break
+        if ($lcfg.agent_token) {
+            $resolvedToken = $lcfg.agent_token
+            Write-Host "      Token obtido de deploy_config.local.json" -ForegroundColor Green
         }
-    }
+    } catch {}
 }
 
 # 3.3 VALIDACAO RIGIDA DE SEGURANCA E PRODUCAO
@@ -161,11 +167,13 @@ if ($resolvedServerUrl -match 'localhost|127\.0\.0\.1') {
 }
 
 if (-not $resolvedToken -or $resolvedToken.Trim() -eq "") {
-    $validationErrors += "Token do agente esta ausente ou vazio. O build de producao requer credencial valida."
-} elseif ($resolvedToken -match 'COPIE_O_AGENT_SECRET_TOKEN|YOUR_TOKEN_HERE|<TOKEN>') {
-    $validationErrors += "Token detectado e um placeholder generico nao preenchido: $resolvedToken"
+    $validationErrors += "BUILD ABORTED: production Agent token is missing."
+} elseif ($resolvedToken -match 'COPIE_O_AGENT_SECRET_TOKEN|YOUR_TOKEN_HERE|<TOKEN>|informado|placeholder') {
+    $validationErrors += "Token detectado e um placeholder generico nao preenchido."
 } elseif ($resolvedToken.Length -lt 16) {
     $validationErrors += "Token informado tem comprimento insuficiente (menos de 16 caracteres)."
+} elseif ($resolvedToken -match '\s') {
+    $validationErrors += "Token informado contem espacos invalidos."
 }
 
 if ($validationErrors.Count -gt 0) {
@@ -177,7 +185,7 @@ if ($validationErrors.Count -gt 0) {
         Write-Host " - $err" -ForegroundColor Red
     }
     Write-Host ""
-    Write-Error "O build foi ABORTADO para evitar a geracao de um pacote oficial quebrado."
+    Write-Error "BUILD ABORTED: production Agent token is missing."
     exit 1
 }
 

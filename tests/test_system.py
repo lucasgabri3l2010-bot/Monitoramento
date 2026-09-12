@@ -36,6 +36,7 @@ class SystemMonitoringTestCase(unittest.TestCase):
         self.app = app
         self.app.config["TESTING"] = True
         self.app.config["WTF_CSRF_ENABLED"] = False
+        Config.AGENT_SECRET_TOKEN = "test_secret_token_123"
         Config.POLICY_MONITORING_ENABLED = True
         Config.ACTIVITY_MONITORING_ENABLED = True
         self.client = self.app.test_client()

@@ -31,7 +31,7 @@ if platform.system() == "Windows":
     import ctypes
     from ctypes import wintypes
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 LOCAL_RECEIVER_PORT = 5005
 
 
@@ -57,7 +57,7 @@ def get_config_file_path() -> str:
     3. agent_config.json no mesmo diretório do executável/script (APP_DIR)
     """
     env_path = os.getenv("GIVOVA_CONFIG_PATH")
-    if env_path and os.path.exists(env_path):
+    if env_path:
         return env_path
 
     standard_path = r"C:\ProgramData\GivovaMonitor\agent_config.json"
@@ -67,9 +67,6 @@ def get_config_file_path() -> str:
     app_dir_path = os.path.join(APP_DIR, "agent_config.json")
     if os.path.exists(app_dir_path):
         return app_dir_path
-
-    if env_path:
-        return env_path
 
     if platform.system() == "Windows":
         return standard_path
@@ -628,13 +625,33 @@ def show_windows_toast(title: str, message: str):
         logger.debug(f"Não foi possível emitir notificação Toast: {e}")
 
 
+def is_valid_token(tok: str) -> bool:
+    """
+    Valida se um token de autenticação possui integridade e entropia mínima segura.
+    NUNCA aceita tokens vazios, menores que 16 caracteres, com espaços ou placeholders.
+    """
+    if not tok or not isinstance(tok, str):
+        return False
+    clean = tok.strip()
+    if len(clean) < 16:
+        return False
+    if " " in clean:
+        return False
+    lower = clean.lower()
+    for bad in ("informado", "none", "token_aqui", "placeholder", "your_token_here", "copie_o"):
+        if bad in lower:
+            return False
+    return True
+
+
 def load_config():
     """
     Carrega configurações priorizando argumentos CLI > variáveis de ambiente > agent_config.json > padrões.
+    NUNCA possui token hardcoded ou fallback fixo interno.
     """
     cfg = {
         "server_url": "https://monitoramento-gb9g.onrender.com/api/agent/report",
-        "agent_token": "givova_agent_token_dev_2026",
+        "agent_token": "",
         "device_token": "",
         "department": "Não informado",
         "display_name": "",
@@ -870,10 +887,11 @@ def send_metrics(server_url: str, token: str, payload: dict, timeout: int = 5, d
     """
     Envia métricas para o servidor com headers de autenticação e timeout.
     Suporta autenticação por token compartilhado e token individual de dispositivo.
+    Retorna: (success: bool, status_code: int | None, message: str)
     """
     headers = {
         "Content-Type": "application/json",
-        "X-Agent-Token": token,
+        "X-Agent-Token": token or "",
         "X-Device-UUID": payload.get("uuid", ""),
         "User-Agent": f"GivovaMonitorAgent/{VERSION}"
     }
@@ -884,17 +902,23 @@ def send_metrics(server_url: str, token: str, payload: dict, timeout: int = 5, d
     try:
         response = requests.post(server_url, json=payload, headers=headers, timeout=timeout)
         if response.status_code == 200:
-            return True, "Enviado com sucesso (HTTP 200)"
+            return True, 200, "Enviado com sucesso (HTTP 200)"
         elif response.status_code == 401:
-            return False, "Falha de autenticação: Token inválido ou rejeitado pelo servidor"
+            return False, 401, "Falha de autenticação: Token inválido ou rejeitado pelo servidor"
+        elif response.status_code == 403:
+            return False, 403, "Acesso negado pelo servidor"
+        elif response.status_code == 404:
+            return False, 404, "Endpoint não encontrado"
+        elif response.status_code >= 500:
+            return False, response.status_code, f"Erro interno do servidor ({response.status_code})"
         else:
-            return False, f"Servidor respondeu com código de erro {response.status_code}"
+            return False, response.status_code, f"Servidor respondeu com código {response.status_code}"
     except requests.exceptions.Timeout:
-        return False, "Tempo de resposta esgotado (Timeout — se o servidor estiver no plano gratuito do Render, ele pode estar inicializando/cold start)"
+        return False, None, "Tempo de resposta esgotado (timeout)"
     except requests.exceptions.ConnectionError:
-        return False, "Servidor indisponível ou conexão recusada (verifique a URL e se o serviço está ativo)"
+        return False, None, "Servidor indisponível ou conexão recusada"
     except Exception as e:
-        return False, f"Erro de comunicação: {str(e)}"
+        return False, None, f"Erro de comunicação: {str(e)}"
 
 
 
@@ -905,7 +929,9 @@ def run_agent():
 
     config = load_config()
     config_path = get_config_file_path()
-    has_token = bool(config.get("agent_token") and str(config.get("agent_token")).strip())
+    raw_token = str(config.get("agent_token") or "").strip()
+    has_token = bool(raw_token)
+    token_valid = is_valid_token(raw_token)
 
     logger.info("=" * 65)
     logger.info("   GIVOVA TRANSPORTES - AGENTE DE MONITORAMENTO DE PCS")
@@ -913,12 +939,16 @@ def run_agent():
     logger.info(f"   Server URL: {config['server_url']}")
     logger.info(f"   Agent version: {VERSION}")
     logger.info(f"   Token present: {'true' if has_token else 'false'}")
+    logger.info(f"   Token validation: {'VALID' if token_valid else 'INVALID'}")
     logger.info(f"   Setor: {config['department']}")
     logger.info(f"   Intervalo: {config['interval_seconds']}s")
     logger.info(f"   Monitoramento de Atividade: {'Habilitado' if config['activity_monitoring'] else 'Desabilitado'}")
     logger.info(f"   Auto-Update Remoto: {'Habilitado' if config['auto_update'] else 'Desabilitado'}")
     logger.info(f"   Notificações TI (Admin): {'Habilitado' if config['admin_notifications'] else 'Desabilitado'}")
     logger.info("=" * 65)
+
+    if not has_token or not token_valid:
+        logger.error("Agent authentication configuration is invalid.")
 
     # Inicia o receptor local para a extensão Chromium se o monitoramento de atividade estiver ativo
     if config["activity_monitoring"]:
@@ -948,15 +978,21 @@ def run_agent():
             pass
 
     fail_count = 0
+    consecutive_success = 0
+    had_previous_failure = False
+    first_success_logged = False
+    last_reported_activity = None
+    loop_cycle = 0
 
     while True:
         try:
+            loop_cycle += 1
             metrics = get_system_metrics(activity_enabled=config["activity_monitoring"])
             metrics["setor"] = config["department"]
             if config["display_name"]:
                 metrics["display_name"] = config["display_name"]
 
-            success, message = send_metrics(
+            success, status_code, message = send_metrics(
                 server_url=config["server_url"],
                 token=config["agent_token"],
                 payload=metrics,
@@ -964,24 +1000,46 @@ def run_agent():
                 device_token=config.get("device_token")
             )
 
-            if success:
-                fail_count = 0
-                emit_health_confirmation()
-                activity_log = ""
-                if metrics.get("active_application"):
-                    if metrics.get("active_domain"):
-                        activity_log = f" | Atividade: {metrics['active_application']} — {metrics['active_domain']}"
-                    else:
-                        activity_log = f" | Atividade: {metrics['active_application']}"
+            current_activity = (metrics.get("active_application"), metrics.get("active_domain"))
+            activity_changed = (current_activity != last_reported_activity)
 
-                logger.info(
-                    f"OK [{metrics['hostname']}] CPU: {metrics['cpu']}% | "
-                    f"RAM: {metrics['ram']}% ({metrics['ram_used_gb']}G/{metrics['ram_total_gb']}G) | "
-                    f"Disco: {metrics['disco']}%{activity_log} - {message}"
-                )
+            if success:
+                consecutive_success += 1
+                emit_health_confirmation()
+
+                if had_previous_failure:
+                    logger.info("Conexão restabelecida - Report sent successfully - HTTP 200")
+                    had_previous_failure = False
+                elif not first_success_logged:
+                    logger.info("Report sent successfully - HTTP 200")
+                    first_success_logged = True
+
+                fail_count = 0
+
+                # Log detalhado apenas na primeira execução, quando houver mudança de atividade, ou a cada ~60s
+                if consecutive_success == 1 or activity_changed or (loop_cycle % 12 == 0):
+                    activity_log = ""
+                    if metrics.get("active_application"):
+                        if metrics.get("active_domain"):
+                            activity_log = f" | Atividade: {metrics['active_application']} — {metrics['active_domain']}"
+                        else:
+                            activity_log = f" | Atividade: {metrics['active_application']}"
+
+                    logger.info(
+                        f"OK [{metrics['hostname']}] CPU: {metrics['cpu']}% | "
+                        f"RAM: {metrics['ram']}% ({metrics['ram_used_gb']}G/{metrics['ram_total_gb']}G) | "
+                        f"Disco: {metrics['disco']}%{activity_log} - HTTP 200"
+                    )
+                    last_reported_activity = current_activity
             else:
                 fail_count += 1
-                logger.warning(f"Falha de envio ({fail_count}x): {message}")
+                consecutive_success = 0
+                had_previous_failure = True
+                first_success_logged = False
+                if status_code:
+                    logger.warning(f"Report failed - HTTP {status_code} ({message})")
+                else:
+                    logger.warning(f"Report failed - {message}")
 
         except KeyboardInterrupt:
             logger.info("Agente encerrado pelo operador.")
