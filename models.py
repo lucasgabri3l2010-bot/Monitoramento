@@ -417,12 +417,14 @@ class PolicyRule(db.Model):
     name = db.Column(db.String(100), nullable=False)
     rule_type = db.Column(db.String(30), nullable=False, index=True)  # 'domain' ou 'application'
     pattern = db.Column(db.String(200), nullable=False, index=True)
-    category = db.Column(db.String(50), nullable=False, index=True)  # Adulto, Jogos, Apostas, Streaming, Redes Sociais, Malware, Phishing, Aplicativo Não Autorizado, Outro
+    category = db.Column(db.String(50), nullable=False, index=True)  # adult, games, gambling, streaming, social_media, malware, phishing, etc.
     severity = db.Column(db.String(20), default="warning", nullable=False)  # 'info', 'warning', 'critical'
     scope_type = db.Column(db.String(30), default="global", nullable=False)  # 'global', 'department', 'device'
     scope_target = db.Column(db.String(100), nullable=True)  # Nome do setor ou hostname/UUID
-    action = db.Column(db.String(30), default="alert", nullable=False)  # 'alert', 'log'
+    action = db.Column(db.String(30), default="alert", nullable=False)  # 'alert', 'log', 'allow'
     enabled = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    is_automatic = db.Column(db.Boolean, default=False)
+    source_provider = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -468,6 +470,8 @@ class PolicyRule(db.Model):
             "scope_target": self.scope_target or "Todos",
             "action": self.action,
             "enabled": self.enabled,
+            "is_automatic": bool(self.is_automatic),
+            "source_provider": self.source_provider or "internal",
             "created_at": self.created_at.strftime("%d/%m/%Y %H:%M:%S") if self.created_at else "",
             "is_demo": False
         }
@@ -488,6 +492,8 @@ class PolicyEvent(db.Model):
     last_seen = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     duration_seconds = db.Column(db.Integer, default=0)
     status = db.Column(db.String(20), default="active", index=True)  # 'active', 'closed'
+    source = db.Column(db.String(50), default="manual_rule", index=True)  # 'manual_rule' ou 'automatic_classification'
+    last_notification_sent_at = db.Column(db.DateTime, nullable=True)
     acknowledged = db.Column(db.Boolean, default=False, index=True)
     acknowledged_at = db.Column(db.DateTime, nullable=True)
     acknowledged_by = db.Column(db.String(80), nullable=True)
@@ -525,11 +531,101 @@ class PolicyEvent(db.Model):
             "duration_seconds": self.duration_seconds,
             "duration_formatted": self.format_duration(),
             "status": self.status,
+            "source": self.source or "manual_rule",
             "acknowledged": self.acknowledged,
             "acknowledged_at": self.acknowledged_at.strftime("%d/%m/%Y %H:%M:%S") if self.acknowledged_at else None,
             "acknowledged_by": self.acknowledged_by,
             "resolved_at": self.resolved_at.strftime("%d/%m/%Y %H:%M:%S") if self.resolved_at else None,
             "is_demo": False
+        }
+
+
+class PolicyAllowlist(db.Model):
+    __tablename__ = "policy_allowlists"
+
+    id = db.Column(db.Integer, primary_key=True)
+    pattern = db.Column(db.String(200), nullable=False, index=True)
+    target_type = db.Column(db.String(30), default="domain", nullable=False)  # 'domain' ou 'application'
+    scope_type = db.Column(db.String(30), default="global", nullable=False)  # 'global', 'department', 'device'
+    scope_target = db.Column(db.String(100), nullable=True)  # Nome do setor ou hostname/UUID
+    reason = db.Column(db.String(255), nullable=True)
+    enabled = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    created_by = db.Column(db.String(80), default="admin")
+
+    def matches(self, app_name: str | None, domain: str | None, device_dept: str | None, device_host: str | None, device_uuid: str | None) -> bool:
+        if not self.enabled:
+            return False
+
+        if self.scope_type == "department":
+            if not device_dept or device_dept.lower().strip() != str(self.scope_target).lower().strip():
+                return False
+        elif self.scope_type == "device":
+            target = str(self.scope_target).lower().strip()
+            host_match = device_host and device_host.lower().strip() == target
+            uuid_match = device_uuid and device_uuid.lower().strip() == target
+            if not (host_match or uuid_match):
+                return False
+
+        clean_pat = self.pattern.strip().lower()
+        if self.target_type == "domain":
+            if not domain:
+                return False
+            return match_domain_secure(domain, clean_pat)
+        elif self.target_type == "application":
+            if not app_name:
+                return False
+            return match_application_secure(app_name, clean_pat)
+
+        return False
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "pattern": self.pattern,
+            "target_type": self.target_type,
+            "scope_type": self.scope_type,
+            "scope_target": self.scope_target or "Todos",
+            "reason": self.reason or "—",
+            "enabled": self.enabled,
+            "created_at": self.created_at.strftime("%d/%m/%Y %H:%M:%S") if self.created_at else "",
+            "created_by": self.created_by or "admin"
+        }
+
+
+class DomainClassification(db.Model):
+    __tablename__ = "domain_classifications"
+
+    id = db.Column(db.Integer, primary_key=True)
+    domain = db.Column(db.String(150), unique=True, nullable=False, index=True)
+    category = db.Column(db.String(50), nullable=False, default="unknown", index=True)  # adult, gambling, games, malware, safe, unknown
+    risk_level = db.Column(db.String(20), nullable=False, default="info")  # critical, warning, info, safe
+    confidence = db.Column(db.Float, default=1.0)
+    source = db.Column(db.String(50), default="internal")  # internal, provider, manual
+    status = db.Column(db.String(30), default="classified", index=True)  # pending, classified, error
+    classified_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    expires_at = db.Column(db.DateTime, nullable=True)
+
+    def is_expired(self) -> bool:
+        if not self.expires_at:
+            return False
+        now = datetime.now(timezone.utc)
+        exp = self.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        return now > exp
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "domain": self.domain,
+            "category": self.category,
+            "risk_level": self.risk_level,
+            "confidence": round(self.confidence or 0.0, 2),
+            "source": self.source,
+            "status": self.status,
+            "classified_at": self.classified_at.strftime("%d/%m/%Y %H:%M:%S") if self.classified_at else "",
+            "expires_at": self.expires_at.strftime("%d/%m/%Y %H:%M:%S") if self.expires_at else "Nunca"
         }
 
 

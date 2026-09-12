@@ -530,7 +530,7 @@
                     </div>
                 </div>
 
-                <!-- Sub-navegação: Ocorrências vs Regras -->
+                <!-- Sub-navegação: Ocorrências vs Regras vs Classificação -->
                 <div class="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
                     <div class="flex items-center gap-2">
                         <button onclick="alternarAbaPolitica('ocorrencias')" id="btn-tab-pol-ocorrencias"
@@ -541,6 +541,10 @@
                                 class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
                             Regras Corporativas
                         </button>
+                        <button onclick="alternarAbaPolitica('classificacao')" id="btn-tab-pol-classificacao"
+                                class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+                            Classificação & Allowlists
+                        </button>
                     </div>
 
                     <div id="actions-tab-regras" class="hidden">
@@ -550,6 +554,16 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
                             </svg>
                             <span>+ Nova Regra de Uso</span>
+                        </button>
+                    </div>
+
+                    <div id="actions-tab-classificacao" class="hidden">
+                        <button onclick="abrirModalNovaAllowlist()"
+                                class="px-4 py-2 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors flex items-center gap-1.5">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                            </svg>
+                            <span>+ Liberar Domínio/App (Allowlist)</span>
                         </button>
                     </div>
                 </div>
@@ -632,6 +646,94 @@
                                 </thead>
                                 <tbody id="table-pol-rules-body" class="divide-y divide-slate-100">
                                     <tr><td colspan="7" class="py-12 text-center text-slate-400">Carregando regras corporativas...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                <!-- SUB-ABA 3: CLASSIFICAÇÃO AUTOMÁTICA & ALLOWLISTS -->
+                <div id="subtab-pol-classificacao" class="hidden space-y-6">
+                    <!-- Status do Provedor de Reputação -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                        <div class="flex flex-wrap items-center justify-between gap-4">
+                            <div>
+                                <h3 class="text-sm font-bold text-slate-900">Provedor de Classificação de Domínios</h3>
+                                <p class="text-xs text-slate-500 mt-0.5">Transparência do motor de categorização automática em tempo real.</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="classif-provider-badge" class="px-3 py-1 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                    Provider: Internal
+                                </span>
+                                <span id="classif-coverage-badge" class="px-3 py-1 rounded-xl text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                    Cobertura: regras/listas locais
+                                </span>
+                            </div>
+                        </div>
+
+                        <div id="classif-internal-warning" class="p-3.5 rounded-xl bg-amber-50/80 border border-amber-200/80 text-amber-900 text-xs flex items-start gap-2.5">
+                            <svg class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                            </svg>
+                            <div>
+                                <span class="font-semibold">Provider Interno (Local):</span> Este sistema utiliza a base interna de domínios conhecidos e regras corporativas como fallback. Ele não rotula domínios desconhecidos arbitrariamente. Para cobertura total da internet em tempo real, configure a chave do provedor externo (`DOMAIN_CLASSIFICATION_API_KEY`). Domínios sem informação suficiente são mantidos como <code class="bg-amber-100 px-1 py-0.5 rounded font-mono text-amber-900">unknown</code> e não geram alertas.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tabela de Allowlists (Liberações Explicitas) -->
+                    <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+                            <div>
+                                <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wider">Regras de Liberação (Allowlist)</h3>
+                                <p class="text-[11px] text-slate-500">Padrões e sites liberados manualmente pela TI têm prioridade soberana sobre classificações automáticas.</p>
+                            </div>
+                            <button onclick="abrirModalNovaAllowlist()" class="px-3 py-1.5 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors">
+                                + Adicionar Liberação
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead class="bg-slate-50/80 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200/80 text-[11px]">
+                                    <tr>
+                                        <th class="py-3 px-4">Padrão / Domínio</th>
+                                        <th class="py-3 px-3">Escopo</th>
+                                        <th class="py-3 px-3">Alvo</th>
+                                        <th class="py-3 px-3 text-right">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="table-pol-allowlist-body" class="divide-y divide-slate-100">
+                                    <tr><td colspan="4" class="py-8 text-center text-slate-400">Carregando lista de liberações...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Tabela de Domínios Classificados em Cache -->
+                    <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+                            <div>
+                                <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wider">Cache de Classificações Automáticas</h3>
+                                <p class="text-[11px] text-slate-500">Domínios analisados em background e armazenados com nível de confiança.</p>
+                            </div>
+                            <button onclick="carregarHistoricoClassificacao()" class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead class="bg-slate-50/80 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200/80 text-[11px]">
+                                    <tr>
+                                        <th class="py-3 px-4">Domínio</th>
+                                        <th class="py-3 px-3">Categoria Canônica</th>
+                                        <th class="py-3 px-3 text-center">Score Risco</th>
+                                        <th class="py-3 px-3 text-center">Confiança</th>
+                                        <th class="py-3 px-3">Origem</th>
+                                        <th class="py-3 px-4 text-right">Data/Hora</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="table-pol-classif-body" class="divide-y divide-slate-100">
+                                    <tr><td colspan="6" class="py-8 text-center text-slate-400">Carregando histórico de classificações...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -1109,6 +1211,56 @@
                     </button>
                     <button type="submit" class="px-4 py-2 text-xs font-semibold text-white bg-givova-600 hover:bg-givova-700 rounded-xl shadow-xs transition-colors">
                         Salvar Regra
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: NOVA REGRA DE ALLOWLIST (LIBERAÇÃO) -->
+    <div id="modal-allowlist" class="fixed inset-0 z-55 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-lg w-full p-6 space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h2 class="text-base font-bold text-slate-900">Nova Liberação (Allowlist)</h2>
+                <button onclick="fecharModalAllowlist()" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <form onsubmit="salvarAllowlist(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Padrão / Domínio / App</label>
+                    <input type="text" id="allowlist-pattern" placeholder="ex: *.empresa.com.br ou slack.exe" required
+                           class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 font-mono">
+                    <p class="text-[11px] text-slate-400 mt-1">Suporta wildcards (ex: *.banco.com.br) ou domínios exatos.</p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Escopo</label>
+                        <select id="allowlist-scope-type" onchange="atualizarCampoScopeAllowlist()" required
+                                class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none">
+                            <option value="global">Global (Toda a Empresa)</option>
+                            <option value="department">Departamento</option>
+                            <option value="device">Computador</option>
+                        </select>
+                    </div>
+
+                    <div id="div-allowlist-scope-target" class="hidden">
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Alvo do Escopo</label>
+                        <input type="text" id="allowlist-scope-target" placeholder="ex: Logística ou HOSTNAME"
+                               class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="pt-2 flex items-center justify-end gap-2">
+                    <button type="button" onclick="fecharModalAllowlist()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors">
+                        Salvar Liberação
                     </button>
                 </div>
             </form>
@@ -2013,28 +2165,199 @@
         let filtroEventoStatus = 'active';
         let todasRegrasPolitica = [];
 
+        const CANONICAL_CATEGORIES_MAP = {
+            'adult': 'Adulto / +18',
+            'gambling': 'Apostas / Cassino',
+            'games': 'Jogos',
+            'malware': 'Malware / Ameaça',
+            'phishing': 'Phishing / Enganação',
+            'scam': 'Golpe / Scam',
+            'torrent': 'P2P / Torrent',
+            'streaming': 'Streaming / Mídia',
+            'social_media': 'Rede Social',
+            'vpn_proxy': 'VPN / Proxy Anônimo',
+            'crypto_mining': 'Mineração Crypto',
+            'unauthorized_application': 'App Não Autorizado',
+            'unknown': 'Desconhecido'
+        };
+
+        function formatCategory(cat) {
+            if (!cat) return 'Outro';
+            const lower = String(cat).toLowerCase().trim();
+            return CANONICAL_CATEGORIES_MAP[lower] || cat;
+        }
+
         function alternarAbaPolitica(aba) {
             abaPoliticaAtiva = aba;
             const subOcorrencias = document.getElementById("subtab-pol-ocorrencias");
             const subRegras = document.getElementById("subtab-pol-regras");
+            const subClassif = document.getElementById("subtab-pol-classificacao");
+            
             const btnOcorrencias = document.getElementById("btn-tab-pol-ocorrencias");
             const btnRegras = document.getElementById("btn-tab-pol-regras");
+            const btnClassif = document.getElementById("btn-tab-pol-classificacao");
+            
             const actionsRegras = document.getElementById("actions-tab-regras");
+            const actionsClassif = document.getElementById("actions-tab-classificacao");
+
+            subOcorrencias.classList.add("hidden");
+            subRegras.classList.add("hidden");
+            if (subClassif) subClassif.classList.add("hidden");
+            
+            actionsRegras.classList.add("hidden");
+            if (actionsClassif) actionsClassif.classList.add("hidden");
+
+            btnOcorrencias.className = "px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors";
+            btnRegras.className = "px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors";
+            if (btnClassif) btnClassif.className = "px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors";
 
             if (aba === 'ocorrencias') {
                 subOcorrencias.classList.remove("hidden");
-                subRegras.classList.add("hidden");
-                actionsRegras.classList.add("hidden");
                 btnOcorrencias.className = "px-4 py-2 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs transition-colors";
-                btnRegras.className = "px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors";
                 carregarEventosPolitica();
-            } else {
-                subOcorrencias.classList.add("hidden");
+            } else if (aba === 'regras') {
                 subRegras.classList.remove("hidden");
                 actionsRegras.classList.remove("hidden");
-                btnOcorrencias.className = "px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors";
                 btnRegras.className = "px-4 py-2 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs transition-colors";
                 carregarRegrasPolitica();
+            } else if (aba === 'classificacao') {
+                if (subClassif) subClassif.classList.remove("hidden");
+                if (actionsClassif) actionsClassif.classList.remove("hidden");
+                if (btnClassif) btnClassif.className = "px-4 py-2 rounded-xl text-xs font-semibold bg-givova-600 text-white shadow-xs transition-colors";
+                carregarClassificacaoEAllowlist();
+            }
+        }
+
+        async function carregarClassificacaoEAllowlist() {
+            await Promise.all([
+                carregarStatusClassificacao(),
+                carregarAllowlists(),
+                carregarHistoricoClassificacao()
+            ]);
+        }
+
+        async function carregarStatusClassificacao() {
+            try {
+                const resp = await fetch("/api/policies/classification/status");
+                if (resp.ok) {
+                    const data = await resp.json();
+                    const pBadge = document.getElementById("classif-provider-badge");
+                    const cBadge = document.getElementById("classif-coverage-badge");
+                    if (pBadge) pBadge.innerText = `Provider: ${data.provider}`;
+                    if (cBadge) cBadge.innerText = `Cobertura: ${data.coverage}`;
+                }
+            } catch (err) {
+                console.error("Erro ao carregar status de classificação:", err);
+            }
+        }
+
+        async function carregarAllowlists() {
+            const tbody = document.getElementById("table-pol-allowlist-body");
+            try {
+                const resp = await fetch("/api/policies/allowlist");
+                if (!resp.ok) throw new Error("Erro ao listar allowlist");
+                const list = await resp.json();
+                if (list.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="4" class="py-8 text-center text-slate-400">Nenhuma liberação cadastrada na allowlist.</td></tr>`;
+                    return;
+                }
+                tbody.innerHTML = list.map(item => `
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="py-3 px-4 font-mono font-semibold text-emerald-700">${item.pattern}</td>
+                        <td class="py-3 px-3 uppercase text-[10px] font-bold text-slate-600">${item.scope_type}</td>
+                        <td class="py-3 px-3 font-mono text-slate-700">${item.scope_target || '—'}</td>
+                        <td class="py-3 px-3 text-right">
+                            <button onclick="removerAllowlist('${item.pattern}')" class="p-1 rounded text-rose-500 hover:bg-rose-50 font-semibold text-xs">Excluir</button>
+                        </td>
+                    </tr>
+                `).join("");
+            } catch (err) {
+                console.error(err);
+                tbody.innerHTML = `<tr><td colspan="4" class="py-6 text-center text-rose-500">Erro ao carregar liberações.</td></tr>`;
+            }
+        }
+
+        async function carregarHistoricoClassificacao() {
+            const tbody = document.getElementById("table-pol-classif-body");
+            try {
+                const resp = await fetch("/api/policies/classification/status");
+                if (!resp.ok) throw new Error("Erro ao listar cache de classificações");
+                const data = await resp.json();
+                const list = data.recent_classifications || [];
+                if (list.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-400">Nenhum domínio classificado em cache.</td></tr>`;
+                    return;
+                }
+                tbody.innerHTML = list.map(item => `
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="py-3 px-4 font-mono font-semibold text-slate-800">${item.domain}</td>
+                        <td class="py-3 px-3"><span class="px-2 py-0.5 rounded-md bg-slate-100 font-semibold text-[11px] text-slate-700">${formatCategory(item.category)}</span></td>
+                        <td class="py-3 px-3 text-center font-mono font-bold ${item.risk_score > 50 ? 'text-rose-600' : 'text-slate-700'}">${item.risk_score}/100</td>
+                        <td class="py-3 px-3 text-center font-mono text-slate-600">${Math.round((item.confidence || 1) * 100)}%</td>
+                        <td class="py-3 px-3 font-mono text-[11px] text-slate-500">${item.source}</td>
+                        <td class="py-3 px-4 text-right text-slate-400 font-mono text-[11px]">${item.classified_at || '—'}</td>
+                    </tr>
+                `).join("");
+            } catch (err) {
+                console.error(err);
+                tbody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-rose-500">Erro ao carregar histórico.</td></tr>`;
+            }
+        }
+
+        function abrirModalNovaAllowlist() {
+            document.getElementById("modal-allowlist").classList.remove("hidden");
+        }
+
+        function fecharModalAllowlist() {
+            document.getElementById("modal-allowlist").classList.add("hidden");
+        }
+
+        function atualizarCampoScopeAllowlist() {
+            const scope = document.getElementById("allowlist-scope-type").value;
+            const div = document.getElementById("div-allowlist-scope-target");
+            if (scope === "global") {
+                div.classList.add("hidden");
+            } else {
+                div.classList.remove("hidden");
+            }
+        }
+
+        async function salvarAllowlist(ev) {
+            ev.preventDefault();
+            const pattern = document.getElementById("allowlist-pattern").value.trim();
+            const scope_type = document.getElementById("allowlist-scope-type").value;
+            const scope_target = document.getElementById("allowlist-scope-target").value.trim();
+
+            try {
+                const resp = await fetch("/api/policies/allowlist", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ pattern, scope_type, scope_target })
+                });
+                if (resp.ok) {
+                    fecharModalAllowlist();
+                    carregarAllowlists();
+                } else {
+                    alert("Erro ao adicionar liberação.");
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function removerAllowlist(pattern) {
+            if (!confirm(`Remover liberação para '${pattern}'?`)) return;
+            try {
+                const resp = await fetch("/api/policies/allowlist", {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ pattern })
+                });
+                if (resp.ok) {
+                    carregarAllowlists();
+                }
+            } catch (err) {
+                console.error(err);
             }
         }
 
@@ -2130,7 +2453,7 @@
                                 <span class="font-semibold text-slate-800 font-mono inline-flex items-center gap-1">${targetTypeIcon} ${target}</span>
                             </td>
                             <td class="py-3 px-3">
-                                <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium text-[11px]">${e.category || 'Outro'}</span>
+                                <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium text-[11px]">${formatCategory(e.category)}</span>
                             </td>
                             <td class="py-3 px-3 text-center">${sevBadge}</td>
                             <td class="py-3 px-3">
@@ -2215,7 +2538,7 @@
                                 <span class="font-semibold text-slate-800 font-mono text-xs">${r.rule_type === 'domain' ? '🌐' : '💻'} ${r.pattern}</span>
                             </td>
                             <td class="py-3 px-3">
-                                <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium text-[11px]">${r.category}</span>
+                                <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium text-[11px]">${formatCategory(r.category)}</span>
                             </td>
                             <td class="py-3 px-3 text-center">${sevBadge}</td>
                             <td class="py-3 px-3 text-slate-600 font-mono text-[11px]">${escopoText}</td>

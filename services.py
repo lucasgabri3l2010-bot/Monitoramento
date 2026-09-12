@@ -1,8 +1,51 @@
 import time
 import random
 from datetime import datetime, timezone, timedelta
-from models import db, Device, MetricHistory, Alert, PolicyRule, PolicyEvent, PolicyAuditLog, SystemMetadata, match_domain_secure, match_application_secure
+from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
+import threading
+import requests
+
+from models import (
+    db, Device, MetricHistory, Alert, PolicyRule, PolicyEvent, PolicyAuditLog,
+    PolicyAllowlist, DomainClassification, SystemMetadata,
+    match_domain_secure, match_application_secure
+)
 from config import Config
+
+# Categorias canônicas padronizadas
+CATEGORY_MAP = {
+    "adult": "Adulto / +18",
+    "gambling": "Apostas",
+    "games": "Jogos",
+    "malware": "Malware",
+    "phishing": "Phishing",
+    "scam": "Scam / Fraude",
+    "torrent": "Torrent / Pirataria",
+    "streaming": "Streaming",
+    "social_media": "Redes Sociais",
+    "vpn_proxy": "Proxy / VPN",
+    "crypto_mining": "Criptomineração",
+    "unauthorized_application": "Aplicativo Não Autorizado",
+    "unknown": "Não Classificado"
+}
+
+# Severidades padrão para categorias automáticas
+DEFAULT_CATEGORY_SEVERITY = {
+    "adult": "critical",
+    "gambling": "critical",
+    "malware": "critical",
+    "phishing": "critical",
+    "scam": "critical",
+    "crypto_mining": "critical",
+    "games": "warning",
+    "torrent": "warning",
+    "streaming": "warning",
+    "social_media": "warning",
+    "vpn_proxy": "warning",
+    "unauthorized_application": "warning",
+    "unknown": "info"
+}
 
 class CachedPolicyRule:
     """
@@ -10,7 +53,7 @@ class CachedPolicyRule:
     Totalmente thread-safe e livre de erros de DetachedInstanceError entre requisições.
     """
     def __init__(self, id: int, name: str, rule_type: str, pattern: str, category: str,
-                 severity: str, scope_type: str, scope_target: str, action: str, enabled: bool):
+                 severity: str, scope_type: str, scope_target: str, action: str, enabled: bool, is_automatic: bool = False):
         self.id = id
         self.name = name
         self.rule_type = rule_type
@@ -21,6 +64,7 @@ class CachedPolicyRule:
         self.scope_target = scope_target
         self.action = action
         self.enabled = enabled
+        self.is_automatic = is_automatic
 
     def matches(self, app_name: str | None, domain: str | None, device_dept: str | None,
                 device_host: str | None, device_uuid: str | None) -> bool:
@@ -49,6 +93,202 @@ class CachedPolicyRule:
             return match_application_secure(app_name, clean_pat)
 
         return False
+
+
+class DomainReputationProvider(ABC):
+    @abstractmethod
+    def classify_domain(self, domain: str) -> dict:
+        """
+        Retorna dicionário conceitual:
+        {
+            "domain": "example.com",
+            "category": "adult",
+            "risk_level": "critical",
+            "confidence": 0.95,
+            "source": "provider"
+        }
+        """
+        pass
+
+
+class InternalDomainReputationProvider(DomainReputationProvider):
+    """
+    Provider interno leve mantido exclusivamente para listas/regras locais, testes e fallback.
+    Não tenta fingir cobertura global da internet: domínios não catalogados retornam 'unknown'.
+    """
+    LOCAL_KNOWN_DOMAINS = {
+        "bet365.com": {"category": "gambling", "risk": "critical", "confidence": 1.0},
+        "betano.com": {"category": "gambling", "risk": "critical", "confidence": 1.0},
+        "blaze.com": {"category": "gambling", "risk": "critical", "confidence": 1.0},
+        "netflix.com": {"category": "streaming", "risk": "warning", "confidence": 1.0},
+        "twitch.tv": {"category": "streaming", "risk": "warning", "confidence": 1.0},
+        "tiktok.com": {"category": "social_media", "risk": "warning", "confidence": 1.0},
+        "instagram.com": {"category": "social_media", "risk": "warning", "confidence": 1.0},
+        "facebook.com": {"category": "social_media", "risk": "warning", "confidence": 1.0},
+        "roblox.com": {"category": "games", "risk": "warning", "confidence": 1.0},
+        "steamcommunity.com": {"category": "games", "risk": "warning", "confidence": 1.0},
+        "pornhub.com": {"category": "adult", "risk": "critical", "confidence": 1.0},
+        "xvideos.com": {"category": "adult", "risk": "critical", "confidence": 1.0},
+        "thepiratebay.org": {"category": "torrent", "risk": "warning", "confidence": 1.0},
+        "example-policy-test.local": {"category": "adult", "risk": "critical", "confidence": 1.0}
+    }
+
+    def classify_domain(self, domain: str) -> dict:
+        norm_d = domain.strip().lower()
+        if norm_d.startswith("www."):
+            norm_d = norm_d[4:]
+
+        for k_domain, info in self.LOCAL_KNOWN_DOMAINS.items():
+            if norm_d == k_domain or norm_d.endswith("." + k_domain):
+                return {
+                    "domain": domain,
+                    "category": info["category"],
+                    "risk_level": info["risk"],
+                    "confidence": info["confidence"],
+                    "source": "internal"
+                }
+
+        # Desconhecido: retorna unknown sem acusar violação
+        return {
+            "domain": domain,
+            "category": "unknown",
+            "risk_level": "info",
+            "confidence": 0.50,
+            "source": "internal"
+        }
+
+
+class ExternalDomainReputationProvider(DomainReputationProvider):
+    """
+    Provider externo para categorização em nuvem via API.
+    Envia ESTRITAMENTE o nome do domínio (sem paths, query, usuários ou dados corporativos).
+    """
+    def __init__(self, api_key: str, api_url: str = None):
+        self.api_key = api_key
+        self.api_url = api_url or "https://api.domainreputation.example/v1/classify"
+
+    def classify_domain(self, domain: str) -> dict:
+        clean_domain = domain.strip().lower().split("/")[0].split("?")[0]
+        try:
+            resp = requests.post(
+                self.api_url,
+                json={"domain": clean_domain},
+                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                timeout=3
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                cat = data.get("category", "unknown").lower()
+                conf = float(data.get("confidence", 0.90))
+                risk = data.get("risk_level") or DEFAULT_CATEGORY_SEVERITY.get(cat, "info")
+                return {
+                    "domain": clean_domain,
+                    "category": cat,
+                    "risk_level": risk,
+                    "confidence": conf,
+                    "source": "provider"
+                }
+        except Exception as e:
+            print(f"[ExternalProvider] Erro ao consultar API externa: {e}")
+
+        return InternalDomainReputationProvider().classify_domain(clean_domain)
+
+
+def get_reputation_provider() -> DomainReputationProvider:
+    if Config.DOMAIN_CLASSIFICATION_API_KEY:
+        return ExternalDomainReputationProvider(Config.DOMAIN_CLASSIFICATION_API_KEY)
+    return InternalDomainReputationProvider()
+
+
+# Executor assíncrono leve para consultas de reputação sem travar /api/agent/report
+_classification_executor = ThreadPoolExecutor(max_workers=4)
+_pending_domains_lock = threading.Lock()
+_pending_domains_set = set()
+
+
+def enqueue_domain_classification(app_context, domain: str):
+    """
+    Enfileira a classificação assíncrona de um domínio novo sem bloquear a rota de ingestão.
+    Deduplica requisições simultâneas via _pending_domains_set.
+    """
+    clean_domain = domain.strip().lower()
+    with _pending_domains_lock:
+        if clean_domain in _pending_domains_set:
+            return
+        _pending_domains_set.add(clean_domain)
+
+    def _async_task():
+        try:
+            with app_context:
+                provider = get_reputation_provider()
+                res = provider.classify_domain(clean_domain)
+
+                cat = res.get("category", "unknown")
+                risk = res.get("risk_level", "info")
+                conf = float(res.get("confidence", 1.0))
+                src = res.get("source", "internal")
+
+                expires_at = datetime.now(timezone.utc) + timedelta(days=Config.DOMAIN_CLASSIFICATION_TTL_DAYS)
+
+                db_item = DomainClassification.query.filter_by(domain=clean_domain).first()
+                if not db_item:
+                    db_item = DomainClassification(
+                        domain=clean_domain,
+                        category=cat,
+                        risk_level=risk,
+                        confidence=conf,
+                        source=src,
+                        status="classified",
+                        classified_at=datetime.now(timezone.utc),
+                        expires_at=expires_at
+                    )
+                    db.session.add(db_item)
+                else:
+                    db_item.category = cat
+                    db_item.risk_level = risk
+                    db_item.confidence = conf
+                    db_item.source = src
+                    db_item.status = "classified"
+                    db_item.classified_at = datetime.now(timezone.utc)
+                    db_item.expires_at = expires_at
+
+                db.session.commit()
+
+                # Se resultado for uma categoria arriscada com confiança >= MIN_CONFIDENCE, reavalia dispositivos nos últimos 10m
+                if conf >= Config.DOMAIN_CLASSIFICATION_MIN_CONFIDENCE and cat in ("adult", "gambling", "malware", "phishing", "scam", "games", "torrent", "streaming", "social_media", "vpn_proxy", "crypto_mining"):
+                    _reevaluate_devices_for_domain(clean_domain)
+
+        except Exception as e:
+            print(f"[AsyncClassification] Erro ao classificar domínio {clean_domain}: {e}")
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+        finally:
+            with _pending_domains_lock:
+                _pending_domains_set.discard(clean_domain)
+
+    _classification_executor.submit(_async_task)
+
+
+def _reevaluate_devices_for_domain(domain: str):
+    """
+    Reavalia dispositivos que enviaram este domínio nos últimos 10 minutos após conclusão da classificação assíncrona.
+    """
+    ten_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=10)
+    recent_devs = Device.query.filter(
+        Device.active_domain == domain,
+        Device.updated_at >= ten_mins_ago
+    ).all()
+
+    now = datetime.now(timezone.utc)
+    for dev in recent_devs:
+        _evaluate_policies(dev, now)
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 # Cache local de regras de política compatível com múltiplos workers do Gunicorn
 _local_rules_cache = None
@@ -91,7 +331,8 @@ def get_active_policy_rules() -> list:
                 scope_type=r.scope_type,
                 scope_target=r.scope_target,
                 action=r.action,
-                enabled=r.enabled
+                enabled=r.enabled,
+                is_automatic=getattr(r, 'is_automatic', False)
             )
             for r in db_rules
         ]
@@ -244,71 +485,152 @@ def process_agent_payload(data: dict) -> Device:
     return device
 
 
+def _is_allowlisted(app_name: str | None, domain: str | None, device_dept: str | None, device_host: str | None, device_uuid: str | None) -> bool:
+    """
+    Verifica se a atividade está liberada por Allowlist (Precedência: Device > Department > Global).
+    """
+    allowlists = PolicyAllowlist.query.filter_by(enabled=True).all()
+    # 1. Scope Device
+    for al in allowlists:
+        if al.scope_type == "device" and al.matches(app_name, domain, device_dept, device_host, device_uuid):
+            return True
+    # 2. Scope Department
+    for al in allowlists:
+        if al.scope_type == "department" and al.matches(app_name, domain, device_dept, device_host, device_uuid):
+            return True
+    # 3. Scope Global
+    for al in allowlists:
+        if al.scope_type == "global" and al.matches(app_name, domain, device_dept, device_host, device_uuid):
+            return True
+
+    return False
+
+
 def _evaluate_policies(device: Device, now: datetime):
     """
-    Avalia a atividade atual do computador contra as regras corporativas ativas.
-    Utiliza cache em memória para não onerar o banco de dados.
-    Deduplica ocorrências acumulando duration_seconds para evitar enxurrada de alertas repetidos.
+    Avalia a atividade atual contra a hierarquia estrita:
+    1. Device Allowlist
+    2. Department Allowlist
+    3. Global Allowlist
+    4. Manual PolicyRule (regras criadas pela TI)
+    5. Cached Automatic Classification
+    6. External/Internal Provider (Async)
+    7. Unknown
     """
-    rules = get_active_policy_rules()
-    matching_rules = []
-    for r in rules:
-        if r.matches(
-            app_name=device.active_app,
-            domain=device.active_domain,
-            device_dept=device.department,
-            device_host=device.hostname,
-            device_uuid=device.uuid
-        ):
-            matching_rules.append(r)
+    if not Config.POLICY_MONITORING_ENABLED:
+        return
 
-    sev_weight = {"critical": 3, "warning": 2, "info": 1}
-    matching_rules.sort(key=lambda r: sev_weight.get(r.severity, 0), reverse=True)
+    app_name = device.active_app
+    domain = device.active_domain
 
-    if matching_rules:
-        primary_rule = matching_rules[0]
-
-        # Busca ocorrência ativa para este dispositivo que corresponda à regra ou ao domínio/aplicativo atual
-        active_event = PolicyEvent.query.filter(
-            PolicyEvent.device_id == device.id,
-            PolicyEvent.status == "active",
-            (
-                (PolicyEvent.policy_rule_id == primary_rule.id) |
-                ((PolicyEvent.domain == device.active_domain) & (PolicyEvent.domain.isnot(None))) |
-                ((PolicyEvent.application == device.active_app) & (PolicyEvent.application.isnot(None)))
-            )
-        ).first()
-
-        if active_event:
-            # Deduplicação: Atualiza last_seen e acumula tempo de permanência aproximado
-            active_event.last_seen = now
-            if active_event.first_seen:
-                f_seen = active_event.first_seen
-                if f_seen.tzinfo is None:
-                    f_seen = f_seen.replace(tzinfo=timezone.utc)
-                active_event.duration_seconds = max(0, int((now - f_seen).total_seconds()))
-        else:
-            # Encerra qualquer outro evento aberto anteriormente de atividade diferente
-            _close_open_policy_events(device, now, except_domain=device.active_domain, except_app=device.active_app)
-
-            # Registra nova ocorrência corporativa
-            new_event = PolicyEvent(
-                device_id=device.id,
-                policy_rule_id=primary_rule.id,
-                event_type=primary_rule.rule_type,
-                category=primary_rule.category,
-                severity=primary_rule.severity,
-                application=device.active_app,
-                domain=device.active_domain,
-                first_seen=now,
-                last_seen=now,
-                duration_seconds=0,
-                status="active"
-            )
-            db.session.add(new_event)
-    else:
-        # Usuário retornou para aplicativo/site corporativo permitido: fecha eventos de política ativos
+    if not app_name and not domain:
         _close_open_policy_events(device, now)
+        return
+
+    # 1. Precedência 1..3: Check Allowlist (Device > Department > Global)
+    if _is_allowlisted(app_name, domain, device.department, device.hostname, device.uuid):
+        _close_open_policy_events(device, now)
+        return
+
+    # 2. Precedência 4: Manual PolicyRules (regras soberanas criadas pela TI)
+    manual_rules = get_active_policy_rules()
+    matching_manual_rules = []
+    for r in manual_rules:
+        if not r.is_automatic and r.matches(app_name, domain, device.department, device.hostname, device.uuid):
+            matching_manual_rules.append(r)
+
+    if matching_manual_rules:
+        sev_weight = {"critical": 3, "warning": 2, "info": 1}
+        matching_manual_rules.sort(key=lambda r: sev_weight.get(r.severity, 0), reverse=True)
+        primary_rule = matching_manual_rules[0]
+
+        if primary_rule.action == "allow":
+            _close_open_policy_events(device, now)
+            return
+
+        _create_or_update_policy_event(
+            device=device,
+            rule_id=primary_rule.id,
+            event_type=primary_rule.rule_type,
+            category=primary_rule.category,
+            severity=primary_rule.severity,
+            source="manual_rule",
+            now=now
+        )
+        return
+
+    # 3. Precedência 5..6: Classificação Automática de Domínio
+    if domain and Config.DOMAIN_CLASSIFICATION_ENABLED:
+        clean_domain = domain.strip().lower()
+        if clean_domain.startswith("www."):
+            clean_domain = clean_domain[4:]
+
+        cls = DomainClassification.query.filter_by(domain=clean_domain).first()
+
+        if not cls:
+            # Cache MISS -> Enfileira classificação assíncrona sem travar /api/agent/report
+            from flask import current_app
+            try:
+                app_ctx = current_app._get_current_object().app_context()
+                enqueue_domain_classification(app_ctx, clean_domain)
+            except Exception:
+                pass
+        elif cls.status == "classified" and not cls.is_expired():
+            if cls.confidence >= Config.DOMAIN_CLASSIFICATION_MIN_CONFIDENCE and cls.category in ("adult", "gambling", "malware", "phishing", "scam", "games", "torrent", "streaming", "social_media", "vpn_proxy", "crypto_mining"):
+                sev = cls.risk_level or DEFAULT_CATEGORY_SEVERITY.get(cls.category, "warning")
+                _create_or_update_policy_event(
+                    device=device,
+                    rule_id=None,
+                    event_type="domain",
+                    category=cls.category,
+                    severity=sev,
+                    source="automatic_classification",
+                    now=now
+                )
+                return
+
+    # Se nada violou: fecha eventos abertos anteriores
+    _close_open_policy_events(device, now)
+
+
+def _create_or_update_policy_event(device: Device, rule_id: int | None, event_type: str, category: str, severity: str, source: str, now: datetime):
+    """
+    Registra ou atualiza ocorrência corporativa de forma deduplicada.
+    """
+    active_event = PolicyEvent.query.filter(
+        PolicyEvent.device_id == device.id,
+        PolicyEvent.status == "active",
+        (
+            (PolicyEvent.policy_rule_id == rule_id) if rule_id else (PolicyEvent.category == category) |
+            ((PolicyEvent.domain == device.active_domain) & (PolicyEvent.domain.isnot(None))) |
+            ((PolicyEvent.application == device.active_app) & (PolicyEvent.application.isnot(None)))
+        )
+    ).first()
+
+    if active_event:
+        active_event.last_seen = now
+        if active_event.first_seen:
+            f_seen = active_event.first_seen
+            if f_seen.tzinfo is None:
+                f_seen = f_seen.replace(tzinfo=timezone.utc)
+            active_event.duration_seconds = max(0, int((now - f_seen).total_seconds()))
+    else:
+        _close_open_policy_events(device, now, except_domain=device.active_domain, except_app=device.active_app)
+        new_event = PolicyEvent(
+            device_id=device.id,
+            policy_rule_id=rule_id,
+            event_type=event_type,
+            category=category,
+            severity=severity,
+            application=device.active_app,
+            domain=device.active_domain,
+            first_seen=now,
+            last_seen=now,
+            duration_seconds=0,
+            status="active",
+            source=source
+        )
+        db.session.add(new_event)
 
 
 def _close_open_policy_events(device: Device, now: datetime, except_domain: str | None = None, except_app: str | None = None):

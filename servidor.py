@@ -11,7 +11,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import io
 
 from config import Config
-from models import db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent, PolicyAuditLog, SystemMetadata, AgentRelease, compare_versions, parse_semver
+from models import db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent, PolicyAuditLog, SystemMetadata, AgentRelease, PolicyAllowlist, DomainClassification, compare_versions, parse_semver
 from services import process_agent_payload, get_dashboard_stats, invalidate_policy_rules_cache
 
 # Configuração de Logging Profissional
@@ -277,7 +277,7 @@ def detalhes_dispositivo(device_id):
             return jsonify(demo_data)
 
     device = db.get_or_404(Device, device_id)
-    
+
     # Busca últimas 60 métricas históricas para o gráfico temporal
     metrics = MetricHistory.query.filter_by(device_id=device.id)\
         .order_by(MetricHistory.timestamp.asc())\
@@ -287,10 +287,31 @@ def detalhes_dispositivo(device_id):
         .order_by(Alert.created_at.desc())\
         .limit(10).all()
 
+    # Cálculo de métricas de Políticas e Segurança para a modal do dispositivo
+    now = datetime.now(timezone.utc)
+    twenty_four_h = now - timedelta(hours=24)
+    seven_d = now - timedelta(days=7)
+
+    policy_events_24h = PolicyEvent.query.filter(PolicyEvent.device_id == device.id, PolicyEvent.last_seen >= twenty_four_h).count()
+    policy_events_7d = PolicyEvent.query.filter(PolicyEvent.device_id == device.id, PolicyEvent.last_seen >= seven_d).count()
+    critical_events = PolicyEvent.query.filter(PolicyEvent.device_id == device.id, PolicyEvent.severity == "critical").count()
+    warning_events = PolicyEvent.query.filter(PolicyEvent.device_id == device.id, PolicyEvent.severity == "warning").count()
+    last_event = PolicyEvent.query.filter_by(device_id=device.id).order_by(PolicyEvent.last_seen.desc()).first()
+
+    policy_summary = {
+        "events_24h": policy_events_24h,
+        "events_7d": policy_events_7d,
+        "critical_count": critical_events,
+        "warning_count": warning_events,
+        "last_event": last_event.to_dict() if last_event else None,
+        "last_classified_domain": device.active_domain or "—"
+    }
+
     return jsonify({
         "device": device.to_dict(Config.OFFLINE_THRESHOLD_SECONDS),
         "metrics": [m.to_dict() for m in metrics],
-        "alerts": [a.to_dict() for a in alerts]
+        "alerts": [a.to_dict() for a in alerts],
+        "policy_summary": policy_summary
     })
 
 
@@ -935,6 +956,104 @@ def estatisticas_politicas():
         "by_category": categories_count,
         "by_department": departments_count,
         "by_severity": severity_count
+    })
+
+
+@app.route("/api/policies/allowlist", methods=["GET"])
+@login_required
+def listar_allowlists():
+    """
+    Lista todas as liberações corporativas (Allowlist).
+    """
+    allowlists = PolicyAllowlist.query.order_by(PolicyAllowlist.created_at.desc()).all()
+    return jsonify([al.to_dict() for al in allowlists])
+
+
+@app.route("/api/policies/allowlist", methods=["POST"])
+@login_required
+def criar_allowlist():
+    """
+    Cadastra uma nova liberação de site ou aplicativo (Allowlist).
+    """
+    data = request.get_json(silent=True) or request.form
+    pattern = (data.get("pattern") or "").strip()
+    target_type = (data.get("target_type") or "domain").strip().lower()
+    scope_type = (data.get("scope_type") or "global").strip().lower()
+    scope_target = (data.get("scope_target") or "Todos").strip()
+    reason = (data.get("reason") or "").strip()
+
+    if not pattern:
+        return jsonify({"error": "O padrão (domínio ou executável) é obrigatório."}), 400
+
+    al = PolicyAllowlist(
+        pattern=pattern,
+        target_type=target_type if target_type in ("domain", "application") else "domain",
+        scope_type=scope_type if scope_type in ("global", "department", "device") else "global",
+        scope_target=scope_target if scope_type != "global" else "Todos",
+        reason=reason,
+        enabled=True,
+        created_by=session.get("username", "admin")
+    )
+    db.session.add(al)
+
+    audit = PolicyAuditLog(
+        user_name=session.get("username", "admin"),
+        action="ALLOWLIST_CREATED",
+        details=f"Criada liberação para '{pattern}' [{target_type}] Escopo: {scope_type} ({scope_target})"
+    )
+    db.session.add(audit)
+    db.session.commit()
+
+    invalidate_policy_rules_cache()
+    return jsonify({"status": "ok", "allowlist": al.to_dict()}), 201
+
+
+@app.route("/api/policies/allowlist/<int:allow_id>", methods=["DELETE"])
+@login_required
+def excluir_allowlist(allow_id):
+    """
+    Remove uma liberação corporativa.
+    """
+    al = db.get_or_404(PolicyAllowlist, allow_id)
+    pat = al.pattern
+    db.session.delete(al)
+
+    audit = PolicyAuditLog(
+        user_name=session.get("username", "admin"),
+        action="ALLOWLIST_DELETED",
+        details=f"Removida liberação para '{pat}' (id {allow_id})."
+    )
+    db.session.add(audit)
+    db.session.commit()
+
+    invalidate_policy_rules_cache()
+    return jsonify({"status": "ok", "message": f"Liberação para '{pat}' removida com sucesso."})
+
+
+@app.route("/api/policies/classification/status", methods=["GET"])
+@login_required
+def status_classificacao_automatica():
+    """
+    Retorna métricas de transparência e integridade da classificação automática de domínios.
+    NUNCA exibe API Keys completas ou segredos no frontend.
+    """
+    has_api_key = bool(Config.DOMAIN_CLASSIFICATION_API_KEY)
+    provider_name = "External" if has_api_key else "Internal"
+    coverage = "reputação global" if has_api_key else "regras/listas locais"
+
+    total_classified = DomainClassification.query.count()
+    recent_classifications = DomainClassification.query.order_by(DomainClassification.classified_at.desc()).limit(20).all()
+
+    return jsonify({
+        "enabled": Config.DOMAIN_CLASSIFICATION_ENABLED,
+        "provider": provider_name,
+        "coverage": coverage,
+        "provider_label": f"Provider: {provider_name}",
+        "coverage_label": f"Cobertura: {coverage}",
+        "ttl_days": Config.DOMAIN_CLASSIFICATION_TTL_DAYS,
+        "min_confidence": Config.DOMAIN_CLASSIFICATION_MIN_CONFIDENCE,
+        "total_classified_domains": total_classified,
+        "recent_classifications": [c.to_dict() for c in recent_classifications]
     })
 
 

@@ -55,6 +55,15 @@ class Config:
     POLICY_MONITORING_ENABLED = os.getenv("POLICY_MONITORING_ENABLED", "true").lower() in ("true", "1", "yes")
     ADMIN_NOTIFICATIONS_ENABLED = os.getenv("ADMIN_NOTIFICATIONS_ENABLED", "true").lower() in ("true", "1", "yes")
     POLICY_EVENT_RETENTION_DAYS = int(os.getenv("POLICY_EVENT_RETENTION_DAYS", "90"))
+    POLICY_ALERT_COOLDOWN_MINUTES = int(os.getenv("POLICY_ALERT_COOLDOWN_MINUTES", "30"))
+    ADMIN_NOTIFICATION_MIN_SEVERITY = os.getenv("ADMIN_NOTIFICATION_MIN_SEVERITY", "warning").strip().lower()
+
+    # Classificação Automática de Domínios
+    DOMAIN_CLASSIFICATION_ENABLED = os.getenv("DOMAIN_CLASSIFICATION_ENABLED", "true").lower() in ("true", "1", "yes")
+    DOMAIN_CLASSIFICATION_PROVIDER = os.getenv("DOMAIN_CLASSIFICATION_PROVIDER", "internal").strip().lower()
+    DOMAIN_CLASSIFICATION_API_KEY = os.getenv("DOMAIN_CLASSIFICATION_API_KEY", "").strip()
+    DOMAIN_CLASSIFICATION_TTL_DAYS = int(os.getenv("DOMAIN_CLASSIFICATION_TTL_DAYS", "30"))
+    DOMAIN_CLASSIFICATION_MIN_CONFIDENCE = float(os.getenv("DOMAIN_CLASSIFICATION_MIN_CONFIDENCE", "0.80"))
 
     # Auto-Update do Agente e Gestão de Versões
     AGENT_AUTO_UPDATE_ENABLED = os.getenv("AGENT_AUTO_UPDATE_ENABLED", "true").lower() in ("true", "1", "yes")

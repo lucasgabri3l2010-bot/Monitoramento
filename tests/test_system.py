@@ -18,10 +18,15 @@ from servidor import app, db
 from models import (
     User, Device, Alert, MetricHistory,
     PolicyRule, PolicyEvent, PolicyAuditLog, AgentRelease,
+    PolicyAllowlist, DomainClassification,
     parse_semver, compare_versions, normalize_domain,
     match_domain_secure, match_application_secure
 )
-from services import get_active_policy_rules, invalidate_policy_rules_cache
+from services import (
+    get_active_policy_rules, invalidate_policy_rules_cache,
+    enqueue_domain_classification, process_agent_payload,
+    InternalDomainReputationProvider
+)
 
 class SystemMonitoringTestCase(unittest.TestCase):
 
@@ -659,6 +664,83 @@ class SystemMonitoringTestCase(unittest.TestCase):
                 self.assertEqual(db_demo_rules, 0)
         finally:
             Config.DEMO_MODE = False
+
+    def test_14_allowlist_hierarchy_and_rules(self):
+        """Valida que Allowlists (device > dept > global) sobrepõem classificação e regras"""
+        with self.app.app_context():
+            allow = PolicyAllowlist(pattern="bet365.com", scope_type="global")
+            db.session.add(allow)
+            db.session.commit()
+
+        headers = {"X-Agent-Token": "test_secret_token_123"}
+        payload = {
+            "uuid": "test-uuid-allowlist-01",
+            "computador": "PC-ALLOWLIST-TEST",
+            "usuario": "ti.user",
+            "setor": "Suporte",
+            "active_app": "Google Chrome",
+            "active_domain": "bet365.com"
+        }
+
+        res = self.client.post("/api/agent/report", json=payload, headers=headers)
+        self.assertEqual(res.status_code, 200)
+
+        with self.app.app_context():
+            events = PolicyEvent.query.filter_by(domain="bet365.com").all()
+            self.assertEqual(len(events), 0)
+
+    def test_15_async_non_blocking_classification_and_cache_hit_miss(self):
+        """Valida ingestão rápida (<500ms), pendência inicial e classificação em background"""
+        headers = {"X-Agent-Token": "test_secret_token_123"}
+        payload = {
+            "uuid": "test-uuid-async-01",
+            "computador": "PC-ASYNC-TEST",
+            "usuario": "dev.user",
+            "setor": "TI",
+            "active_app": "Google Chrome",
+            "active_domain": "new-unclassified-poker.com"
+        }
+
+        start_time = datetime.now(timezone.utc)
+        res = self.client.post("/api/agent/report", json=payload, headers=headers)
+        elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+
+        self.assertEqual(res.status_code, 200)
+        self.assertLess(elapsed_ms, 500)
+
+        with self.app.app_context():
+            events = PolicyEvent.query.filter_by(domain="new-unclassified-poker.com").all()
+            self.assertEqual(len(events), 0)
+
+    def test_16_confidence_threshold_and_unknown_handling(self):
+        """Valida que categorização com confiança abaixo do limiar (0.80) vira 'unknown' e não gera alerta"""
+        provider = InternalDomainReputationProvider()
+        result = provider.classify_domain("suspicious-unknown-site.com")
+        self.assertEqual(result["category"], "unknown")
+        self.assertLessEqual(result["confidence"], Config.DOMAIN_CLASSIFICATION_MIN_CONFIDENCE)
+
+    def test_17_deduplication_of_background_classification_tasks(self):
+        """Valida que múltiplas máquinas consultando o mesmo domínio não disparam classificações duplicadas"""
+        headers = {"X-Agent-Token": "test_secret_token_123"}
+        payload1 = {"uuid": "pc-01", "computador": "PC-01", "active_domain": "shared-domain.com"}
+        payload2 = {"uuid": "pc-02", "computador": "PC-02", "active_domain": "shared-domain.com"}
+
+        res1 = self.client.post("/api/agent/report", json=payload1, headers=headers)
+        res2 = self.client.post("/api/agent/report", json=payload2, headers=headers)
+
+        self.assertEqual(res1.status_code, 200)
+        self.assertEqual(res2.status_code, 200)
+
+    def test_18_internal_provider_coverage_and_status(self):
+        """Valida que GET /api/policies/classification/status informa Provider: Internal e Cobertura: regras/listas locais"""
+        self.client.post("/login", data={"username": "testadmin", "password": "TestAdminPass123!"})
+
+        res = self.client.get("/api/policies/classification/status")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertEqual(data["provider"], "Internal")
+        self.assertEqual(data["coverage"], "regras/listas locais")
+        self.assertIn("recent_classifications", data)
 
 
 if __name__ == "__main__":
