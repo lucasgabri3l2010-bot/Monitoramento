@@ -97,6 +97,23 @@ def add_security_headers(response):
     return response
 
 
+@app.teardown_appcontext
+def shutdown_session(exception=None):
+    """
+    Garante limpeza e rollback automático da sessão SQLAlchemy em caso de exceção,
+    evitando transações PostgreSQL abortadas residuais entre requisições.
+    """
+    if exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+    try:
+        db.session.remove()
+    except Exception:
+        pass
+
+
 # =====================================================================
 # Rotas de Health Check & Diagnóstico
 # =====================================================================
@@ -105,11 +122,13 @@ def add_security_headers(response):
 def health_check():
     """
     Endpoint de checagem de integridade para monitoramento de infraestrutura e orquestradores de nuvem.
+    Utiliza conexão direta de engine para não poluir nem abortar a sessão ORM.
     """
     db_ok = False
     try:
-        db.session.execute(db.text("SELECT 1"))
-        db_ok = True
+        with db.engine.connect() as conn:
+            conn.execute(db.text("SELECT 1"))
+            db_ok = True
     except Exception as e:
         logger.error(f"Health check falhou no banco de dados: {e}")
 
@@ -118,6 +137,30 @@ def health_check():
         "status": "ok" if db_ok else "unhealthy",
         "service": "Givova Transportes - Monitoramento de PCs",
         "database": "connected" if db_ok else "disconnected",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }), status_code
+
+
+@app.route("/health/db")
+def health_db_check():
+    """
+    Endpoint dedicado para diagnóstico da conexão com o banco de dados sem expor credenciais.
+    """
+    db_ok = False
+    engine_dialect = "unknown"
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(db.text("SELECT 1"))
+            db_ok = True
+        engine_dialect = db.engine.dialect.name
+    except Exception as e:
+        logger.error(f"Health check DB falhou: {e}")
+
+    status_code = 200 if db_ok else 503
+    return jsonify({
+        "status": "ok" if db_ok else "unhealthy",
+        "database": "connected" if db_ok else "disconnected",
+        "engine": engine_dialect,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }), status_code
 
@@ -196,6 +239,7 @@ def receber_dados_agente():
         logger.warning(f"Erro de validação em payload de {request.remote_addr}: {ve}")
         return jsonify({"error": str(ve)}), 422
     except Exception as e:
+        db.session.rollback()
         logger.error(f"Erro ao processar dados do agente: {e}", exc_info=True)
         return jsonify({"error": "Erro interno ao processar dados"}), 500
 
@@ -1153,98 +1197,22 @@ def handle_internal_server_error(error):
 
 
 # =====================================================================
-# Inicialização da Base de Dados e Usuário Inicial
+# Inicialização e Execução Direta
 # =====================================================================
 
 def init_db():
-    with app.app_context():
-        db.create_all()
-        # Migração idempotente para bases existentes (adiciona colunas de atividade se ausentes)
-        try:
-            with db.engine.connect() as conn:
-                engine_str = str(db.engine.url).lower()
-                if "sqlite" in engine_str:
-                    result = conn.execute(db.text("PRAGMA table_info(devices)")).fetchall()
-                    cols = [r[1] for r in result]
-                    if cols:
-                        if "active_app" not in cols:
-                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN active_app VARCHAR(120)"))
-                        if "active_domain" not in cols:
-                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN active_domain VARCHAR(150)"))
-                        if "activity_updated_at" not in cols:
-                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN activity_updated_at DATETIME"))
-                        if "is_admin_device" not in cols:
-                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN is_admin_device BOOLEAN DEFAULT 0"))
-                        if "device_token" not in cols:
-                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN device_token VARCHAR(64)"))
-                        if "update_status" not in cols:
-                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN update_status VARCHAR(50) DEFAULT 'up_to_date'"))
-                        if "last_update_check" not in cols:
-                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN last_update_check DATETIME"))
-                        conn.commit()
-                elif "postgres" in engine_str:
-                    result = conn.execute(db.text(
-                        "SELECT column_name FROM information_schema.columns WHERE table_name = 'devices'"
-                    )).fetchall()
-                    cols = [r[0].lower() for r in result]
-                    if cols:
-                        if "active_app" not in cols:
-                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN active_app VARCHAR(120)"))
-                        if "active_domain" not in cols:
-                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN active_domain VARCHAR(150)"))
-                        if "activity_updated_at" not in cols:
-                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN activity_updated_at TIMESTAMP"))
-                        if "is_admin_device" not in cols:
-                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN is_admin_device BOOLEAN DEFAULT FALSE"))
-                        if "device_token" not in cols:
-                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN device_token VARCHAR(64)"))
-                        if "update_status" not in cols:
-                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN update_status VARCHAR(50) DEFAULT 'up_to_date'"))
-                        if "last_update_check" not in cols:
-                            conn.execute(db.text("ALTER TABLE devices ADD COLUMN last_update_check TIMESTAMP"))
-                        conn.commit()
-        except Exception as e:
-            logger.debug(f"Verificação de colunas em devices: {e}")
+    """
+    Função de compatibilidade. Delega para migrate.run_migrations().
+    NOTA DE ARQUITETURA: Esta função NÃO é mais chamada automaticamente no import
+    deste módulo, eliminando concorrência e transações abortadas no Gunicorn.
+    """
+    from migrate import run_migrations
+    return run_migrations()
 
-        # Semeia regras padrão corporativas de políticas se tabela estiver vazia
-        try:
-            if PolicyRule.query.count() == 0:
-                default_rules = [
-                    PolicyRule(name="Jogos Steam", rule_type="application", pattern="steam.exe", category="Jogos", severity="warning", scope_type="global", enabled=True),
-                    PolicyRule(name="Jogos Valorant", rule_type="application", pattern="valorant.exe", category="Jogos", severity="critical", scope_type="global", enabled=True),
-                    PolicyRule(name="Jogos Roblox", rule_type="application", pattern="robloxplayerbeta.exe", category="Jogos", severity="warning", scope_type="global", enabled=True),
-                    PolicyRule(name="Apostas Bet365", rule_type="domain", pattern="bet365.com", category="Apostas", severity="critical", scope_type="global", enabled=True),
-                    PolicyRule(name="Apostas Betano", rule_type="domain", pattern="betano.com", category="Apostas", severity="critical", scope_type="global", enabled=True),
-                    PolicyRule(name="Streaming Netflix", rule_type="domain", pattern="netflix.com", category="Streaming", severity="warning", scope_type="global", enabled=True),
-                    PolicyRule(name="Redes Sociais Instagram", rule_type="domain", pattern="instagram.com", category="Redes Sociais", severity="warning", scope_type="global", enabled=False),
-                    PolicyRule(name="Redes Sociais TikTok", rule_type="domain", pattern="tiktok.com", category="Redes Sociais", severity="warning", scope_type="global", enabled=True)
-                ]
-                db.session.add_all(default_rules)
-                db.session.commit()
-                logger.info("Regras corporativas padrão de políticas inicializadas.")
-        except Exception as e:
-            logger.debug(f"Inicialização de regras padrão de políticas: {e}")
-
-        # Cria usuário administrador padrão se não houver nenhum
-        admin = User.query.filter_by(username=Config.ADMIN_USERNAME).first()
-        if not admin:
-            admin = User(username=Config.ADMIN_USERNAME, role="admin")
-            admin.set_password(Config.ADMIN_PASSWORD)
-            db.session.add(admin)
-            db.session.commit()
-            logger.info(f"Usuário administrador padrão '{Config.ADMIN_USERNAME}' inicializado com sucesso.")
-
-        # Alerta de segurança em produção caso secrets de desenvolvimento ainda estejam em uso
-        if Config.FLASK_ENV == "production":
-            if "change_in_prod" in Config.SECRET_KEY or "fallback" in Config.SECRET_KEY:
-                logger.warning("ALERTA DE SEGURANÇA: SECRET_KEY padrão detectada em produção. Defina SECRET_KEY no painel do Render!")
-            if "dev" in Config.AGENT_SECRET_TOKEN:
-                logger.warning("ALERTA DE SEGURANÇA: AGENT_SECRET_TOKEN padrão detectado em produção. Defina AGENT_SECRET_TOKEN no painel do Render!")
-
-
-init_db()
 
 if __name__ == "__main__":
     logger.info(f"Iniciando Givova Monitor Server em {Config.HOST}:{Config.PORT}...")
+    from migrate import run_migrations
+    run_migrations()
     # Em execução direta de desenvolvimento
     app.run(host=Config.HOST, port=Config.PORT, debug=(Config.FLASK_ENV == "development"))

@@ -22,11 +22,13 @@ from models import (
     parse_semver, compare_versions, normalize_domain,
     match_domain_secure, match_application_secure
 )
+import concurrent.futures
 from services import (
     get_active_policy_rules, invalidate_policy_rules_cache,
     enqueue_domain_classification, process_agent_payload,
     InternalDomainReputationProvider
 )
+from migrate import run_migrations
 
 class SystemMonitoringTestCase(unittest.TestCase):
 
@@ -78,6 +80,14 @@ class SystemMonitoringTestCase(unittest.TestCase):
         data = response.get_json()
         self.assertEqual(data["status"], "ok")
         self.assertEqual(data["database"], "connected")
+
+        # Testa endpoint dedicado de diagnóstico do banco de dados /health/db
+        res_db = self.client.get("/health/db")
+        self.assertEqual(res_db.status_code, 200)
+        data_db = res_db.get_json()
+        self.assertEqual(data_db["status"], "ok")
+        self.assertEqual(data_db["database"], "connected")
+        self.assertIn("engine", data_db)
 
         # Testa tratamento de rota 404 segura para API
         res_404_api = self.client.get("/api/rota_inexistente")
@@ -742,7 +752,36 @@ class SystemMonitoringTestCase(unittest.TestCase):
         self.assertEqual(data["coverage"], "regras/listas locais")
         self.assertIn("recent_classifications", data)
 
+    def test_19_migration_idempotency_and_concurrency(self):
+        """Valida que o script migrate.py e 100% idempotente em multiplas execucoes e seguro concorrentemente"""
+        # 1. Execucao sequencial repetida (idempotencia em 5 execucoes consecutivas)
+        for i in range(5):
+            success = run_migrations()
+            self.assertTrue(success, f"Migracao sequencial falhou na iteracao {i+1}")
+
+        with self.app.app_context():
+            # Verifica integridade apos 5 execucoes
+            rules_count = PolicyRule.query.count()
+            self.assertEqual(rules_count, 8)
+            admins = User.query.filter_by(username="testadmin").all()
+            self.assertEqual(len(admins), 1)
+
+        # 2. Execucao concorrente (simulando multiplos workers do Gunicorn inicializando simultaneamente)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [executor.submit(run_migrations) for _ in range(4)]
+            results = [f.result() for f in concurrent.futures.as_completed(futures)]
+
+        self.assertTrue(all(results), "Pelo menos uma execucao concorrente de migracao falhou")
+
+        with self.app.app_context():
+            # Integridade deve permanecer intacta sem duplicacoes ou corrupcao
+            rules_count = PolicyRule.query.count()
+            self.assertEqual(rules_count, 8)
+            admins = User.query.filter_by(username="testadmin").all()
+            self.assertEqual(len(admins), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

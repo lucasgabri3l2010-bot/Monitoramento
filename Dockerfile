@@ -30,5 +30,5 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:${PORT}/health || exit 1
 
-# Inicialização com Gunicorn (multi-worker com threads assíncronas)
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT} --workers 2 --threads 4 --access-logfile - --error-logfile - servidor:app"]
+# Inicialização com migração isolada seguida de Gunicorn (multi-worker com threads assíncronas)
+CMD ["sh", "-c", "python migrate.py && gunicorn --bind 0.0.0.0:${PORT} --workers 2 --threads 4 --access-logfile - --error-logfile - servidor:app"]

@@ -340,6 +340,10 @@ def get_active_policy_rules() -> list:
         _local_rules_version = db_ver
         return rules
     except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         print(f"[PolicyCache] Erro ao sincronizar regras de políticas entre workers: {e}")
         return _local_rules_cache or []
 
