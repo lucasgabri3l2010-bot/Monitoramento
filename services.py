@@ -891,6 +891,7 @@ def get_dashboard_stats():
                 "active_app": d.get("active_app") or "—",
                 "active_domain": d.get("active_domain") or "—",
                 "formatted_activity": d.get("active_activity_formatted") or d.get("active_app"),
+                "activity_updated_at_iso": d.get("activity_updated_at_iso"),
                 "activity_updated_at": d.get("activity_updated_at") or "—",
                 "is_demo": d.get("is_demo", False)
             })

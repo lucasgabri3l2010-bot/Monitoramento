@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from datetime_utils import format_iso_utc, format_local_datetime, format_local_time
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -291,7 +292,7 @@ class Device(db.Model):
     def to_dict(self, offline_threshold_seconds: int = 30, latest_version: str = "1.4.0") -> dict:
         status = self.get_status(offline_threshold_seconds)
         activity_formatted = self.get_formatted_activity(offline_threshold_seconds)
-        activity_time_str = self.activity_updated_at.strftime("%H:%M:%S") if self.activity_updated_at else None
+        activity_time_str = format_local_time(self.activity_updated_at) if self.activity_updated_at else None
         v_info = self.get_version_info(latest_version)
 
         is_recent_activity = False
@@ -327,7 +328,8 @@ class Device(db.Model):
             "version_needs_update": v_info["needs_update"],
             "version_is_critical": v_info["is_critical"],
             "latest_available_version": latest_version,
-            "last_update_check": self.last_update_check.strftime("%d/%m/%Y %H:%M:%S") if self.last_update_check else "Nunca",
+            "last_update_check_iso": format_iso_utc(self.last_update_check),
+            "last_update_check": format_local_datetime(self.last_update_check) if self.last_update_check else "Nunca",  # LEGACY
             "is_admin_device": bool(self.is_admin_device),
             "has_individual_token": bool(self.device_token),
             "cpu": round(self.last_cpu or 0.0, 1),
@@ -342,12 +344,15 @@ class Device(db.Model):
                 "critical": "Crítico",
                 "offline": "Offline"
             }.get(status, "Desconhecido"),
-            "ultimo_contato": self.updated_at.strftime("%d/%m/%Y %H:%M:%S") if self.updated_at else "Nunca",
-            "ultimo_contato_iso": self.updated_at.isoformat() if self.updated_at else None,
+            "ultimo_contato_iso": format_iso_utc(self.updated_at),
+            "ultimo_contato": format_local_datetime(self.updated_at) if self.updated_at else "Nunca",  # LEGACY
+            "created_at_iso": format_iso_utc(self.created_at),
+            "created_at": format_local_datetime(self.created_at) if self.created_at else "",  # LEGACY
             "active_app": self.active_app or "—",
             "active_domain": self.active_domain or "—",
             "active_activity_formatted": activity_formatted,
-            "activity_updated_at": activity_time_str,
+            "activity_updated_at_iso": format_iso_utc(self.activity_updated_at),
+            "activity_updated_at": activity_time_str,  # LEGACY
             "activity_recent": is_recent_activity,
             "is_demo": False
         }
@@ -371,13 +376,13 @@ class MetricHistory(db.Model):
     def to_dict(self) -> dict:
         return {
             "id": self.id,
-            "timestamp": self.timestamp.strftime("%H:%M:%S") if self.timestamp else "",
-            "timestamp_iso": self.timestamp.isoformat() if self.timestamp else "",
-            "cpu": round(self.cpu_percent, 1),
-            "ram": round(self.ram_percent, 1),
-            "ram_used_gb": round(self.ram_used_gb, 1),
-            "disk": round(self.disk_percent, 1),
-            "disk_used_gb": round(self.disk_used_gb, 1)
+            "timestamp_iso": format_iso_utc(self.timestamp),
+            "timestamp": format_local_time(self.timestamp),  # LEGACY
+            "cpu": round(self.cpu_percent or 0.0, 1),
+            "ram": round(self.ram_percent or 0.0, 1),
+            "ram_used_gb": round(self.ram_used_gb or 0.0, 1),
+            "disk": round(self.disk_percent or 0.0, 1),
+            "disk_used_gb": round(self.disk_used_gb or 0.0, 1)
         }
 
 
@@ -402,10 +407,11 @@ class Alert(db.Model):
             "severity": self.severity,
             "alert_type": self.alert_type,
             "message": self.message,
-            "created_at": self.created_at.strftime("%d/%m/%Y %H:%M:%S") if self.created_at else "",
-            "created_at_iso": self.created_at.isoformat() if self.created_at else "",
+            "created_at_iso": format_iso_utc(self.created_at),
+            "created_at": format_local_datetime(self.created_at),  # LEGACY
             "is_resolved": self.is_resolved,
-            "resolved_at": self.resolved_at.strftime("%d/%m/%Y %H:%M:%S") if self.resolved_at else None,
+            "resolved_at_iso": format_iso_utc(self.resolved_at),
+            "resolved_at": format_local_datetime(self.resolved_at) if self.resolved_at else None,  # LEGACY
             "is_demo": False
         }
 
@@ -479,7 +485,8 @@ class PolicyRule(db.Model):
             "is_automatic": bool(self.is_automatic),
             "source_provider": self.source_provider or "manual",
             "origin": origin_label,
-            "created_at": self.created_at.strftime("%d/%m/%Y %H:%M:%S") if self.created_at else "",
+            "created_at_iso": format_iso_utc(self.created_at),
+            "created_at": format_local_datetime(self.created_at),  # LEGACY
             "is_demo": False
         }
 
@@ -532,19 +539,21 @@ class PolicyEvent(db.Model):
             "severity": self.severity,
             "application": self.application or "—",
             "domain": self.domain or "—",
-            "first_seen": self.first_seen.strftime("%d/%m/%Y %H:%M:%S") if self.first_seen else "",
-            "first_seen_iso": self.first_seen.isoformat() if self.first_seen else "",
-            "last_seen": self.last_seen.strftime("%d/%m/%Y %H:%M:%S") if self.last_seen else "",
-            "last_seen_iso": self.last_seen.isoformat() if self.last_seen else "",
+            "first_seen_iso": format_iso_utc(self.first_seen),
+            "first_seen": format_local_datetime(self.first_seen),  # LEGACY
+            "last_seen_iso": format_iso_utc(self.last_seen),
+            "last_seen": format_local_datetime(self.last_seen),  # LEGACY
             "duration_seconds": self.duration_seconds,
             "duration_formatted": self.format_duration(),
             "status": self.status,
             "source": self.source or "manual_rule",
             "acknowledged": self.acknowledged,
-            "acknowledged_at": self.acknowledged_at.strftime("%d/%m/%Y %H:%M:%S") if self.acknowledged_at else None,
+            "acknowledged_at_iso": format_iso_utc(self.acknowledged_at),
+            "acknowledged_at": format_local_datetime(self.acknowledged_at) if self.acknowledged_at else None,  # LEGACY
             "acknowledged_by": self.acknowledged_by,
             "is_resolved": bool(self.resolved_at),
-            "resolved_at": self.resolved_at.strftime("%d/%m/%Y %H:%M:%S") if self.resolved_at else None,
+            "resolved_at_iso": format_iso_utc(self.resolved_at),
+            "resolved_at": format_local_datetime(self.resolved_at) if self.resolved_at else None,  # LEGACY
             "resolved_by": self.resolved_by,
             "is_demo": False
         }
@@ -598,7 +607,8 @@ class PolicyAllowlist(db.Model):
             "scope_target": self.scope_target or "Todos",
             "reason": self.reason or "—",
             "enabled": self.enabled,
-            "created_at": self.created_at.strftime("%d/%m/%Y %H:%M:%S") if self.created_at else "",
+            "created_at_iso": format_iso_utc(self.created_at),
+            "created_at": format_local_datetime(self.created_at),  # LEGACY
             "created_by": self.created_by or "admin"
         }
 
@@ -634,8 +644,10 @@ class DomainClassification(db.Model):
             "confidence": round(self.confidence or 0.0, 2),
             "source": self.source,
             "status": self.status,
-            "classified_at": self.classified_at.strftime("%d/%m/%Y %H:%M:%S") if self.classified_at else "",
-            "expires_at": self.expires_at.strftime("%d/%m/%Y %H:%M:%S") if self.expires_at else "Nunca"
+            "classified_at_iso": format_iso_utc(self.classified_at),
+            "classified_at": format_local_datetime(self.classified_at),  # LEGACY
+            "expires_at_iso": format_iso_utc(self.expires_at),
+            "expires_at": format_local_datetime(self.expires_at) if self.expires_at else "Nunca"  # LEGACY
         }
 
 
@@ -654,7 +666,8 @@ class PolicyAuditLog(db.Model):
             "user_name": self.user_name,
             "action": self.action,
             "details": self.details,
-            "created_at": self.created_at.strftime("%d/%m/%Y %H:%M:%S") if self.created_at else ""
+            "created_at_iso": format_iso_utc(self.created_at),
+            "created_at": format_local_datetime(self.created_at)  # LEGACY
         }
 
 
@@ -722,8 +735,8 @@ class AgentRelease(db.Model):
             "mandatory": self.mandatory,
             "storage_type": self.storage_type,
             "has_binary": bool(self.binary_data),
-            "created_at": self.created_at.strftime("%d/%m/%Y %H:%M:%S") if self.created_at else "",
-            "created_at_iso": self.created_at.isoformat() if self.created_at else "",
+            "created_at_iso": format_iso_utc(self.created_at),
+            "created_at": format_local_datetime(self.created_at),  # LEGACY
             "created_by": self.created_by
         }
 

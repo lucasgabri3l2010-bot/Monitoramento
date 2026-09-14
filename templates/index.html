@@ -1842,6 +1842,64 @@ streamdemo.tv,streaming,warning,alert,global
     <!-- LOGICA JAVASCRIPT REATIVA E MODERNA                               -->
     <!-- ================================================================= -->
     <script>
+        // =====================================================================
+        // Arquitetura Canônica de Timezone (America/Sao_Paulo)
+        // Regra: Consumir sempre campos *_iso (UTC com 'Z') e formatar para horário local
+        // =====================================================================
+        const APP_TIMEZONE = "America/Sao_Paulo";
+
+        /**
+         * Realiza o parsing seguro de timestamp ISO 8601 estrito retornado pela API.
+         * Prioriza ISO com 'Z' ou offset explícito.
+         * Fallback LEGACY: anexa 'Z' se receber string ISO ingênua sem sufixo de fuso.
+         */
+        function parseUtcDate(isoString) {
+            if (!isoString) return null;
+            let s = String(isoString).trim();
+            // Fallback documentado para compatibilidade retroativa
+            if (s.includes("T") && !s.endsWith("Z") && !s.includes("+") && !s.match(/-\d{2}:\d{2}$/)) {
+                s += "Z";
+            }
+            const d = new Date(s);
+            return isNaN(d.getTime()) ? null : d;
+        }
+
+        /**
+         * Formata timestamp ISO para 'DD/MM/YYYY HH:mm:ss' no fuso America/Sao_Paulo.
+         * Se receber string legada sem ISO, retorna a string de fallback sem tentar new Date().
+         */
+        function formatDateTime(isoString, fallback = "—") {
+            if (!isoString) return fallback || "—";
+            const d = parseUtcDate(isoString);
+            if (!d) return fallback || isoString || "—";
+            return new Intl.DateTimeFormat("pt-BR", {
+                timeZone: APP_TIMEZONE,
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: false
+            }).format(d);
+        }
+
+        /**
+         * Formata timestamp ISO para 'HH:mm:ss' no fuso America/Sao_Paulo.
+         */
+        function formatTime(isoString, fallback = "—") {
+            if (!isoString) return fallback || "—";
+            const d = parseUtcDate(isoString);
+            if (!d) return fallback || isoString || "—";
+            return new Intl.DateTimeFormat("pt-BR", {
+                timeZone: APP_TIMEZONE,
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: false
+            }).format(d);
+        }
+
         // Estado Global da Aplicação
         let todosDispositivos = [];
         let estatisticasGerais = null;
@@ -2086,7 +2144,7 @@ streamdemo.tv,streaming,warning,alert,global
                             </div>
                         </div>
                         <div class="flex items-center gap-3">
-                            <span class="text-[10px] opacity-60 font-mono">${a.created_at}</span>
+                            <span class="text-[10px] opacity-60 font-mono">${formatDateTime(a.created_at_iso, a.created_at)}</span>
                             <button onclick="resolverAlerta(${a.id})" class="px-2.5 py-1 rounded-lg bg-white/80 hover:bg-white text-xs font-semibold shadow-2xs transition-colors">Resolver</button>
                         </div>
                     </div>
@@ -2115,7 +2173,7 @@ streamdemo.tv,streaming,warning,alert,global
                                 ${a.formatted_activity}
                             </span>
                         </td>
-                        <td class="py-2.5 px-3 text-right font-mono text-slate-400 text-[11px]">${a.activity_updated_at}</td>
+                        <td class="py-2.5 px-3 text-right font-mono text-slate-400 text-[11px]">${formatTime(a.activity_updated_at_iso, a.activity_updated_at)}</td>
                     </tr>
                 `).join("");
             } else {
@@ -2307,7 +2365,7 @@ streamdemo.tv,streaming,warning,alert,global
                                 ${d.active_activity_formatted}
                             </span>
                         </td>
-                        <td class="py-3 px-3 text-slate-500 font-mono text-[11px]">${d.ultimo_contato}</td>
+                        <td class="py-3 px-3 text-slate-500 font-mono text-[11px]">${formatDateTime(d.ultimo_contato_iso, d.ultimo_contato)}</td>
                         <td class="py-3 px-4 text-right">
                             <div class="flex items-center justify-end gap-1.5">
                                 <button onclick="abrirModalDetalhes(${d.id})" class="p-1.5 rounded-lg text-slate-600 hover:text-givova-600 hover:bg-slate-100 transition-colors" title="${d.is_demo ? 'Ver Detalhes (Simulação)' : 'Ver Detalhes'}">
@@ -2442,7 +2500,8 @@ streamdemo.tv,streaming,warning,alert,global
                 } else {
                     modalApp.innerText = d.active_app;
                     modalDomain.innerText = (d.active_domain && d.active_domain !== "—") ? d.active_domain : "—";
-                    modalTime.innerText = d.activity_updated_at ? `Atualizado às ${d.activity_updated_at}` : "Ativo recentemente";
+                    const actTimeStr = d.activity_updated_at_iso ? formatTime(d.activity_updated_at_iso) : d.activity_updated_at;
+                    modalTime.innerText = actTimeStr ? `Atualizado às ${actTimeStr}` : "Ativo recentemente";
                 }
 
                 // Gauges
@@ -2467,7 +2526,7 @@ streamdemo.tv,streaming,warning,alert,global
                         <div class="p-2.5 rounded-xl text-xs flex items-center justify-between ${a.is_resolved ? 'bg-slate-50 border border-slate-200 text-slate-600' : 'bg-rose-50 border border-rose-200 text-rose-800 font-medium'}">
                             <div>
                                 <div>${a.message}</div>
-                                <div class="text-[10px] opacity-70 mt-0.5">${a.created_at} • ${a.is_resolved ? 'Resolvido' : 'Pendente'}</div>
+                                <div class="text-[10px] opacity-70 mt-0.5">${formatDateTime(a.created_at_iso, a.created_at)} • ${a.is_resolved ? 'Resolvido' : 'Pendente'}</div>
                             </div>
                             ${!a.is_resolved ? `<button onclick="resolverAlerta(${a.id})" class="px-2 py-1 rounded bg-white text-slate-700 hover:bg-slate-100 shadow-2xs">Resolver</button>` : ''}
                         </div>
@@ -2483,7 +2542,7 @@ streamdemo.tv,streaming,warning,alert,global
 
         function renderizarGraficoHistorico(metrics) {
             const ctx = document.getElementById("chart-device-history").getContext("2d");
-            const labels = metrics.map(m => m.timestamp);
+            const labels = metrics.map(m => m.timestamp_iso ? formatTime(m.timestamp_iso) : m.timestamp);
             const dataCpu = metrics.map(m => m.cpu);
             const dataRam = metrics.map(m => m.ram);
 
@@ -2637,7 +2696,7 @@ streamdemo.tv,streaming,warning,alert,global
                                 </div>
 
                                 <div class="text-xs text-slate-600 mt-0.5">${a.message}</div>
-                                <div class="text-[10px] text-slate-400 mt-1 font-mono">${a.created_at} ${a.is_resolved ? `• Resolvido em ${a.resolved_at}` : ''}</div>
+                                <div class="text-[10px] text-slate-400 mt-1 font-mono">${formatDateTime(a.created_at_iso, a.created_at)} ${a.is_resolved ? `• Resolvido em ${formatDateTime(a.resolved_at_iso, a.resolved_at)}` : ''}</div>
                             </div>
                         </div>
                         ${!a.is_resolved ? `
@@ -2877,7 +2936,7 @@ streamdemo.tv,streaming,warning,alert,global
                         <td class="py-3 px-3 text-center font-mono font-bold ${item.risk_score > 50 ? 'text-rose-600' : 'text-slate-700'}">${item.risk_score}/100</td>
                         <td class="py-3 px-3 text-center font-mono text-slate-600">${Math.round((item.confidence || 1) * 100)}%</td>
                         <td class="py-3 px-3 font-mono text-[11px] text-slate-500">${item.source}</td>
-                        <td class="py-3 px-4 text-right text-slate-400 font-mono text-[11px]">${item.classified_at || '—'}</td>
+                        <td class="py-3 px-4 text-right text-slate-400 font-mono text-[11px]">${formatDateTime(item.classified_at_iso, item.classified_at)}</td>
                     </tr>
                 `).join("");
             } catch (err) {
@@ -3100,9 +3159,9 @@ streamdemo.tv,streaming,warning,alert,global
                     // Resolução / Fim
                     let fimHtml = '';
                     if (e.is_resolved) {
-                        fimHtml = `<div class="text-emerald-700 font-semibold font-mono text-[11px]">${e.resolved_at}</div><div class="text-[10px] text-slate-400">por ${e.resolved_by || 'admin'}</div>`;
+                        fimHtml = `<div class="text-emerald-700 font-semibold font-mono text-[11px]">${formatDateTime(e.resolved_at_iso, e.resolved_at)}</div><div class="text-[10px] text-slate-400">por ${e.resolved_by || 'admin'}</div>`;
                     } else if (e.status === 'closed') {
-                        fimHtml = `<div class="text-slate-600 font-mono text-[11px]">${e.last_seen || '—'}</div><div class="text-[10px] text-slate-400">atividade cessou</div>`;
+                        fimHtml = `<div class="text-slate-600 font-mono text-[11px]">${formatDateTime(e.last_seen_iso, e.last_seen)}</div><div class="text-[10px] text-slate-400">atividade cessou</div>`;
                     } else {
                         fimHtml = `<span class="inline-flex items-center gap-1 text-amber-600 font-semibold text-[11px]"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span> Em andamento</span>`;
                     }
@@ -3133,7 +3192,7 @@ streamdemo.tv,streaming,warning,alert,global
                             </td>
                             <td class="py-3 px-2 text-center">${sevBadge}</td>
                             <td class="py-3 px-3">
-                                <div class="text-slate-800 font-mono text-[11px]">${e.first_seen || '—'}</div>
+                                <div class="text-slate-800 font-mono text-[11px]">${formatDateTime(e.first_seen_iso, e.first_seen)}</div>
                             </td>
                             <td class="py-3 px-3">
                                 ${fimHtml}

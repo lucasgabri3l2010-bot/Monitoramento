@@ -11,6 +11,12 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import io
 
 from config import Config
+from datetime_utils import (
+    utc_now, ensure_utc, to_app_timezone, format_iso_utc,
+    format_local_datetime, format_local_time, start_of_local_day_utc,
+    start_of_next_local_day_utc, get_local_day_range_utc,
+    get_app_timezone as get_corporate_timezone
+)
 from models import (
     db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent,
     PolicyAuditLog, SystemMetadata, AgentRelease, PolicyAllowlist,
@@ -70,13 +76,10 @@ def admin_required(f):
 
 def get_app_timezone():
     """
-    Retorna o fuso horário configurado da aplicação com fallback para UTC-3 (Brasília).
+    Retorna o fuso horário corporativo via ZoneInfo (Config.APP_TIMEZONE).
+    Elimina dependência de APP_TIMEZONE_OFFSET_HOURS (deprecated).
     """
-    try:
-        from zoneinfo import ZoneInfo
-        return ZoneInfo(Config.APP_TIMEZONE)
-    except Exception:
-        return timezone(timedelta(hours=Config.APP_TIMEZONE_OFFSET_HOURS))
+    return get_corporate_timezone(Config.APP_TIMEZONE)
 
 
 def get_start_of_day_app_tz() -> datetime:
@@ -84,11 +87,7 @@ def get_start_of_day_app_tz() -> datetime:
     Calcula o início do dia local da empresa (00:00:00) convertido para UTC ingênuo (naive).
     Garante precisão independente do fuso horário em que o servidor estiver hospedado.
     """
-    tz = get_app_timezone()
-    now_local = datetime.now(timezone.utc).astimezone(tz)
-    start_of_day_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-    start_of_day_utc = start_of_day_local.astimezone(timezone.utc)
-    return start_of_day_utc.replace(tzinfo=None)
+    return start_of_local_day_utc(tz_name=Config.APP_TIMEZONE)
 
 
 def require_agent_token(f):
@@ -183,7 +182,7 @@ def health_check():
         "status": "ok" if db_ok else "unhealthy",
         "service": "Givova Transportes - Monitoramento de PCs",
         "database": "connected" if db_ok else "disconnected",
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": format_iso_utc(utc_now())
     }), status_code
 
 
@@ -207,7 +206,7 @@ def health_db_check():
         "status": "ok" if db_ok else "unhealthy",
         "database": "connected" if db_ok else "disconnected",
         "engine": engine_dialect,
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": format_iso_utc(utc_now())
     }), status_code
 
 
@@ -621,7 +620,7 @@ def checar_atualizacao_agente():
         "sha256": manifest.get("sha256", ""),
         "required": manifest.get("required", False),
         "release_notes": manifest.get("release_notes", ""),
-        "server_time": now.isoformat()
+        "server_time": format_iso_utc(now)
     })
 
 
@@ -717,7 +716,7 @@ def publicar_release_agente():
         "required": bool(required),
         "release_notes": release_notes,
         "download_url": external_url or f"/api/agent/download/{clean_version}",
-        "published_at": datetime.now(timezone.utc).isoformat(),
+        "published_at": format_iso_utc(utc_now()),
         "published_by": session.get("username", "admin")
     }
 
@@ -1218,8 +1217,8 @@ def listar_eventos_politicas():
     # 6. Filtro por Período
     now_utc = datetime.now(timezone.utc)
     if period_filter == "today":
-        start_today = get_start_of_day_app_tz()
-        query = query.filter(PolicyEvent.first_seen >= start_today)
+        start_today, next_start = get_local_day_range_utc()
+        query = query.filter(PolicyEvent.first_seen >= start_today, PolicyEvent.first_seen < next_start)
     elif period_filter == "7d":
         cutoff_7d = (now_utc - timedelta(days=7)).replace(tzinfo=None)
         query = query.filter(PolicyEvent.first_seen >= cutoff_7d)
@@ -1468,11 +1467,11 @@ def estatisticas_politicas():
     Relatório consolidado de violações de políticas para gestão de risco e conformidade.
     Calcula indicadores temporais (como ocorrências hoje) respeitando o fuso horário da empresa.
     """
-    start_today = get_start_of_day_app_tz()
+    start_today, next_start = get_local_day_range_utc()
 
     active_rules_count = PolicyRule.query.filter_by(enabled=True).count()
     active_violations_count = PolicyEvent.query.filter_by(status="active").count()
-    today_violations_count = PolicyEvent.query.filter(PolicyEvent.first_seen >= start_today).count()
+    today_violations_count = PolicyEvent.query.filter(PolicyEvent.first_seen >= start_today, PolicyEvent.first_seen < next_start).count()
     critical_active_count = PolicyEvent.query.filter(PolicyEvent.severity == "critical", PolicyEvent.status == "active").count()
 
     all_events = PolicyEvent.query.all()
@@ -1502,6 +1501,8 @@ def estatisticas_politicas():
             severity_count[sev] += 1
 
     return jsonify({
+        "app_timezone": Config.APP_TIMEZONE,
+        "server_time_iso": format_iso_utc(utc_now()),
         "active_rules": active_rules_count,
         "active_violations": active_violations_count,
         "today_violations": today_violations_count,
@@ -1678,13 +1679,14 @@ def consultar_alertas_admin():
             "severity": ev.severity,
             "target": ev.domain or ev.application or "—",
             "duration": ev.format_duration(),
-            "time": ev.last_seen.strftime("%H:%M:%S") if ev.last_seen else ""
+            "time_iso": format_iso_utc(ev.last_seen),
+            "time": format_local_time(ev.last_seen)  # LEGACY
         })
 
     return jsonify({
         "alerts": toasts,
         "count": len(toasts),
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": format_iso_utc(utc_now())
     })
 
 

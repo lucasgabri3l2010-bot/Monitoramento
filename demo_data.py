@@ -6,18 +6,21 @@ Garantia: NUNCA grava dados no banco de dados nem contamina tabelas reais.
 
 from datetime import datetime, timezone, timedelta
 import math
+from datetime_utils import format_iso_utc, format_local_datetime, format_local_time, utc_now
 
 def get_demo_devices() -> list:
     """
     Retorna a lista de 9 computadores virtuais de demonstração distribuídos
     nos 6 setores da Givova Transportes. Todos marcados com is_demo = True.
     """
-    now = datetime.now(timezone.utc)
-    recent_ts = now.strftime("%d/%m/%Y %H:%M:%S")
-    recent_iso = now.isoformat()
-    recent_time = now.strftime("%H:%M:%S")
+    now = utc_now()
+    recent_ts = format_local_datetime(now)
+    recent_iso = format_iso_utc(now)
+    recent_time = format_local_time(now)
 
     offline_time = now - timedelta(hours=4, minutes=15)
+    offline_ts = format_local_datetime(offline_time)
+    offline_iso = format_iso_utc(offline_time)
 
     return [
         # --- LOGÍSTICA ---
@@ -191,8 +194,8 @@ def get_demo_devices() -> list:
             "uptime_seconds": 0,
             "status": "offline",
             "status_label": "Offline",
-            "ultimo_contato": offline_time.strftime("%d/%m/%Y %H:%M:%S"),
-            "ultimo_contato_iso": offline_time.isoformat(),
+            "ultimo_contato": offline_ts,
+            "ultimo_contato_iso": offline_iso,
             "active_app": "—",
             "active_domain": "—",
             "active_activity_formatted": "Sem atividade recente",
@@ -396,7 +399,7 @@ def get_demo_device(device_id: int) -> dict | None:
         return None
 
     # Gera 30 métricas históricas realistas com timestamps recentes
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     metrics = []
     base_cpu = device["cpu"]
     base_ram = device["ram"]
@@ -410,8 +413,8 @@ def get_demo_device(device_id: int) -> dict | None:
 
         metrics.append({
             "id": 900000 + i,
-            "timestamp": ts.strftime("%H:%M:%S"),
-            "timestamp_iso": ts.isoformat(),
+            "timestamp": format_local_time(ts),
+            "timestamp_iso": format_iso_utc(ts),
             "cpu": cpu_val,
             "ram": ram_val,
             "ram_used_gb": round(device["ram_total_gb"] * (ram_val / 100.0), 1),
@@ -430,8 +433,8 @@ def get_demo_device(device_id: int) -> dict | None:
             "severity": "warning",
             "alert_type": "cpu_high",
             "message": f"[DEMO] Processador acima do limite seguro: {device['cpu']}% (limite: 90.0%)",
-            "created_at": (now - timedelta(minutes=25)).strftime("%d/%m/%Y %H:%M:%S"),
-            "created_at_iso": (now - timedelta(minutes=25)).isoformat(),
+            "created_at_iso": format_iso_utc(now - timedelta(minutes=25)),
+            "created_at": format_local_datetime(now - timedelta(minutes=25)),
             "is_resolved": False,
             "resolved_at": None,
             "is_demo": True
@@ -445,8 +448,8 @@ def get_demo_device(device_id: int) -> dict | None:
             "severity": "warning",
             "alert_type": "offline",
             "message": "[DEMO] Dispositivo sem comunicação há mais de 4 horas",
-            "created_at": (now - timedelta(hours=4)).strftime("%d/%m/%Y %H:%M:%S"),
-            "created_at_iso": (now - timedelta(hours=4)).isoformat(),
+            "created_at_iso": format_iso_utc(now - timedelta(hours=4)),
+            "created_at": format_local_datetime(now - timedelta(hours=4)),
             "is_resolved": False,
             "resolved_at": None,
             "is_demo": True
@@ -473,7 +476,7 @@ def get_demo_alerts() -> list:
     """
     Retorna os alertas virtuais de demonstração.
     """
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     return [
         {
             "id": 9001,
@@ -483,8 +486,8 @@ def get_demo_alerts() -> list:
             "severity": "warning",
             "alert_type": "cpu_high",
             "message": "[DEMO] Processador acima do limite de alerta: 92.4% (limite: 90.0%)",
-            "created_at": (now - timedelta(minutes=25)).strftime("%d/%m/%Y %H:%M:%S"),
-            "created_at_iso": (now - timedelta(minutes=25)).isoformat(),
+            "created_at_iso": format_iso_utc(now - timedelta(minutes=25)),
+            "created_at": format_local_datetime(now - timedelta(minutes=25)),
             "is_resolved": False,
             "resolved_at": None,
             "is_demo": True
@@ -497,8 +500,8 @@ def get_demo_alerts() -> list:
             "severity": "warning",
             "alert_type": "offline",
             "message": "[DEMO] Dispositivo sem comunicação há mais de 4 horas",
-            "created_at": (now - timedelta(hours=4)).strftime("%d/%m/%Y %H:%M:%S"),
-            "created_at_iso": (now - timedelta(hours=4)).isoformat(),
+            "created_at_iso": format_iso_utc(now - timedelta(hours=4)),
+            "created_at": format_local_datetime(now - timedelta(hours=4)),
             "is_resolved": False,
             "resolved_at": None,
             "is_demo": True
@@ -510,8 +513,8 @@ def get_demo_policy_rules() -> list:
     """
     Retorna regras virtuais de demonstração em memória.
     """
-    now = datetime.now(timezone.utc)
-    ts = now.strftime("%d/%m/%Y %H:%M:%S")
+    now = utc_now()
+    ts = format_local_datetime(now)
     return [
         {
             "id": 9101,
@@ -525,6 +528,7 @@ def get_demo_policy_rules() -> list:
             "action": "alert",
             "enabled": True,
             "created_at": ts,
+            "created_at_iso": format_iso_utc(now),
             "is_demo": True
         },
         {
@@ -539,6 +543,7 @@ def get_demo_policy_rules() -> list:
             "action": "alert",
             "enabled": True,
             "created_at": ts,
+            "created_at_iso": format_iso_utc(now),
             "is_demo": True
         },
         {
@@ -553,6 +558,7 @@ def get_demo_policy_rules() -> list:
             "action": "alert",
             "enabled": True,
             "created_at": ts,
+            "created_at_iso": format_iso_utc(now),
             "is_demo": True
         },
         {
@@ -567,6 +573,7 @@ def get_demo_policy_rules() -> list:
             "action": "alert",
             "enabled": True,
             "created_at": ts,
+            "created_at_iso": format_iso_utc(now),
             "is_demo": True
         }
     ]
@@ -576,7 +583,7 @@ def get_demo_policy_events() -> list:
     """
     Retorna ocorrências virtuais de demonstração em memória.
     """
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     return [
         {
             "id": 9201,
@@ -590,16 +597,18 @@ def get_demo_policy_events() -> list:
             "severity": "warning",
             "application": "Microsoft Edge",
             "domain": "tiktok.com",
-            "first_seen": (now - timedelta(minutes=18)).strftime("%d/%m/%Y %H:%M:%S"),
-            "first_seen_iso": (now - timedelta(minutes=18)).isoformat(),
-            "last_seen": (now - timedelta(minutes=2)).strftime("%d/%m/%Y %H:%M:%S"),
-            "last_seen_iso": (now - timedelta(minutes=2)).isoformat(),
+            "first_seen_iso": format_iso_utc(now - timedelta(minutes=18)),
+            "first_seen": format_local_datetime(now - timedelta(minutes=18)),
+            "last_seen_iso": format_iso_utc(now - timedelta(minutes=2)),
+            "last_seen": format_local_datetime(now - timedelta(minutes=2)),
             "duration_seconds": 960,
             "duration_formatted": "16m 0s",
             "status": "active",
             "acknowledged": False,
+            "acknowledged_at_iso": None,
             "acknowledged_at": None,
             "acknowledged_by": None,
+            "resolved_at_iso": None,
             "resolved_at": None,
             "is_demo": True
         },
@@ -615,16 +624,18 @@ def get_demo_policy_events() -> list:
             "severity": "warning",
             "application": "Steam",
             "domain": "—",
-            "first_seen": (now - timedelta(minutes=45)).strftime("%d/%m/%Y %H:%M:%S"),
-            "first_seen_iso": (now - timedelta(minutes=45)).isoformat(),
-            "last_seen": (now - timedelta(minutes=10)).strftime("%d/%m/%Y %H:%M:%S"),
-            "last_seen_iso": (now - timedelta(minutes=10)).isoformat(),
+            "first_seen_iso": format_iso_utc(now - timedelta(minutes=45)),
+            "first_seen": format_local_datetime(now - timedelta(minutes=45)),
+            "last_seen_iso": format_iso_utc(now - timedelta(minutes=10)),
+            "last_seen": format_local_datetime(now - timedelta(minutes=10)),
             "duration_seconds": 2100,
             "duration_formatted": "35m 0s",
             "status": "active",
             "acknowledged": True,
-            "acknowledged_at": (now - timedelta(minutes=8)).strftime("%d/%m/%Y %H:%M:%S"),
+            "acknowledged_at_iso": format_iso_utc(now - timedelta(minutes=8)),
+            "acknowledged_at": format_local_datetime(now - timedelta(minutes=8)),
             "acknowledged_by": "admin",
+            "resolved_at_iso": None,
             "resolved_at": None,
             "is_demo": True
         }
