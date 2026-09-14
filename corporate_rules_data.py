@@ -1,0 +1,222 @@
+"""
+Givova Transportes - Catálogo de Regras Corporativas de Políticas de Uso
+Base oficial de domínios corporativamente monitorados e proibidos por categoria.
+Total: 179 domínios catalogados.
+"""
+
+CORPORATE_DEFAULT_RULES = [
+    # -------------------------------------------------------------------------
+    # 1. ADULTO / +18 (adult) - Severidade: critical (37 domínios)
+    # -------------------------------------------------------------------------
+    {"pattern": "pornhub.com", "name": "[Adulto / +18] Pornhub", "category": "adult", "severity": "critical"},
+    {"pattern": "xvideos.com", "name": "[Adulto / +18] XVideos", "category": "adult", "severity": "critical"},
+    {"pattern": "xnxx.com", "name": "[Adulto / +18] XNXX", "category": "adult", "severity": "critical"},
+    {"pattern": "xhamster.com", "name": "[Adulto / +18] xHamster", "category": "adult", "severity": "critical"},
+    {"pattern": "redtube.com", "name": "[Adulto / +18] RedTube", "category": "adult", "severity": "critical"},
+    {"pattern": "youporn.com", "name": "[Adulto / +18] YouPorn", "category": "adult", "severity": "critical"},
+    {"pattern": "tube8.com", "name": "[Adulto / +18] Tube8", "category": "adult", "severity": "critical"},
+    {"pattern": "spankbang.com", "name": "[Adulto / +18] SpankBang", "category": "adult", "severity": "critical"},
+    {"pattern": "beeg.com", "name": "[Adulto / +18] Beeg", "category": "adult", "severity": "critical"},
+    {"pattern": "tnaflix.com", "name": "[Adulto / +18] TnaFlix", "category": "adult", "severity": "critical"},
+    {"pattern": "drtuber.com", "name": "[Adulto / +18] DrTuber", "category": "adult", "severity": "critical"},
+    {"pattern": "eporner.com", "name": "[Adulto / +18] Eporner", "category": "adult", "severity": "critical"},
+    {"pattern": "youjizz.com", "name": "[Adulto / +18] YouJizz", "category": "adult", "severity": "critical"},
+    {"pattern": "porntrex.com", "name": "[Adulto / +18] PornTrex", "category": "adult", "severity": "critical"},
+    {"pattern": "hqporner.com", "name": "[Adulto / +18] HQPorner", "category": "adult", "severity": "critical"},
+    {"pattern": "porn.com", "name": "[Adulto / +18] Porn.com", "category": "adult", "severity": "critical"},
+    {"pattern": "brazzers.com", "name": "[Adulto / +18] Brazzers", "category": "adult", "severity": "critical"},
+    {"pattern": "bangbros.com", "name": "[Adulto / +18] BangBros", "category": "adult", "severity": "critical"},
+    {"pattern": "realitykings.com", "name": "[Adulto / +18] Reality Kings", "category": "adult", "severity": "critical"},
+    {"pattern": "naughtyamerica.com", "name": "[Adulto / +18] Naughty America", "category": "adult", "severity": "critical"},
+    {"pattern": "onlyfans.com", "name": "[Adulto / +18] OnlyFans", "category": "adult", "severity": "critical"},
+    {"pattern": "fansly.com", "name": "[Adulto / +18] Fansly", "category": "adult", "severity": "critical"},
+    {"pattern": "manyvids.com", "name": "[Adulto / +18] ManyVids", "category": "adult", "severity": "critical"},
+    {"pattern": "stripchat.com", "name": "[Adulto / +18] Stripchat", "category": "adult", "severity": "critical"},
+    {"pattern": "chaturbate.com", "name": "[Adulto / +18] Chaturbate", "category": "adult", "severity": "critical"},
+    {"pattern": "bongacams.com", "name": "[Adulto / +18] BongaCams", "category": "adult", "severity": "critical"},
+    {"pattern": "camsoda.com", "name": "[Adulto / +18] CamSoda", "category": "adult", "severity": "critical"},
+    {"pattern": "livejasmin.com", "name": "[Adulto / +18] LiveJasmin", "category": "adult", "severity": "critical"},
+    {"pattern": "myfreecams.com", "name": "[Adulto / +18] MyFreeCams", "category": "adult", "severity": "critical"},
+    {"pattern": "cam4.com", "name": "[Adulto / +18] Cam4", "category": "adult", "severity": "critical"},
+    {"pattern": "flirt4free.com", "name": "[Adulto / +18] Flirt4Free", "category": "adult", "severity": "critical"},
+    {"pattern": "streamate.com", "name": "[Adulto / +18] Streamate", "category": "adult", "severity": "critical"},
+    {"pattern": "jerkmate.com", "name": "[Adulto / +18] Jerkmate", "category": "adult", "severity": "critical"},
+    {"pattern": "adultfriendfinder.com", "name": "[Adulto / +18] AdultFriendFinder", "category": "adult", "severity": "critical"},
+    {"pattern": "ashleymadison.com", "name": "[Adulto / +18] Ashley Madison", "category": "adult", "severity": "critical"},
+    {"pattern": "fetlife.com", "name": "[Adulto / +18] FetLife", "category": "adult", "severity": "critical"},
+    {"pattern": "literotica.com", "name": "[Adulto / +18] Literotica", "category": "adult", "severity": "critical"},
+
+    # -------------------------------------------------------------------------
+    # 2. JOGOS (games) - Severidade: warning (34 domínios)
+    # -------------------------------------------------------------------------
+    {"pattern": "steampowered.com", "name": "[Jogos] Steam Store", "category": "games", "severity": "warning"},
+    {"pattern": "steamcommunity.com", "name": "[Jogos] Steam Community", "category": "games", "severity": "warning"},
+    {"pattern": "epicgames.com", "name": "[Jogos] Epic Games", "category": "games", "severity": "warning"},
+    {"pattern": "roblox.com", "name": "[Jogos] Roblox", "category": "games", "severity": "warning"},
+    {"pattern": "minecraft.net", "name": "[Jogos] Minecraft", "category": "games", "severity": "warning"},
+    {"pattern": "xbox.com", "name": "[Jogos] Xbox", "category": "games", "severity": "warning"},
+    {"pattern": "playstation.com", "name": "[Jogos] PlayStation", "category": "games", "severity": "warning"},
+    {"pattern": "nintendo.com", "name": "[Jogos] Nintendo", "category": "games", "severity": "warning"},
+    {"pattern": "ea.com", "name": "[Jogos] Electronic Arts", "category": "games", "severity": "warning"},
+    {"pattern": "ubisoft.com", "name": "[Jogos] Ubisoft", "category": "games", "severity": "warning"},
+    {"pattern": "battle.net", "name": "[Jogos] Battle.net", "category": "games", "severity": "warning"},
+    {"pattern": "blizzard.com", "name": "[Jogos] Blizzard", "category": "games", "severity": "warning"},
+    {"pattern": "riotgames.com", "name": "[Jogos] Riot Games", "category": "games", "severity": "warning"},
+    {"pattern": "leagueoflegends.com", "name": "[Jogos] League of Legends", "category": "games", "severity": "warning"},
+    {"pattern": "playvalorant.com", "name": "[Jogos] Valorant", "category": "games", "severity": "warning"},
+    {"pattern": "fortnite.com", "name": "[Jogos] Fortnite", "category": "games", "severity": "warning"},
+    {"pattern": "rockstargames.com", "name": "[Jogos] Rockstar Games", "category": "games", "severity": "warning"},
+    {"pattern": "socialclub.rockstargames.com", "name": "[Jogos] Rockstar Social Club", "category": "games", "severity": "warning"},
+    {"pattern": "gog.com", "name": "[Jogos] GOG.com", "category": "games", "severity": "warning"},
+    {"pattern": "itch.io", "name": "[Jogos] Itch.io", "category": "games", "severity": "warning"},
+    {"pattern": "origin.com", "name": "[Jogos] Origin", "category": "games", "severity": "warning"},
+    {"pattern": "geforcenow.com", "name": "[Jogos] GeForce NOW", "category": "games", "severity": "warning"},
+    {"pattern": "cloudgaming.google", "name": "[Jogos] Google Cloud Gaming", "category": "games", "severity": "warning"},
+    {"pattern": "xboxcloudgaming.com", "name": "[Jogos] Xbox Cloud Gaming", "category": "games", "severity": "warning"},
+    {"pattern": "crazygames.com", "name": "[Jogos] CrazyGames", "category": "games", "severity": "warning"},
+    {"pattern": "poki.com", "name": "[Jogos] Poki", "category": "games", "severity": "warning"},
+    {"pattern": "friv.com", "name": "[Jogos] Friv", "category": "games", "severity": "warning"},
+    {"pattern": "miniclip.com", "name": "[Jogos] Miniclip", "category": "games", "severity": "warning"},
+    {"pattern": "kongregate.com", "name": "[Jogos] Kongregate", "category": "games", "severity": "warning"},
+    {"pattern": "armor-games.com", "name": "[Jogos] Armor Games", "category": "games", "severity": "warning"},
+    {"pattern": "addictinggames.com", "name": "[Jogos] Addicting Games", "category": "games", "severity": "warning"},
+    {"pattern": "newgrounds.com", "name": "[Jogos] Newgrounds", "category": "games", "severity": "warning"},
+    {"pattern": "chess.com", "name": "[Jogos] Chess.com", "category": "games", "severity": "warning"},
+    {"pattern": "lichess.org", "name": "[Jogos] Lichess", "category": "games", "severity": "warning"},
+
+    # -------------------------------------------------------------------------
+    # 3. REDES SOCIAIS (social_media) - Severidade: warning (17 domínios)
+    # -------------------------------------------------------------------------
+    {"pattern": "facebook.com", "name": "[Redes Sociais] Facebook", "category": "social_media", "severity": "warning"},
+    {"pattern": "instagram.com", "name": "[Redes Sociais] Instagram", "category": "social_media", "severity": "warning"},
+    {"pattern": "tiktok.com", "name": "[Redes Sociais] TikTok", "category": "social_media", "severity": "warning"},
+    {"pattern": "x.com", "name": "[Redes Sociais] X (Twitter)", "category": "social_media", "severity": "warning"},
+    {"pattern": "twitter.com", "name": "[Redes Sociais] Twitter", "category": "social_media", "severity": "warning"},
+    {"pattern": "threads.net", "name": "[Redes Sociais] Threads", "category": "social_media", "severity": "warning"},
+    {"pattern": "snapchat.com", "name": "[Redes Sociais] Snapchat", "category": "social_media", "severity": "warning"},
+    {"pattern": "pinterest.com", "name": "[Redes Sociais] Pinterest", "category": "social_media", "severity": "warning"},
+    {"pattern": "tumblr.com", "name": "[Redes Sociais] Tumblr", "category": "social_media", "severity": "warning"},
+    {"pattern": "reddit.com", "name": "[Redes Sociais] Reddit", "category": "social_media", "severity": "warning"},
+    {"pattern": "kwai.com", "name": "[Redes Sociais] Kwai", "category": "social_media", "severity": "warning"},
+    {"pattern": "bsky.app", "name": "[Redes Sociais] Bluesky", "category": "social_media", "severity": "warning"},
+    {"pattern": "mastodon.social", "name": "[Redes Sociais] Mastodon", "category": "social_media", "severity": "warning"},
+    {"pattern": "vk.com", "name": "[Redes Sociais] VKontakte", "category": "social_media", "severity": "warning"},
+    {"pattern": "quora.com", "name": "[Redes Sociais] Quora", "category": "social_media", "severity": "warning"},
+    {"pattern": "wechat.com", "name": "[Redes Sociais] WeChat", "category": "social_media", "severity": "warning"},
+    {"pattern": "weibo.com", "name": "[Redes Sociais] Weibo", "category": "social_media", "severity": "warning"},
+
+    # -------------------------------------------------------------------------
+    # 4. APOSTAS / CASSINO (gambling) - Severidade: critical (20 domínios)
+    # -------------------------------------------------------------------------
+    {"pattern": "bet365.com", "name": "[Apostas] Bet365", "category": "gambling", "severity": "critical"},
+    {"pattern": "betano.com", "name": "[Apostas] Betano", "category": "gambling", "severity": "critical"},
+    {"pattern": "betnacional.com", "name": "[Apostas] Betnacional", "category": "gambling", "severity": "critical"},
+    {"pattern": "betfair.com", "name": "[Apostas] Betfair", "category": "gambling", "severity": "critical"},
+    {"pattern": "sportingbet.com", "name": "[Apostas] Sportingbet", "category": "gambling", "severity": "critical"},
+    {"pattern": "pixbet.com", "name": "[Apostas] Pixbet", "category": "gambling", "severity": "critical"},
+    {"pattern": "novibet.com", "name": "[Apostas] Novibet", "category": "gambling", "severity": "critical"},
+    {"pattern": "superbet.com", "name": "[Apostas] Superbet", "category": "gambling", "severity": "critical"},
+    {"pattern": "stake.com", "name": "[Apostas] Stake", "category": "gambling", "severity": "critical"},
+    {"pattern": "kto.com", "name": "[Apostas] KTO", "category": "gambling", "severity": "critical"},
+    {"pattern": "betsson.com", "name": "[Apostas] Betsson", "category": "gambling", "severity": "critical"},
+    {"pattern": "betway.com", "name": "[Apostas] Betway", "category": "gambling", "severity": "critical"},
+    {"pattern": "rivalo.com", "name": "[Apostas] Rivalo", "category": "gambling", "severity": "critical"},
+    {"pattern": "sportybet.com", "name": "[Apostas] SportyBet", "category": "gambling", "severity": "critical"},
+    {"pattern": "pinnacle.com", "name": "[Apostas] Pinnacle", "category": "gambling", "severity": "critical"},
+    {"pattern": "1xbet.com", "name": "[Apostas] 1xBet", "category": "gambling", "severity": "critical"},
+    {"pattern": "betboo.com", "name": "[Apostas] Betboo", "category": "gambling", "severity": "critical"},
+    {"pattern": "betwarrior.com", "name": "[Apostas] BetWarrior", "category": "gambling", "severity": "critical"},
+    {"pattern": "bodog.com", "name": "[Apostas] Bodog", "category": "gambling", "severity": "critical"},
+    {"pattern": "sportsbet.io", "name": "[Apostas] Sportsbet.io", "category": "gambling", "severity": "critical"},
+
+    # -------------------------------------------------------------------------
+    # 5. STREAMING / ENTRETENIMENTO (streaming) - Severidade: warning (15 domínios)
+    # -------------------------------------------------------------------------
+    {"pattern": "netflix.com", "name": "[Streaming] Netflix", "category": "streaming", "severity": "warning"},
+    {"pattern": "primevideo.com", "name": "[Streaming] Prime Video", "category": "streaming", "severity": "warning"},
+    {"pattern": "disneyplus.com", "name": "[Streaming] Disney+", "category": "streaming", "severity": "warning"},
+    {"pattern": "max.com", "name": "[Streaming] Max (HBO)", "category": "streaming", "severity": "warning"},
+    {"pattern": "globoplay.globo.com", "name": "[Streaming] Globoplay", "category": "streaming", "severity": "warning"},
+    {"pattern": "twitch.tv", "name": "[Streaming] Twitch", "category": "streaming", "severity": "warning"},
+    {"pattern": "kick.com", "name": "[Streaming] Kick", "category": "streaming", "severity": "warning"},
+    {"pattern": "crunchyroll.com", "name": "[Streaming] Crunchyroll", "category": "streaming", "severity": "warning"},
+    {"pattern": "paramountplus.com", "name": "[Streaming] Paramount+", "category": "streaming", "severity": "warning"},
+    {"pattern": "pluto.tv", "name": "[Streaming] Pluto TV", "category": "streaming", "severity": "warning"},
+    {"pattern": "spotify.com", "name": "[Streaming] Spotify", "category": "streaming", "severity": "warning"},
+    {"pattern": "deezer.com", "name": "[Streaming] Deezer", "category": "streaming", "severity": "warning"},
+    {"pattern": "soundcloud.com", "name": "[Streaming] SoundCloud", "category": "streaming", "severity": "warning"},
+    {"pattern": "tidal.com", "name": "[Streaming] Tidal", "category": "streaming", "severity": "warning"},
+    {"pattern": "youtube.com", "name": "[Streaming] YouTube", "category": "streaming", "severity": "warning"},
+
+    # -------------------------------------------------------------------------
+    # 6. TORRENT / PIRATARIA / P2P (torrent) - Severidade: critical (12 domínios)
+    # -------------------------------------------------------------------------
+    {"pattern": "thepiratebay.org", "name": "[Torrent] The Pirate Bay", "category": "torrent", "severity": "critical"},
+    {"pattern": "1337x.to", "name": "[Torrent] 1337x", "category": "torrent", "severity": "critical"},
+    {"pattern": "yts.mx", "name": "[Torrent] YTS", "category": "torrent", "severity": "critical"},
+    {"pattern": "limetorrents.lol", "name": "[Torrent] LimeTorrents", "category": "torrent", "severity": "critical"},
+    {"pattern": "torrentgalaxy.to", "name": "[Torrent] TorrentGalaxy", "category": "torrent", "severity": "critical"},
+    {"pattern": "nyaa.si", "name": "[Torrent] Nyaa", "category": "torrent", "severity": "critical"},
+    {"pattern": "torrentdownloads.pro", "name": "[Torrent] TorrentDownloads", "category": "torrent", "severity": "critical"},
+    {"pattern": "eztv.re", "name": "[Torrent] EZTV", "category": "torrent", "severity": "critical"},
+    {"pattern": "utorrent.com", "name": "[Torrent] uTorrent", "category": "torrent", "severity": "critical"},
+    {"pattern": "bittorrent.com", "name": "[Torrent] BitTorrent", "category": "torrent", "severity": "critical"},
+    {"pattern": "qbittorrent.org", "name": "[Torrent] qBittorrent", "category": "torrent", "severity": "critical"},
+    {"pattern": "rutracker.org", "name": "[Torrent] RuTracker", "category": "torrent", "severity": "critical"},
+
+    # -------------------------------------------------------------------------
+    # 7. VPN / PROXY / ANONIMIZAÇÃO (vpn_proxy) - Severidade: critical (21 domínios)
+    # -------------------------------------------------------------------------
+    {"pattern": "protonvpn.com", "name": "[VPN/Proxy] ProtonVPN", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "nordvpn.com", "name": "[VPN/Proxy] NordVPN", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "expressvpn.com", "name": "[VPN/Proxy] ExpressVPN", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "surfshark.com", "name": "[VPN/Proxy] Surfshark", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "windscribe.com", "name": "[VPN/Proxy] Windscribe", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "hide.me", "name": "[VPN/Proxy] Hide.me", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "hola.org", "name": "[VPN/Proxy] Hola VPN", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "psiphon.ca", "name": "[VPN/Proxy] Psiphon", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "torproject.org", "name": "[VPN/Proxy] Tor Project", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "croxyproxy.com", "name": "[VPN/Proxy] CroxyProxy", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "proxysite.com", "name": "[VPN/Proxy] ProxySite", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "hidemyass.com", "name": "[VPN/Proxy] HideMyAss", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "privateinternetaccess.com", "name": "[VPN/Proxy] PIA VPN", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "cyberghostvpn.com", "name": "[VPN/Proxy] CyberGhost", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "tunnelbear.com", "name": "[VPN/Proxy] TunnelBear", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "urban-vpn.com", "name": "[VPN/Proxy] Urban VPN", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "hotspotshield.com", "name": "[VPN/Proxy] Hotspot Shield", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "vpnbook.com", "name": "[VPN/Proxy] VPNBook", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "kproxy.com", "name": "[VPN/Proxy] KProxy", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "4everproxy.com", "name": "[VPN/Proxy] 4everproxy", "category": "vpn_proxy", "severity": "critical"},
+    {"pattern": "filterbypass.me", "name": "[VPN/Proxy] FilterBypass", "category": "vpn_proxy", "severity": "critical"},
+
+    # -------------------------------------------------------------------------
+    # 8. COMPARTILHAMENTO / UPLOAD EXTERNO (file_sharing) - Severidade: warning (12 domínios)
+    # -------------------------------------------------------------------------
+    {"pattern": "wetransfer.com", "name": "[Compartilhamento] WeTransfer", "category": "file_sharing", "severity": "warning"},
+    {"pattern": "mega.nz", "name": "[Compartilhamento] MEGA", "category": "file_sharing", "severity": "warning"},
+    {"pattern": "mediafire.com", "name": "[Compartilhamento] MediaFire", "category": "file_sharing", "severity": "warning"},
+    {"pattern": "sendspace.com", "name": "[Compartilhamento] SendSpace", "category": "file_sharing", "severity": "warning"},
+    {"pattern": "file.io", "name": "[Compartilhamento] File.io", "category": "file_sharing", "severity": "warning"},
+    {"pattern": "gofile.io", "name": "[Compartilhamento] Gofile", "category": "file_sharing", "severity": "warning"},
+    {"pattern": "transfer.sh", "name": "[Compartilhamento] Transfer.sh", "category": "file_sharing", "severity": "warning"},
+    {"pattern": "pixeldrain.com", "name": "[Compartilhamento] PixelDrain", "category": "file_sharing", "severity": "warning"},
+    {"pattern": "uploadnow.io", "name": "[Compartilhamento] UploadNow", "category": "file_sharing", "severity": "warning"},
+    {"pattern": "easyupload.io", "name": "[Compartilhamento] EasyUpload", "category": "file_sharing", "severity": "warning"},
+    {"pattern": "zippyshare.com", "name": "[Compartilhamento] Zippyshare", "category": "file_sharing", "severity": "warning"},
+    {"pattern": "anonfiles.com", "name": "[Compartilhamento] AnonFiles", "category": "file_sharing", "severity": "warning"},
+
+    # -------------------------------------------------------------------------
+    # 9. NAMORO / RELACIONAMENTOS (dating) - Severidade: warning (11 domínios)
+    # -------------------------------------------------------------------------
+    {"pattern": "tinder.com", "name": "[Relacionamentos] Tinder", "category": "dating", "severity": "warning"},
+    {"pattern": "bumble.com", "name": "[Relacionamentos] Bumble", "category": "dating", "severity": "warning"},
+    {"pattern": "badoo.com", "name": "[Relacionamentos] Badoo", "category": "dating", "severity": "warning"},
+    {"pattern": "happn.com", "name": "[Relacionamentos] Happn", "category": "dating", "severity": "warning"},
+    {"pattern": "okcupid.com", "name": "[Relacionamentos] OkCupid", "category": "dating", "severity": "warning"},
+    {"pattern": "match.com", "name": "[Relacionamentos] Match.com", "category": "dating", "severity": "warning"},
+    {"pattern": "pof.com", "name": "[Relacionamentos] Plenty of Fish", "category": "dating", "severity": "warning"},
+    {"pattern": "grindr.com", "name": "[Relacionamentos] Grindr", "category": "dating", "severity": "warning"},
+    {"pattern": "hinge.co", "name": "[Relacionamentos] Hinge", "category": "dating", "severity": "warning"},
+    {"pattern": "boo.world", "name": "[Relacionamentos] Boo", "category": "dating", "severity": "warning"},
+    {"pattern": "feeld.co", "name": "[Relacionamentos] Feeld", "category": "dating", "severity": "warning"},
+]

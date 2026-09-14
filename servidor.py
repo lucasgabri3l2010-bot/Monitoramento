@@ -11,7 +11,11 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import io
 
 from config import Config
-from models import db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent, PolicyAuditLog, SystemMetadata, AgentRelease, PolicyAllowlist, DomainClassification, compare_versions, parse_semver
+from models import (
+    db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent,
+    PolicyAuditLog, SystemMetadata, AgentRelease, PolicyAllowlist,
+    DomainClassification, compare_versions, parse_semver, normalize_domain
+)
 from services import process_agent_payload, get_dashboard_stats, invalidate_policy_rules_cache
 
 # Configuração de Logging Profissional
@@ -918,6 +922,242 @@ def excluir_regra_politica(rule_id):
     invalidate_policy_rules_cache()
     logger.info(f"Regra de política '{name}' (id {rule_id}) removida por {session.get('username')}.")
     return jsonify({"status": "ok", "message": f"Regra '{name}' removida com sucesso."})
+
+
+@app.route("/api/policies/rules/bulk-action", methods=["POST"])
+@login_required
+def acao_em_massa_regras_politicas():
+    """
+    Executa ações em lote sobre regras de políticas:
+    - activate: habilita regras selecionadas
+    - deactivate: desabilita regras selecionadas
+    - set_severity: altera severidade (info, warning, critical)
+    - set_category: altera categoria
+    - delete: remove regras selecionadas
+    Somente administradores. Ignora IDs de demo (>= 9000).
+    """
+    if session.get("role") != "admin":
+        return jsonify({"error": "Acesso negado: apenas administradores podem executar ações em lote."}), 403
+
+    data = request.get_json(silent=True) or {}
+    action = (data.get("action") or "").strip().lower()
+    rule_ids = data.get("rule_ids") or []
+
+    if not isinstance(rule_ids, list) or len(rule_ids) == 0:
+        return jsonify({"error": "Nenhuma regra selecionada para a ação."}), 400
+
+    # Filtra IDs de demonstração e inválidos
+    has_demo = any(str(rid).isdigit() and int(rid) >= 9000 for rid in rule_ids)
+    valid_ids = [int(rid) for rid in rule_ids if str(rid).isdigit() and int(rid) < 9000]
+    if has_demo and not valid_ids:
+        return jsonify({"error": "Regras de demonstração são protegidas e não podem ser alteradas ou excluídas."}), 403
+    if not valid_ids:
+        return jsonify({"error": "Nenhuma regra válida selecionada."}), 400
+
+    rules = PolicyRule.query.filter(PolicyRule.id.in_(valid_ids)).all()
+    if not rules:
+        return jsonify({"error": "Nenhuma regra encontrada no banco de dados para os IDs informados."}), 404
+
+    count_affected = len(rules)
+    user = session.get("username", "admin")
+
+    if action == "activate":
+        for r in rules:
+            r.enabled = True
+            r.updated_at = datetime.now(timezone.utc)
+        audit_msg = f"Ativação em massa de {count_affected} regras de política."
+    elif action == "deactivate":
+        for r in rules:
+            r.enabled = False
+            r.updated_at = datetime.now(timezone.utc)
+        audit_msg = f"Desativação em massa de {count_affected} regras de política."
+    elif action == "set_severity":
+        new_sev = (data.get("severity") or data.get("value") or "").strip().lower()
+        if new_sev not in ("info", "warning", "critical"):
+            return jsonify({"error": "Severidade inválida. Deve ser 'info', 'warning' ou 'critical'."}), 400
+        for r in rules:
+            r.severity = new_sev
+            r.updated_at = datetime.now(timezone.utc)
+        audit_msg = f"Alteração de severidade para '{new_sev}' em {count_affected} regras de política."
+    elif action == "set_category":
+        new_cat = (data.get("category") or data.get("value") or "").strip()
+        if not new_cat:
+            return jsonify({"error": "Categoria não informada."}), 400
+        for r in rules:
+            r.category = new_cat
+            r.updated_at = datetime.now(timezone.utc)
+        audit_msg = f"Alteração de categoria para '{new_cat}' em {count_affected} regras de política."
+    elif action == "delete":
+        for r in rules:
+            db.session.delete(r)
+        audit_msg = f"Exclusão em massa de {count_affected} regras de política."
+    else:
+        return jsonify({"error": f"Ação desconhecida: '{action}'."}), 400
+
+    audit = PolicyAuditLog(
+        user_name=user,
+        action="RULES_BULK_ACTION",
+        details=audit_msg
+    )
+    db.session.add(audit)
+    db.session.commit()
+
+    invalidate_policy_rules_cache()
+    logger.info(f"{audit_msg} Executado por {user}.")
+    return jsonify({
+        "status": "ok",
+        "action": action,
+        "affected": count_affected,
+        "message": audit_msg
+    })
+
+
+@app.route("/api/policies/rules/import-csv", methods=["POST"])
+@login_required
+def importar_regras_csv():
+    """
+    Importa regras de políticas a partir de arquivo CSV ou texto CSV.
+    Formato esperado:
+    domain,category,severity,action,scope
+    Exemplo:
+    example.com,games,warning,alert,global
+    """
+    if session.get("role") != "admin":
+        return jsonify({"error": "Acesso negado: apenas administradores podem importar regras."}), 403
+
+    import csv
+
+    csv_text = ""
+    if "file" in request.files:
+        file = request.files["file"]
+        if file and file.filename:
+            csv_text = file.read().decode("utf-8-sig", errors="ignore")
+    else:
+        data = request.get_json(silent=True) or request.form
+        csv_text = data.get("csv_content") or ""
+
+    if not csv_text.strip():
+        return jsonify({"error": "Conteúdo CSV não fornecido."}), 400
+
+    reader = csv.reader(io.StringIO(csv_text.strip()))
+    header = None
+    imported_count = 0
+    skipped_duplicates = 0
+    invalid_count = 0
+    errors = []
+
+    existing_domain_rules = PolicyRule.query.filter_by(rule_type="domain").all()
+    existing_patterns = {normalize_domain(r.pattern) for r in existing_domain_rules}
+
+    row_num = 0
+    for row in reader:
+        row_num += 1
+        if not row or all(c.strip() == "" for c in row):
+            continue
+
+        clean_row = [c.strip() for c in row]
+
+        # Detecta cabeçalho
+        if header is None:
+            first_col = clean_row[0].lower()
+            if first_col in ("domain", "dominio", "pattern", "padrao", "url"):
+                header = [c.lower() for c in clean_row]
+                continue
+            else:
+                header = ["domain", "category", "severity", "action", "scope"]
+
+        dom = clean_row[0] if len(clean_row) > 0 else ""
+        cat = "other"
+        sev = "warning"
+        act = "alert"
+        sc = "global"
+
+        if "domain" in header:
+            idx = header.index("domain")
+            if idx < len(clean_row): dom = clean_row[idx]
+        elif len(clean_row) > 0:
+            dom = clean_row[0]
+
+        if "category" in header:
+            idx = header.index("category")
+            if idx < len(clean_row) and clean_row[idx]: cat = clean_row[idx].lower()
+        elif len(clean_row) > 1 and clean_row[1]:
+            cat = clean_row[1].lower()
+
+        if "severity" in header:
+            idx = header.index("severity")
+            if idx < len(clean_row) and clean_row[idx]: sev = clean_row[idx].lower()
+        elif len(clean_row) > 2 and clean_row[2]:
+            sev = clean_row[2].lower()
+
+        if "action" in header:
+            idx = header.index("action")
+            if idx < len(clean_row) and clean_row[idx]: act = clean_row[idx].lower()
+        elif len(clean_row) > 3 and clean_row[3]:
+            act = clean_row[3].lower()
+
+        if "scope" in header:
+            idx = header.index("scope")
+            if idx < len(clean_row) and clean_row[idx]: sc = clean_row[idx].lower()
+        elif len(clean_row) > 4 and clean_row[4]:
+            sc = clean_row[4].lower()
+
+        # Validação do domínio
+        clean_dom = normalize_domain(dom)
+        if not clean_dom or "." not in clean_dom or len(clean_dom) < 4 or " " in clean_dom or "/" in clean_dom:
+            errors.append(f"Linha {row_num}: Domínio inválido '{dom}'.")
+            invalid_count += 1
+            continue
+
+        if clean_dom in existing_patterns:
+            skipped_duplicates += 1
+            continue
+
+        if sev not in ("info", "warning", "critical"):
+            sev = "warning"
+        if act not in ("alert", "log", "allow"):
+            act = "alert"
+        if sc not in ("global", "department", "device"):
+            sc = "global"
+
+        rule = PolicyRule(
+            name=f"[{cat}] {clean_dom}",
+            rule_type="domain",
+            pattern=clean_dom,
+            category=cat,
+            severity=sev,
+            scope_type=sc,
+            scope_target="Todos" if sc == "global" else "",
+            action=act,
+            enabled=True,
+            source_provider="import"
+        )
+        db.session.add(rule)
+        existing_patterns.add(clean_dom)
+        imported_count += 1
+
+    total_skipped = skipped_duplicates + invalid_count
+
+    if imported_count > 0:
+        audit = PolicyAuditLog(
+            user_name=session.get("username", "admin"),
+            action="RULES_IMPORTED_CSV",
+            details=f"Importação CSV: {imported_count} regras inseridas, {skipped_duplicates} duplicadas ignoradas, {invalid_count} inválidas."
+        )
+        db.session.add(audit)
+        db.session.commit()
+        invalidate_policy_rules_cache()
+        logger.info(f"Importação CSV concluída: {imported_count} inseridas, {skipped_duplicates} duplicadas, {invalid_count} inválidas por {session.get('username')}.")
+
+    return jsonify({
+        "status": "ok",
+        "imported": imported_count,
+        "import_count": imported_count,
+        "skipped": total_skipped,
+        "skipped_duplicates": skipped_duplicates,
+        "invalid_count": invalid_count,
+        "errors": errors[:10]
+    })
 
 
 @app.route("/api/policies/events", methods=["GET"])

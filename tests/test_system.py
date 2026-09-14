@@ -768,7 +768,8 @@ class SystemMonitoringTestCase(unittest.TestCase):
         with self.app.app_context():
             # Verifica integridade apos 5 execucoes
             rules_count = PolicyRule.query.count()
-            self.assertEqual(rules_count, 8)
+            self.assertGreater(rules_count, 100)
+            expected_rules_count = rules_count
             admins = User.query.filter_by(username="testadmin").all()
             self.assertEqual(len(admins), 1)
 
@@ -781,8 +782,8 @@ class SystemMonitoringTestCase(unittest.TestCase):
 
         with self.app.app_context():
             # Integridade deve permanecer intacta sem duplicacoes ou corrupcao
-            rules_count = PolicyRule.query.count()
-            self.assertEqual(rules_count, 8)
+            rules_count_after = PolicyRule.query.count()
+            self.assertEqual(rules_count_after, expected_rules_count)
             admins = User.query.filter_by(username="testadmin").all()
             self.assertEqual(len(admins), 1)
 

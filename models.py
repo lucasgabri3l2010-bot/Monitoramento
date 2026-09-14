@@ -459,6 +459,12 @@ class PolicyRule(db.Model):
         return False
 
     def to_dict(self) -> dict:
+        origin_label = "Regra Manual"
+        if self.is_automatic:
+            origin_label = "Classificação Automática"
+        elif self.source_provider in ("seed", "corporate_base"):
+            origin_label = "Base Corporativa"
+
         return {
             "id": self.id,
             "name": self.name,
@@ -471,7 +477,8 @@ class PolicyRule(db.Model):
             "action": self.action,
             "enabled": self.enabled,
             "is_automatic": bool(self.is_automatic),
-            "source_provider": self.source_provider or "internal",
+            "source_provider": self.source_provider or "manual",
+            "origin": origin_label,
             "created_at": self.created_at.strftime("%d/%m/%Y %H:%M:%S") if self.created_at else "",
             "is_demo": False
         }

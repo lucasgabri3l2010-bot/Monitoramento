@@ -25,6 +25,9 @@ CATEGORY_MAP = {
     "streaming": "Streaming",
     "social_media": "Redes Sociais",
     "vpn_proxy": "Proxy / VPN",
+    "file_sharing": "Compartilhamento de Arquivos",
+    "dating": "Namoro / Relacionamentos",
+    "suspicious": "Sites Suspeitos",
     "crypto_mining": "Criptomineração",
     "unauthorized_application": "Aplicativo Não Autorizado",
     "unknown": "Não Classificado"
@@ -38,11 +41,14 @@ DEFAULT_CATEGORY_SEVERITY = {
     "phishing": "critical",
     "scam": "critical",
     "crypto_mining": "critical",
+    "suspicious": "critical",
     "games": "warning",
-    "torrent": "warning",
+    "torrent": "critical",
     "streaming": "warning",
     "social_media": "warning",
-    "vpn_proxy": "warning",
+    "vpn_proxy": "critical",
+    "file_sharing": "warning",
+    "dating": "warning",
     "unauthorized_application": "warning",
     "unknown": "info"
 }
@@ -53,7 +59,8 @@ class CachedPolicyRule:
     Totalmente thread-safe e livre de erros de DetachedInstanceError entre requisições.
     """
     def __init__(self, id: int, name: str, rule_type: str, pattern: str, category: str,
-                 severity: str, scope_type: str, scope_target: str, action: str, enabled: bool, is_automatic: bool = False):
+                 severity: str, scope_type: str, scope_target: str, action: str, enabled: bool,
+                 is_automatic: bool = False, source_provider: str = "manual"):
         self.id = id
         self.name = name
         self.rule_type = rule_type
@@ -65,6 +72,7 @@ class CachedPolicyRule:
         self.action = action
         self.enabled = enabled
         self.is_automatic = is_automatic
+        self.source_provider = source_provider or "manual"
 
     def matches(self, app_name: str | None, domain: str | None, device_dept: str | None,
                 device_host: str | None, device_uuid: str | None) -> bool:
@@ -335,7 +343,8 @@ def get_active_policy_rules() -> list:
                 scope_target=r.scope_target,
                 action=r.action,
                 enabled=r.enabled,
-                is_automatic=getattr(r, 'is_automatic', False)
+                is_automatic=getattr(r, 'is_automatic', False),
+                source_provider=getattr(r, 'source_provider', 'manual') or 'manual'
             )
             for r in db_rules
         ]
@@ -398,44 +407,38 @@ def process_agent_payload(data: dict) -> Device:
             department=data.get("setor") or data.get("department") or "TI",
             ip_address=data.get("ip"),
             mac_address=data.get("mac"),
-            os_name=data.get("os_name") or data.get("sistema_operacional"),
-            os_arch=data.get("os_arch") or data.get("arquitetura"),
-            processor=data.get("processador"),
-            cpu_cores=int(data.get("cpu_cores", 1)),
-            ram_total_gb=float(data.get("ram_total_gb", 0.0)),
-            disk_total_gb=float(data.get("disk_total_gb", 0.0)),
-            agent_version=data.get("agent_version", "1.1.0"),
+            os_name=data.get("os_name") or data.get("so") or "Windows",
+            os_arch=data.get("os_arch") or data.get("arquitetura") or "x64",
+            processor=data.get("processor") or data.get("processador"),
+            cpu_cores=data.get("cpu_cores") or data.get("cores"),
+            ram_total_gb=data.get("ram_total_gb") or 0.0,
+            disk_total_gb=data.get("disk_total_gb") or 0.0,
+            agent_version=data.get("agent_version") or data.get("versao_agente"),
             created_at=now
         )
         db.session.add(device)
-        db.session.flush() # Para obter device.id
-    else:
-        # Atualiza informações de hardware e rede se informadas
-        if data.get("ip"):
-            device.ip_address = data["ip"]
-        if data.get("mac"):
-            device.mac_address = data["mac"]
-        if data.get("usuario"):
-            device.user_name = data["usuario"]
-        if data.get("setor") and device.department == "TI":
-            device.department = data["setor"]
-        if data.get("os_name"):
-            device.os_name = data["os_name"]
-        if data.get("os_arch"):
-            device.os_arch = data["os_arch"]
-        if data.get("processador"):
-            device.processor = data["processador"]
-        if data.get("cpu_cores"):
-            device.cpu_cores = int(data["cpu_cores"])
-        if data.get("ram_total_gb"):
-            device.ram_total_gb = float(data["ram_total_gb"])
-        if data.get("disk_total_gb"):
-            device.disk_total_gb = float(data["disk_total_gb"])
-        if data.get("agent_version"):
-            device.agent_version = data["agent_version"]
-        if data.get("device_token"):
-            if not device.device_token:
-                device.device_token = data["device_token"]
+        db.session.flush()
+
+    # Atualiza informações de sistema se reportadas
+    if data.get("display_name"):
+        device.display_name = data.get("display_name")
+    if data.get("usuario") or data.get("user_name"):
+        device.user_name = data.get("usuario") or data.get("user_name")
+    if data.get("setor") or data.get("department"):
+        device.department = data.get("setor") or data.get("department")
+    if data.get("ip"):
+        device.ip_address = data.get("ip")
+    if data.get("mac"):
+        device.mac_address = data.get("mac")
+    if data.get("agent_version") or data.get("versao_agente"):
+        device.agent_version = data.get("agent_version") or data.get("versao_agente")
+    if data.get("ram_total_gb"):
+        device.ram_total_gb = float(data.get("ram_total_gb"))
+    if data.get("disk_total_gb"):
+        device.disk_total_gb = float(data.get("disk_total_gb"))
+    if data.get("device_token"):
+        if not device.device_token:
+            device.device_token = data["device_token"]
 
     # Extrai métricas
     cpu = float(data.get("cpu", 0.0))
@@ -519,10 +522,11 @@ def _evaluate_policies(device: Device, now: datetime):
     1. Device Allowlist
     2. Department Allowlist
     3. Global Allowlist
-    4. Manual PolicyRule (regras criadas pela TI)
-    5. Cached Automatic Classification
-    6. External/Internal Provider (Async)
-    7. Unknown
+    4. Manual PolicyRule (regras soberanas criadas pela TI)
+    5. Corporate Seed PolicyRule (base corporativa pré-carregada)
+    6. Cached Automatic Classification
+    7. External/Internal Provider (Async)
+    8. Unknown
     """
     if not Config.POLICY_MONITORING_ENABLED:
         return
@@ -539,15 +543,24 @@ def _evaluate_policies(device: Device, now: datetime):
         _close_open_policy_events(device, now)
         return
 
-    # 2. Precedência 4: Manual PolicyRules (regras soberanas criadas pela TI)
-    manual_rules = get_active_policy_rules()
+    # 2. Precedência 4 & 5: Regras Ativas (Manuais TI vs Base Corporativa)
+    active_rules = get_active_policy_rules()
     matching_manual_rules = []
-    for r in manual_rules:
-        if not r.is_automatic and r.matches(app_name, domain, device.department, device.hostname, device.uuid):
-            matching_manual_rules.append(r)
+    matching_seed_rules = []
 
+    for r in active_rules:
+        if not r.is_automatic:
+            if r.source_provider in ("seed", "corporate_base"):
+                if r.matches(app_name, domain, device.department, device.hostname, device.uuid):
+                    matching_seed_rules.append(r)
+            else:
+                if r.matches(app_name, domain, device.department, device.hostname, device.uuid):
+                    matching_manual_rules.append(r)
+
+    sev_weight = {"critical": 3, "warning": 2, "info": 1}
+
+    # 2.1 Regras Manuais criadas pela TI têm precedência sobre a base corporativa
     if matching_manual_rules:
-        sev_weight = {"critical": 3, "warning": 2, "info": 1}
         matching_manual_rules.sort(key=lambda r: sev_weight.get(r.severity, 0), reverse=True)
         primary_rule = matching_manual_rules[0]
 
@@ -566,7 +579,27 @@ def _evaluate_policies(device: Device, now: datetime):
         )
         return
 
-    # 3. Precedência 5..6: Classificação Automática de Domínio
+    # 2.2 Regras da Base Corporativa (Seed)
+    if matching_seed_rules:
+        matching_seed_rules.sort(key=lambda r: sev_weight.get(r.severity, 0), reverse=True)
+        primary_seed_rule = matching_seed_rules[0]
+
+        if primary_seed_rule.action == "allow":
+            _close_open_policy_events(device, now)
+            return
+
+        _create_or_update_policy_event(
+            device=device,
+            rule_id=primary_seed_rule.id,
+            event_type=primary_seed_rule.rule_type,
+            category=primary_seed_rule.category,
+            severity=primary_seed_rule.severity,
+            source="corporate_seed",
+            now=now
+        )
+        return
+
+    # 3. Precedência 6..7: Classificação Automática de Domínio
     if domain and Config.DOMAIN_CLASSIFICATION_ENABLED:
         clean_domain = domain.strip().lower()
         if clean_domain.startswith("www."):

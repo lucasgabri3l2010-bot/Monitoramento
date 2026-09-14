@@ -547,7 +547,15 @@
                         </button>
                     </div>
 
-                    <div id="actions-tab-regras" class="hidden">
+                    <div id="actions-tab-regras" class="hidden flex items-center gap-2">
+                        <button onclick="abrirModalImportarCSV()"
+                                class="px-3.5 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 shadow-xs transition-colors flex items-center gap-1.5"
+                                title="Importar regras corporativas em lote via arquivo CSV">
+                            <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                            </svg>
+                            <span>Importar CSV</span>
+                        </button>
                         <button onclick="abrirModalNovaRegra()"
                                 class="px-4 py-2 text-xs font-semibold rounded-xl bg-givova-600 hover:bg-givova-700 text-white shadow-xs transition-colors flex items-center gap-1.5">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -731,26 +739,265 @@
 
                 <!-- SUB-ABA 2: REGRAS CORPORATIVAS -->
                 <div id="subtab-pol-regras" class="hidden space-y-4">
+                    <!-- Cards de Categorias com Contadores Rápidos e Filtro ao Clicar -->
+                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+                        <button type="button" onclick="filtrarRegrasPorCategoria('adult')" id="card-cat-adult" class="p-3 bg-white hover:bg-rose-50/50 rounded-2xl border border-slate-200/80 shadow-xs text-left transition-all group">
+                            <div class="flex items-center justify-between">
+                                <span class="text-lg">🔞</span>
+                                <span id="count-cat-adult" class="px-2 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800">0</span>
+                            </div>
+                            <div class="text-xs font-bold text-slate-800 mt-2 group-hover:text-rose-700 transition-colors">Adulto / +18</div>
+                            <div class="text-[10px] text-slate-400">Pornografia & nudez</div>
+                        </button>
+
+                        <button type="button" onclick="filtrarRegrasPorCategoria('games')" id="card-cat-games" class="p-3 bg-white hover:bg-amber-50/50 rounded-2xl border border-slate-200/80 shadow-xs text-left transition-all group">
+                            <div class="flex items-center justify-between">
+                                <span class="text-lg">🎮</span>
+                                <span id="count-cat-games" class="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">0</span>
+                            </div>
+                            <div class="text-xs font-bold text-slate-800 mt-2 group-hover:text-amber-700 transition-colors">Jogos</div>
+                            <div class="text-[10px] text-slate-400">Games & plataformas</div>
+                        </button>
+
+                        <button type="button" onclick="filtrarRegrasPorCategoria('social_media')" id="card-cat-social_media" class="p-3 bg-white hover:bg-blue-50/50 rounded-2xl border border-slate-200/80 shadow-xs text-left transition-all group">
+                            <div class="flex items-center justify-between">
+                                <span class="text-lg">💬</span>
+                                <span id="count-cat-social_media" class="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">0</span>
+                            </div>
+                            <div class="text-xs font-bold text-slate-800 mt-2 group-hover:text-blue-700 transition-colors">Redes Sociais</div>
+                            <div class="text-[10px] text-slate-400">Mídias e feeds</div>
+                        </button>
+
+                        <button type="button" onclick="filtrarRegrasPorCategoria('gambling')" id="card-cat-gambling" class="p-3 bg-white hover:bg-rose-50/50 rounded-2xl border border-slate-200/80 shadow-xs text-left transition-all group">
+                            <div class="flex items-center justify-between">
+                                <span class="text-lg">🎰</span>
+                                <span id="count-cat-gambling" class="px-2 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800">0</span>
+                            </div>
+                            <div class="text-xs font-bold text-slate-800 mt-2 group-hover:text-rose-700 transition-colors">Apostas</div>
+                            <div class="text-[10px] text-slate-400">Bets e cassinos</div>
+                        </button>
+
+                        <button type="button" onclick="filtrarRegrasPorCategoria('streaming')" id="card-cat-streaming" class="p-3 bg-white hover:bg-purple-50/50 rounded-2xl border border-slate-200/80 shadow-xs text-left transition-all group">
+                            <div class="flex items-center justify-between">
+                                <span class="text-lg">🎬</span>
+                                <span id="count-cat-streaming" class="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800">0</span>
+                            </div>
+                            <div class="text-xs font-bold text-slate-800 mt-2 group-hover:text-purple-700 transition-colors">Streaming</div>
+                            <div class="text-[10px] text-slate-400">Vídeos e séries</div>
+                        </button>
+
+                        <button type="button" onclick="filtrarRegrasPorCategoria('torrent')" id="card-cat-torrent" class="p-3 bg-white hover:bg-rose-50/50 rounded-2xl border border-slate-200/80 shadow-xs text-left transition-all group">
+                            <div class="flex items-center justify-between">
+                                <span class="text-lg">⚡</span>
+                                <span id="count-cat-torrent" class="px-2 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800">0</span>
+                            </div>
+                            <div class="text-xs font-bold text-slate-800 mt-2 group-hover:text-rose-700 transition-colors">Torrent / P2P</div>
+                            <div class="text-[10px] text-slate-400">Pirataria & downloads</div>
+                        </button>
+
+                        <button type="button" onclick="filtrarRegrasPorCategoria('vpn_proxy')" id="card-cat-vpn_proxy" class="p-3 bg-white hover:bg-amber-50/50 rounded-2xl border border-slate-200/80 shadow-xs text-left transition-all group">
+                            <div class="flex items-center justify-between">
+                                <span class="text-lg">🛡️</span>
+                                <span id="count-cat-vpn_proxy" class="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">0</span>
+                            </div>
+                            <div class="text-xs font-bold text-slate-800 mt-2 group-hover:text-amber-700 transition-colors">VPN / Proxy</div>
+                            <div class="text-[10px] text-slate-400">Evasão & anonimato</div>
+                        </button>
+
+                        <button type="button" onclick="filtrarRegrasPorCategoria('file_sharing')" id="card-cat-file_sharing" class="p-3 bg-white hover:bg-sky-50/50 rounded-2xl border border-slate-200/80 shadow-xs text-left transition-all group">
+                            <div class="flex items-center justify-between">
+                                <span class="text-lg">📁</span>
+                                <span id="count-cat-file_sharing" class="px-2 py-0.5 rounded-full text-xs font-bold bg-sky-100 text-sky-800">0</span>
+                            </div>
+                            <div class="text-xs font-bold text-slate-800 mt-2 group-hover:text-sky-700 transition-colors">Compartilhamento</div>
+                            <div class="text-[10px] text-slate-400">Upload & file lockers</div>
+                        </button>
+
+                        <button type="button" onclick="filtrarRegrasPorCategoria('dating')" id="card-cat-dating" class="p-3 bg-white hover:bg-pink-50/50 rounded-2xl border border-slate-200/80 shadow-xs text-left transition-all group">
+                            <div class="flex items-center justify-between">
+                                <span class="text-lg">❤️</span>
+                                <span id="count-cat-dating" class="px-2 py-0.5 rounded-full text-xs font-bold bg-pink-100 text-pink-800">0</span>
+                            </div>
+                            <div class="text-xs font-bold text-slate-800 mt-2 group-hover:text-pink-700 transition-colors">Relacionamentos</div>
+                            <div class="text-[10px] text-slate-400">Dating & encontros</div>
+                        </button>
+
+                        <button type="button" onclick="filtrarRegrasPorCategoria('other')" id="card-cat-other" class="p-3 bg-white hover:bg-slate-100 rounded-2xl border border-slate-200/80 shadow-xs text-left transition-all group">
+                            <div class="flex items-center justify-between">
+                                <span class="text-lg">⚙️</span>
+                                <span id="count-cat-other" class="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700">0</span>
+                            </div>
+                            <div class="text-xs font-bold text-slate-800 mt-2 group-hover:text-slate-900 transition-colors">Outros / Apps</div>
+                            <div class="text-[10px] text-slate-400">Demais categorias</div>
+                        </button>
+                    </div>
+
+                    <!-- Linha de Busca e Multi-Filtros -->
+                    <div class="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <select id="filter-rules-category" onchange="aplicarFiltrosRegras()"
+                                    class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-none">
+                                <option value="all">Todas as Categorias</option>
+                                <option value="adult">Adulto / +18</option>
+                                <option value="games">Jogos</option>
+                                <option value="social_media">Redes Sociais</option>
+                                <option value="gambling">Apostas</option>
+                                <option value="streaming">Streaming</option>
+                                <option value="torrent">Torrent / P2P</option>
+                                <option value="vpn_proxy">VPN / Proxy</option>
+                                <option value="file_sharing">Compartilhamento</option>
+                                <option value="dating">Relacionamentos</option>
+                                <option value="suspicious">Suspeito / Risco</option>
+                                <option value="other">Outros</option>
+                            </select>
+
+                            <select id="filter-rules-severity" onchange="aplicarFiltrosRegras()"
+                                    class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-none">
+                                <option value="all">Todas as Severidades</option>
+                                <option value="critical">Crítico</option>
+                                <option value="warning">Alerta</option>
+                                <option value="info">Info</option>
+                            </select>
+
+                            <select id="filter-rules-status" onchange="aplicarFiltrosRegras()"
+                                    class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-none">
+                                <option value="all">Todos os Status</option>
+                                <option value="enabled">Ativas</option>
+                                <option value="disabled">Inativas</option>
+                            </select>
+
+                            <select id="filter-rules-origin" onchange="aplicarFiltrosRegras()"
+                                    class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-none">
+                                <option value="all">Todas as Origens</option>
+                                <option value="Base Corporativa">Base Corporativa</option>
+                                <option value="Regra Manual">Regra Manual</option>
+                                <option value="Classificação Automática">Classificação Automática</option>
+                            </select>
+
+                            <select id="filter-rules-scope" onchange="aplicarFiltrosRegras()"
+                                    class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-none">
+                                <option value="all">Todos os Escopos</option>
+                                <option value="global">Global (Frota Toda)</option>
+                                <option value="department">Departamento</option>
+                                <option value="device">Computador</option>
+                            </select>
+
+                            <button type="button" onclick="limparFiltrosRegras()" class="px-2.5 py-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors font-medium text-[11px]" title="Limpar todos os filtros">
+                                Limpar Filtros
+                            </button>
+                        </div>
+
+                        <div class="flex items-center gap-2 flex-1 max-w-sm">
+                            <div class="relative w-full">
+                                <input type="text" id="filter-rules-search" oninput="aplicarFiltrosRegras()"
+                                       placeholder="Buscar domínio, padrão ou nome (ex: steam)..."
+                                       class="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-givova-500/20 focus:border-givova-600">
+                                <svg class="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                            </div>
+
+                            <button type="button" onclick="carregarRegrasPolitica()" title="Recarregar regras"
+                                    class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Barra Flutuante / Destaque de Ações em Massa de Regras -->
+                    <div id="rules-bulk-bar" class="hidden bg-slate-900 text-white p-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-lg animate-in fade-in duration-150">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                            <span id="rules-selected-count" class="font-bold text-slate-100">0 regras selecionadas</span>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button type="button" onclick="executarAcaoEmMassaRegras('activate')" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors">
+                                Ativar
+                            </button>
+                            <button type="button" onclick="executarAcaoEmMassaRegras('deactivate')" class="px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold transition-colors">
+                                Desativar
+                            </button>
+                            
+                            <div class="flex items-center gap-1 bg-slate-800 px-2 py-1 rounded-xl border border-slate-700">
+                                <span class="text-[11px] text-slate-400">Severidade:</span>
+                                <select onchange="if(this.value){executarAcaoEmMassaRegras('set_severity', this.value); this.value='';}" class="bg-transparent text-white text-xs font-semibold focus:outline-none cursor-pointer">
+                                    <option value="" class="bg-slate-800">Alterar...</option>
+                                    <option value="critical" class="bg-slate-800 text-rose-300">Crítico</option>
+                                    <option value="warning" class="bg-slate-800 text-amber-300">Alerta</option>
+                                    <option value="info" class="bg-slate-800 text-blue-300">Info</option>
+                                </select>
+                            </div>
+
+                            <div class="flex items-center gap-1 bg-slate-800 px-2 py-1 rounded-xl border border-slate-700">
+                                <span class="text-[11px] text-slate-400">Categoria:</span>
+                                <select onchange="if(this.value){executarAcaoEmMassaRegras('set_category', this.value); this.value='';}" class="bg-transparent text-white text-xs font-semibold focus:outline-none cursor-pointer">
+                                    <option value="" class="bg-slate-800">Alterar...</option>
+                                    <option value="adult" class="bg-slate-800">Adulto</option>
+                                    <option value="games" class="bg-slate-800">Jogos</option>
+                                    <option value="social_media" class="bg-slate-800">Redes Sociais</option>
+                                    <option value="gambling" class="bg-slate-800">Apostas</option>
+                                    <option value="streaming" class="bg-slate-800">Streaming</option>
+                                    <option value="torrent" class="bg-slate-800">Torrent</option>
+                                    <option value="vpn_proxy" class="bg-slate-800">VPN / Proxy</option>
+                                    <option value="file_sharing" class="bg-slate-800">Compartilhamento</option>
+                                    <option value="dating" class="bg-slate-800">Relacionamentos</option>
+                                    <option value="suspicious" class="bg-slate-800">Suspeito</option>
+                                    <option value="other" class="bg-slate-800">Outros</option>
+                                </select>
+                            </div>
+
+                            <button type="button" onclick="confirmarExclusaoEmMassaRegras()" class="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold transition-colors flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                <span>Excluir</span>
+                            </button>
+
+                            <button type="button" onclick="desmarcarTodasRegras()" class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium transition-colors">
+                                Desmarcar
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Tabela de Regras -->
                     <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
                         <div class="overflow-x-auto">
                             <table class="w-full text-left text-xs">
                                 <thead class="bg-slate-50/80 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200/80 text-[11px]">
                                     <tr>
+                                        <th class="py-3 px-3 text-center w-8">
+                                            <input type="checkbox" id="rules-select-all" onchange="toggleSelectAllRegras(this.checked)" class="rounded text-givova-600 focus:ring-givova-500 cursor-pointer">
+                                        </th>
+                                        <th class="py-3 px-3">Domínio / Padrão</th>
                                         <th class="py-3 px-4">Nome da Regra</th>
-                                        <th class="py-3 px-3">Tipo & Padrão</th>
                                         <th class="py-3 px-3">Categoria</th>
                                         <th class="py-3 px-3 text-center">Severidade</th>
+                                        <th class="py-3 px-3 text-center">Ação</th>
                                         <th class="py-3 px-3">Escopo</th>
+                                        <th class="py-3 px-3 text-center">Origem</th>
                                         <th class="py-3 px-3 text-center">Status</th>
                                         <th class="py-3 px-4 text-right">Ações</th>
                                     </tr>
                                 </thead>
                                 <tbody id="table-pol-rules-body" class="divide-y divide-slate-100">
-                                    <tr><td colspan="7" class="py-12 text-center text-slate-400">Carregando regras corporativas...</td></tr>
+                                    <tr><td colspan="10" class="py-12 text-center text-slate-400">Carregando regras corporativas...</td></tr>
                                 </tbody>
                             </table>
                         </div>
+
+                        <!-- Rodapé com contagem de regras filtradas -->
+                        <div class="p-3 bg-slate-50/80 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-500">
+                            <div>
+                                Exibindo <span id="rules-page-range" class="font-semibold text-slate-800">0</span> de <span id="rules-total-count" class="font-semibold text-slate-800">0</span> regras corporativas
+                            </div>
+                            <div class="text-[11px] text-slate-400 font-mono">
+                                Base Corporativa Ativa
+                            </div>
+                        </div>
                     </div>
+                </div>
                 <!-- SUB-ABA 3: CLASSIFICAÇÃO AUTOMÁTICA & ALLOWLISTS -->
                 <div id="subtab-pol-classificacao" class="hidden space-y-6">
                     <!-- Status do Provedor de Reputação -->
@@ -1254,15 +1501,19 @@
                     <div>
                         <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Categoria</label>
                         <select id="pol-rule-category" required
-                                class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-givova-500/20 focus:border-givova-600">
-                            <option value="Apostas">Apostas</option>
-                            <option value="Jogos">Jogos</option>
-                            <option value="Streaming">Streaming / Vídeo</option>
-                            <option value="Redes Sociais">Redes Sociais</option>
-                            <option value="Adulto">Adulto</option>
-                            <option value="Malware">Malware / Phishing</option>
-                            <option value="Aplicativo Não Autorizado">Aplicativo Não Autorizado</option>
-                            <option value="Outro">Outro</option>
+                            <option value="adult">Adulto / +18</option>
+                            <option value="games">Jogos</option>
+                            <option value="social_media">Redes Sociais</option>
+                            <option value="gambling">Apostas</option>
+                            <option value="streaming">Streaming</option>
+                            <option value="torrent">Torrent / P2P</option>
+                            <option value="vpn_proxy">VPN / Proxy</option>
+                            <option value="file_sharing">Compartilhamento de Arquivos</option>
+                            <option value="dating">Relacionamentos / Dating</option>
+                            <option value="suspicious">Suspeito / Risco</option>
+                            <option value="malware">Malware / Phishing</option>
+                            <option value="unauthorized_application">Aplicativo Não Autorizado</option>
+                            <option value="other">Outro</option>
                         </select>
                     </div>
 
@@ -1506,6 +1757,82 @@
                 </button>
                 <button type="button" onclick="confirmarLimpezaEncerradas()" id="btn-confirm-cleanup" class="px-4 py-2 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-900 rounded-xl shadow-xs transition-colors">
                     Executar Limpeza
+                </button>
+            </div>
+        </div>
+    </div>
+    <!-- ================================================================= -->
+    <!-- MODAL: IMPORTAÇÃO DE REGRAS CORPORATIVAS VIA CSV                  -->
+    <!-- ================================================================= -->
+    <div id="modal-rules-import-csv" class="fixed inset-0 z-55 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-xl p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-givova-50 border border-givova-200 flex items-center justify-center text-givova-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-bold text-slate-900">Importação de Regras em Lote (CSV)</h2>
+                        <p class="text-xs text-slate-500">Cadastre ou expanda políticas a partir de arquivo ou texto CSV.</p>
+                    </div>
+                </div>
+                <button type="button" onclick="fecharModalImportarCSV()" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2 text-xs text-slate-600">
+                <div class="font-semibold text-slate-800 flex items-center justify-between">
+                    <span>Formato Obrigatório das Colunas:</span>
+                    <button type="button" onclick="baixarModeloCSVRegras()" class="text-givova-600 hover:text-givova-700 font-semibold underline text-[11px]">
+                        Baixar Modelo CSV
+                    </button>
+                </div>
+                <div class="bg-slate-900 text-emerald-400 p-2.5 rounded-xl font-mono text-[11px] overflow-x-auto select-all leading-relaxed">
+domain,category,severity,action,scope<br>
+exemplo.com,adult,critical,alert,global<br>
+jogosproibidos.com,games,warning,alert,global<br>
+streamdemo.tv,streaming,warning,alert,global
+                </div>
+                <p class="text-[11px] text-slate-500 leading-snug">
+                    • Severidade: <code>critical</code>, <code>warning</code>, <code>info</code>.<br>
+                    • Ação: <code>alert</code>, <code>block</code> ou <code>log</code>.<br>
+                    • Escopo: <code>global</code> (ou <code>department:TI</code>, <code>device:PC-01</code>).<br>
+                    • Domínios que já existirem serão preservados sem sobrescrever regras customizadas.
+                </p>
+            </div>
+
+            <!-- Upload de Arquivo ou Colar Texto -->
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Opção 1: Selecionar Arquivo .CSV</label>
+                    <input type="file" id="input-csv-rules-file" accept=".csv,text/csv,text/plain" onchange="lerArquivoCSVSelecionado(this)"
+                           class="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-givova-50 file:text-givova-700 hover:file:bg-givova-100 cursor-pointer">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Opção 2: Ou Cole o Conteúdo CSV</label>
+                    <textarea id="textarea-csv-rules" rows="5" placeholder="domain,category,severity,action,scope&#10;site1.com,adult,critical,alert,global&#10;site2.com,games,warning,alert,global"
+                              class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-givova-500/20 focus:border-givova-600"></textarea>
+                </div>
+            </div>
+
+            <!-- Status do Envio / Feedback -->
+            <div id="csv-import-status-box" class="hidden p-3 rounded-2xl text-xs"></div>
+
+            <div class="pt-2 flex items-center justify-end gap-2">
+                <button type="button" onclick="fecharModalImportarCSV()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+                    Cancelar
+                </button>
+                <button type="button" onclick="submeterImportacaoCSVRegras()" id="btn-submit-csv-rules" class="px-4 py-2 text-xs font-semibold text-white bg-givova-600 hover:bg-givova-700 rounded-xl shadow-xs transition-colors flex items-center gap-1.5">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                    </svg>
+                    <span>Processar Importação</span>
                 </button>
             </div>
         </div>
@@ -2428,6 +2755,9 @@
             'streaming': 'Streaming / Mídia',
             'social_media': 'Rede Social',
             'vpn_proxy': 'VPN / Proxy Anônimo',
+            'file_sharing': 'Compartilhamento de Arquivos',
+            'dating': 'Relacionamentos / Dating',
+            'suspicious': 'Suspeito / Risco',
             'crypto_mining': 'Mineração Crypto',
             'unauthorized_application': 'App Não Autorizado',
             'unknown': 'Desconhecido'
@@ -3088,6 +3418,9 @@
             }
         }
 
+        let regrasSelecionadas = new Set();
+        let filtroRegraCategoria = 'all';
+
         async function carregarRegrasPolitica() {
             const tbody = document.getElementById("table-pol-rules-body");
             try {
@@ -3095,59 +3428,449 @@
                 if (!resp.ok) throw new Error("Erro ao listar regras");
                 todasRegrasPolitica = await resp.json();
 
-                if (todasRegrasPolitica.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="7" class="py-12 text-center text-slate-400">Nenhuma regra corporativa cadastrada. Clique em "+ Nova Regra de Uso" acima.</td></tr>`;
-                    return;
-                }
+                // Atualizar contadores rápidos dos cards
+                atualizarContadoresCategorias();
 
-                tbody.innerHTML = todasRegrasPolitica.map(r => {
-                    const sevBadge = r.severity === 'critical'
-                        ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">Crítico</span>'
-                        : (r.severity === 'warning'
-                            ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">Alerta</span>'
-                            : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">Info</span>');
-
-                    const escopoText = r.scope_type === 'global' ? 'Global (Frota Toda)' : `${r.scope_type === 'department' ? 'Setor' : 'PC'}: ${r.scope_target}`;
-
-                    return `
-                        <tr class="hover:bg-slate-50/80 transition-colors">
-                            <td class="py-3 px-4">
-                                <div class="font-bold text-slate-900">${r.name}</div>
-                                <div class="text-[11px] text-slate-400 font-mono">Ação: ${r.action}</div>
-                            </td>
-                            <td class="py-3 px-3">
-                                <span class="font-semibold text-slate-800 font-mono text-xs">${r.rule_type === 'domain' ? '🌐' : '💻'} ${r.pattern}</span>
-                            </td>
-                            <td class="py-3 px-3">
-                                <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium text-[11px]">${formatCategory(r.category)}</span>
-                            </td>
-                            <td class="py-3 px-3 text-center">${sevBadge}</td>
-                            <td class="py-3 px-3 text-slate-600 font-mono text-[11px]">${escopoText}</td>
-                            <td class="py-3 px-3 text-center">
-                                <button onclick="alternarRegraPolitica(${r.id})" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-colors ${r.enabled ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}" title="Clique para ativar/desativar">
-                                    ${r.enabled ? 'Ativa' : 'Inativa'}
-                                </button>
-                            </td>
-                            <td class="py-3 px-4 text-right">
-                                <div class="flex items-center justify-end gap-1.5">
-                                    <button onclick="editarRegraPolitica(${r.id})" class="p-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors" title="Editar">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
-                                        </svg>
-                                    </button>
-                                    <button onclick="excluirRegraPolitica(${r.id}, '${r.name}')" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors" title="Excluir">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                        </svg>
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                    `;
-                }).join("");
+                // Filtrar e renderizar na tabela
+                aplicarFiltrosRegras();
             } catch (err) {
                 console.error(err);
-                tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-rose-500">Erro ao carregar regras corporativas.</td></tr>`;
+                if (tbody) {
+                    tbody.innerHTML = `<tr><td colspan="10" class="py-6 text-center text-rose-500">Erro ao carregar regras corporativas.</td></tr>`;
+                }
+            }
+        }
+
+        function atualizarContadoresCategorias() {
+            const counts = {
+                adult: 0,
+                games: 0,
+                social_media: 0,
+                gambling: 0,
+                streaming: 0,
+                torrent: 0,
+                vpn_proxy: 0,
+                file_sharing: 0,
+                dating: 0,
+                other: 0
+            };
+
+            todasRegrasPolitica.forEach(r => {
+                const c = (r.category || '').toLowerCase().trim();
+                if (counts[c] !== undefined) {
+                    counts[c]++;
+                } else {
+                    counts.other++;
+                }
+            });
+
+            for (const [cat, count] of Object.entries(counts)) {
+                const el = document.getElementById(`count-cat-${cat}`);
+                if (el) el.innerText = count;
+            }
+        }
+
+        function filtrarRegrasPorCategoria(cat) {
+            if (filtroRegraCategoria === cat) {
+                filtroRegraCategoria = 'all';
+            } else {
+                filtroRegraCategoria = cat;
+            }
+            const sel = document.getElementById("filter-rules-category");
+            if (sel) sel.value = filtroRegraCategoria;
+            aplicarFiltrosRegras();
+        }
+
+        function limparFiltrosRegras() {
+            filtroRegraCategoria = 'all';
+            const selCat = document.getElementById("filter-rules-category");
+            const selSev = document.getElementById("filter-rules-severity");
+            const selStatus = document.getElementById("filter-rules-status");
+            const selOrig = document.getElementById("filter-rules-origin");
+            const selScope = document.getElementById("filter-rules-scope");
+            const inputSearch = document.getElementById("filter-rules-search");
+
+            if (selCat) selCat.value = 'all';
+            if (selSev) selSev.value = 'all';
+            if (selStatus) selStatus.value = 'all';
+            if (selOrig) selOrig.value = 'all';
+            if (selScope) selScope.value = 'all';
+            if (inputSearch) inputSearch.value = '';
+
+            aplicarFiltrosRegras();
+        }
+
+        function aplicarFiltrosRegras() {
+            const tbody = document.getElementById("table-pol-rules-body");
+            if (!tbody) return;
+
+            const selCat = document.getElementById("filter-rules-category");
+            const selSev = document.getElementById("filter-rules-severity");
+            const selStatus = document.getElementById("filter-rules-status");
+            const selOrig = document.getElementById("filter-rules-origin");
+            const selScope = document.getElementById("filter-rules-scope");
+            const inputSearch = document.getElementById("filter-rules-search");
+
+            const catVal = selCat ? selCat.value : 'all';
+            filtroRegraCategoria = catVal;
+            const sevVal = selSev ? selSev.value : 'all';
+            const statusVal = selStatus ? selStatus.value : 'all';
+            const origVal = selOrig ? selOrig.value : 'all';
+            const scopeVal = selScope ? selScope.value : 'all';
+            const searchVal = (inputSearch ? inputSearch.value : '').toLowerCase().trim();
+
+            // Atualiza destaque visual dos cards
+            const knownCats = ['adult', 'games', 'social_media', 'gambling', 'streaming', 'torrent', 'vpn_proxy', 'file_sharing', 'dating', 'other'];
+            knownCats.forEach(k => {
+                const card = document.getElementById(`card-cat-${k}`);
+                if (card) {
+                    if (filtroRegraCategoria === k) {
+                        card.classList.add("ring-2", "ring-givova-600", "bg-slate-50");
+                    } else {
+                        card.classList.remove("ring-2", "ring-givova-600", "bg-slate-50");
+                    }
+                }
+            });
+
+            const regrasFiltradas = todasRegrasPolitica.filter(r => {
+                const rCat = (r.category || '').toLowerCase().trim();
+                // Filtro Categoria
+                if (catVal !== 'all') {
+                    if (catVal === 'other') {
+                        if (['adult', 'games', 'social_media', 'gambling', 'streaming', 'torrent', 'vpn_proxy', 'file_sharing', 'dating'].includes(rCat)) {
+                            return false;
+                        }
+                    } else if (rCat !== catVal) {
+                        return false;
+                    }
+                }
+
+                // Filtro Severidade
+                if (sevVal !== 'all' && r.severity !== sevVal) {
+                    return false;
+                }
+
+                // Filtro Status
+                if (statusVal === 'enabled' && !r.enabled) return false;
+                if (statusVal === 'disabled' && r.enabled) return false;
+
+                // Filtro Origem
+                if (origVal !== 'all' && (r.origin || 'Regra Manual') !== origVal) {
+                    return false;
+                }
+
+                // Filtro Escopo
+                if (scopeVal !== 'all' && r.scope_type !== scopeVal) {
+                    return false;
+                }
+
+                // Busca Textual
+                if (searchVal) {
+                    const pat = (r.pattern || '').toLowerCase();
+                    const nm = (r.name || '').toLowerCase();
+                    const tgt = (r.scope_target || '').toLowerCase();
+                    if (!pat.includes(searchVal) && !nm.includes(searchVal) && !tgt.includes(searchVal)) {
+                        return false;
+                    }
+                }
+
+                return true;
+            });
+
+            // Atualiza indicadores numéricos
+            const rangeEl = document.getElementById("rules-page-range");
+            const totalEl = document.getElementById("rules-total-count");
+            if (rangeEl) rangeEl.innerText = regrasFiltradas.length;
+            if (totalEl) totalEl.innerText = todasRegrasPolitica.length;
+
+            if (regrasFiltradas.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="10" class="py-12 text-center text-slate-400">Nenhuma regra encontrada para os filtros selecionados.</td></tr>`;
+                atualizarBarraAcoesMassaRegras();
+                return;
+            }
+
+            // Renderiza linhas da tabela
+            tbody.innerHTML = regrasFiltradas.map(r => {
+                const sevBadge = r.severity === 'critical'
+                    ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">Crítico</span>'
+                    : (r.severity === 'warning'
+                        ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">Alerta</span>'
+                        : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">Info</span>');
+
+                const acaoBadge = r.action === 'block'
+                    ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">Bloqueio</span>'
+                    : (r.action === 'alert'
+                        ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">Alerta TI</span>'
+                        : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">Auditoria</span>');
+
+                const escopoText = r.scope_type === 'global' ? 'Global (Frota Toda)' : `${r.scope_type === 'department' ? 'Setor' : 'PC'}: ${r.scope_target}`;
+
+                let origemBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">Regra Manual</span>';
+                if (r.origin === 'Base Corporativa') {
+                    origemBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">Base Corporativa</span>';
+                } else if (r.origin === 'Classificação Automática') {
+                    origemBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Classificação Automática</span>';
+                }
+
+                const isChecked = regrasSelecionadas.has(r.id);
+
+                return `
+                    <tr class="hover:bg-slate-50/80 transition-colors ${isChecked ? 'bg-amber-50/40' : ''}">
+                        <td class="py-3 px-3 text-center">
+                            <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleRegraSelecionada(${r.id}, this.checked)" class="rounded text-givova-600 focus:ring-givova-500 cursor-pointer">
+                        </td>
+                        <td class="py-3 px-3 font-mono text-xs">
+                            <span class="font-bold text-slate-800">${r.rule_type === 'domain' ? '🌐' : '💻'} ${r.pattern}</span>
+                        </td>
+                        <td class="py-3 px-4">
+                            <div class="font-bold text-slate-900">${r.name}</div>
+                        </td>
+                        <td class="py-3 px-3">
+                            <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium text-[11px]">${formatCategory(r.category)}</span>
+                        </td>
+                        <td class="py-3 px-3 text-center">${sevBadge}</td>
+                        <td class="py-3 px-3 text-center">${acaoBadge}</td>
+                        <td class="py-3 px-3 text-slate-600 font-mono text-[11px]">${escopoText}</td>
+                        <td class="py-3 px-3 text-center">${origemBadge}</td>
+                        <td class="py-3 px-3 text-center">
+                            <button onclick="alternarRegraPolitica(${r.id})" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-colors ${r.enabled ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}" title="Clique para ativar/desativar">
+                                ${r.enabled ? 'Ativa' : 'Inativa'}
+                            </button>
+                        </td>
+                        <td class="py-3 px-4 text-right">
+                            <div class="flex items-center justify-end gap-1.5">
+                                <button onclick="editarRegraPolitica(${r.id})" class="p-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors" title="Editar">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                                    </svg>
+                                </button>
+                                <button onclick="excluirRegraPolitica(${r.id}, '${r.name}')" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors" title="Excluir">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join("");
+
+            atualizarBarraAcoesMassaRegras();
+        }
+
+        function toggleSelectAllRegras(checked) {
+            const checkboxes = document.querySelectorAll("#table-pol-rules-body input[type='checkbox']");
+            checkboxes.forEach(cb => {
+                cb.checked = checked;
+            });
+
+            if (checked) {
+                todasRegrasPolitica.forEach(r => regrasSelecionadas.add(r.id));
+            } else {
+                regrasSelecionadas.clear();
+            }
+
+            atualizarBarraAcoesMassaRegras();
+            aplicarFiltrosRegras();
+        }
+
+        function toggleRegraSelecionada(id, checked) {
+            if (checked) {
+                regrasSelecionadas.add(id);
+            } else {
+                regrasSelecionadas.delete(id);
+            }
+            atualizarBarraAcoesMassaRegras();
+        }
+
+        function desmarcarTodasRegras() {
+            regrasSelecionadas.clear();
+            const chkAll = document.getElementById("rules-select-all");
+            if (chkAll) chkAll.checked = false;
+            atualizarBarraAcoesMassaRegras();
+            aplicarFiltrosRegras();
+        }
+
+        function atualizarBarraAcoesMassaRegras() {
+            const bar = document.getElementById("rules-bulk-bar");
+            const countEl = document.getElementById("rules-selected-count");
+            if (!bar) return;
+
+            if (regrasSelecionadas.size > 0) {
+                bar.classList.remove("hidden");
+                if (countEl) countEl.innerText = `${regrasSelecionadas.size} regra(s) selecionada(s)`;
+            } else {
+                bar.classList.add("hidden");
+            }
+        }
+
+        async function executarAcaoEmMassaRegras(action, value = null) {
+            if (regrasSelecionadas.size === 0) {
+                alert("Selecione pelo menos uma regra para executar a ação em massa.");
+                return;
+            }
+
+            const payload = {
+                rule_ids: Array.from(regrasSelecionadas),
+                action: action
+            };
+            if (value) payload.value = value;
+
+            try {
+                const resp = await fetch("/api/policies/rules/bulk-action", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await resp.json();
+                if (resp.ok) {
+                    regrasSelecionadas.clear();
+                    atualizarBarraAcoesMassaRegras();
+                    await carregarRegrasPolitica();
+                } else {
+                    alert(data.error || "Erro ao executar ação em massa.");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Falha de conexão ao executar ação em massa.");
+            }
+        }
+
+        function confirmarExclusaoEmMassaRegras() {
+            if (regrasSelecionadas.size === 0) return;
+            const count = regrasSelecionadas.size;
+            if (confirm(`Atenção: Tem certeza que deseja EXCLUIR DEFINITIVAMENTE as ${count} regras selecionadas? Elas deixarão de ser aplicadas.`)) {
+                executarAcaoEmMassaRegras("delete");
+            }
+        }
+
+        // CSV Import Handlers
+        function abrirModalImportarCSV() {
+            const modal = document.getElementById("modal-rules-import-csv");
+            const fileInput = document.getElementById("input-csv-rules-file");
+            const textarea = document.getElementById("textarea-csv-rules");
+            const statusBox = document.getElementById("csv-import-status-box");
+
+            if (fileInput) fileInput.value = "";
+            if (textarea) textarea.value = "";
+            if (statusBox) {
+                statusBox.className = "hidden p-3 rounded-2xl text-xs";
+                statusBox.innerHTML = "";
+            }
+            if (modal) modal.classList.remove("hidden");
+        }
+
+        function fecharModalImportarCSV() {
+            const modal = document.getElementById("modal-rules-import-csv");
+            if (modal) modal.classList.add("hidden");
+        }
+
+        function lerArquivoCSVSelecionado(input) {
+            if (input.files && input.files[0]) {
+                const file = input.files[0];
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const text = e.target.result;
+                    const textarea = document.getElementById("textarea-csv-rules");
+                    if (textarea) textarea.value = text;
+                };
+                reader.readAsText(file);
+            }
+        }
+
+        function baixarModeloCSVRegras() {
+            const csvContent = "domain,category,severity,action,scope\n"
+                + "exemplo-adulto.com,adult,critical,alert,global\n"
+                + "jogosonline.com,games,warning,alert,global\n"
+                + "redesocialexemplo.com,social_media,warning,alert,global\n"
+                + "apostasdemo.com,gambling,critical,alert,global\n"
+                + "streamtv.com,streaming,warning,alert,global\n"
+                + "torrentsite.org,torrent,critical,alert,global\n"
+                + "vpnservice.net,vpn_proxy,critical,alert,global\n"
+                + "filesharecloud.io,file_sharing,warning,alert,global\n"
+                + "datingapp.com,dating,warning,alert,global\n";
+
+            const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "modelo_regras_corporativas.csv";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        async function submeterImportacaoCSVRegras() {
+            const textarea = document.getElementById("textarea-csv-rules");
+            const fileInput = document.getElementById("input-csv-rules-file");
+            const statusBox = document.getElementById("csv-import-status-box");
+            const btn = document.getElementById("btn-submit-csv-rules");
+
+            const text = (textarea ? textarea.value : '').trim();
+            const file = fileInput && fileInput.files ? fileInput.files[0] : null;
+
+            if (!text && !file) {
+                alert("Por favor selecione um arquivo CSV ou cole o conteúdo no campo de texto.");
+                return;
+            }
+
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = "Importando...";
+            }
+
+            try {
+                let resp;
+                if (file && !text) {
+                    const formData = new FormData();
+                    formData.append("file", file);
+                    resp = await fetch("/api/policies/rules/import-csv", {
+                        method: "POST",
+                        body: formData
+                    });
+                } else {
+                    resp = await fetch("/api/policies/rules/import-csv", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ csv_content: text })
+                    });
+                }
+
+                const data = await resp.json();
+                if (resp.ok) {
+                    if (statusBox) {
+                        statusBox.className = "p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-900 text-xs space-y-1 block";
+                        let errHtml = "";
+                        if (data.errors && data.errors.length > 0) {
+                            errHtml = `<div class="mt-2 text-rose-700 font-mono text-[11px]">Avisos:<br>${data.errors.slice(0, 5).join('<br>')}</div>`;
+                        }
+                        statusBox.innerHTML = `
+                            <div class="font-bold text-emerald-800">✓ Importação Concluída com Sucesso!</div>
+                            <div>• <strong>${data.import_count}</strong> novas regras importadas.</div>
+                            <div>• <strong>${data.skipped_duplicates}</strong> domínios duplicados ignorados com segurança.</div>
+                            ${errHtml}
+                        `;
+                    }
+                    await carregarRegrasPolitica();
+                } else {
+                    if (statusBox) {
+                        statusBox.className = "p-3 bg-rose-50 border border-rose-200 rounded-2xl text-rose-900 text-xs block";
+                        statusBox.innerText = `Erro na importação: ${data.error || 'Falha ao processar CSV.'}`;
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+                if (statusBox) {
+                    statusBox.className = "p-3 bg-rose-50 border border-rose-200 rounded-2xl text-rose-900 text-xs block";
+                    statusBox.innerText = "Erro ao comunicar com o servidor durante a importação.";
+                }
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg><span>Processar Importação</span>`;
+                }
             }
         }
 
@@ -3230,7 +3953,7 @@
 
                 if (resp.ok) {
                     fecharModalRegra();
-                    carregarPoliticas();
+                    await carregarRegrasPolitica();
                 } else {
                     const err = await resp.json();
                     alert(err.error || "Não foi possível salvar a regra.");
@@ -3245,8 +3968,7 @@
             try {
                 const resp = await fetch(`/api/policies/rules/${id}/toggle`, { method: "POST" });
                 if (resp.ok) {
-                    carregarRegrasPolitica();
-                    carregarDados();
+                    await carregarRegrasPolitica();
                 }
             } catch (err) {
                 console.error(err);
@@ -3258,8 +3980,9 @@
             try {
                 const resp = await fetch(`/api/policies/rules/${id}`, { method: "DELETE" });
                 if (resp.ok) {
-                    carregarRegrasPolitica();
-                    carregarDados();
+                    regrasSelecionadas.delete(id);
+                    atualizarBarraAcoesMassaRegras();
+                    await carregarRegrasPolitica();
                 } else {
                     alert("Não foi possível excluir a regra.");
                 }

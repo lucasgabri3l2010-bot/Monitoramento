@@ -12,7 +12,11 @@ import sys
 import logging
 import threading
 from config import Config
-from models import db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent, PolicyAuditLog, SystemMetadata, AgentRelease
+from models import (
+    db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent,
+    PolicyAuditLog, SystemMetadata, AgentRelease, normalize_domain
+)
+from corporate_rules_data import CORPORATE_DEFAULT_RULES
 from servidor import app
 
 logging.basicConfig(
@@ -24,6 +28,82 @@ logger = logging.getLogger("GivovaMigration")
 
 GIVOVA_MIGRATION_ADVISORY_LOCK_ID = 482019472910472
 _migration_thread_lock = threading.Lock()
+
+
+def seed_default_policy_rules(force: bool = False) -> int:
+    """
+    Semeia a base corporativa oficial (> 100 regras) de forma estritamente idempotente.
+    1. Verifica versao de seed em SystemMetadata ('corporate_rules_seed_version' = '2').
+    2. Se versao ja aplicada e nao for force, pula sem tocar em regras existentes.
+    3. Para cada regra do catalogo oficial:
+       - Se o dominio normalizado ja existir no banco: NAO duplica, NAO sobrescreve severidade/status customizados.
+       - Se for novo: insere com source_provider='seed'.
+    4. Seta a versao de seed para '2' e comita.
+    Retorna a quantidade de novas regras inseridas.
+    """
+    seed_ver = SystemMetadata.get_value("corporate_rules_seed_version", "0")
+    if not force and seed_ver == "2":
+        count = PolicyRule.query.count()
+        logger.info(f"[MIGRATION] Base corporativa v2 ja semeada ({count} regras registradas). Pulando seed.")
+        return 0
+
+    existing_domain_rules = PolicyRule.query.filter_by(rule_type="domain").all()
+    existing_patterns = {normalize_domain(r.pattern) for r in existing_domain_rules}
+
+    existing_app_rules = PolicyRule.query.filter_by(rule_type="application").all()
+    existing_apps = {r.pattern.strip().lower() for r in existing_app_rules}
+
+    inserted_count = 0
+
+    # Aplicacoes padrao basicas (caso banco esteja vazio)
+    default_apps = [
+        {"name": "Jogos Steam", "pattern": "steam.exe", "category": "games", "severity": "warning"},
+        {"name": "Jogos Valorant", "pattern": "valorant.exe", "category": "games", "severity": "critical"},
+        {"name": "Jogos Roblox", "pattern": "robloxplayerbeta.exe", "category": "games", "severity": "warning"},
+    ]
+    for app_item in default_apps:
+        if app_item["pattern"].lower() not in existing_apps:
+            rule = PolicyRule(
+                name=app_item["name"],
+                rule_type="application",
+                pattern=app_item["pattern"],
+                category=app_item["category"],
+                severity=app_item["severity"],
+                scope_type="global",
+                scope_target="Todos",
+                action="alert",
+                enabled=True,
+                source_provider="seed"
+            )
+            db.session.add(rule)
+            existing_apps.add(app_item["pattern"].lower())
+            inserted_count += 1
+
+    for def_rule in CORPORATE_DEFAULT_RULES:
+        clean_pat = normalize_domain(def_rule["pattern"])
+        if clean_pat in existing_patterns:
+            continue
+
+        rule = PolicyRule(
+            name=def_rule["name"],
+            rule_type="domain",
+            pattern=clean_pat,
+            category=def_rule["category"],
+            severity=def_rule["severity"],
+            scope_type="global",
+            scope_target="Todos",
+            action="alert",
+            enabled=True,
+            source_provider="seed"
+        )
+        db.session.add(rule)
+        existing_patterns.add(clean_pat)
+        inserted_count += 1
+
+    SystemMetadata.set_value("corporate_rules_seed_version", "2")
+    db.session.commit()
+    logger.info(f"[MIGRATION] Base corporativa v2 semeada com sucesso ({inserted_count} novas regras inseridas).")
+    return inserted_count
 
 
 def run_migrations() -> bool:
@@ -140,24 +220,8 @@ def run_migrations() -> bool:
                 logger.info("[MIGRATION] Fase B: Verificando regras corporativas de politicas...")
                 try:
                     db.session.rollback()
-                    count = PolicyRule.query.count()
-                    if count == 0:
-                        logger.info("[MIGRATION] Tabela policy_rules vazia. Semeando regras corporativas...")
-                        default_rules = [
-                            PolicyRule(name="Jogos Steam", rule_type="application", pattern="steam.exe", category="Jogos", severity="warning", scope_type="global", enabled=True),
-                            PolicyRule(name="Jogos Valorant", rule_type="application", pattern="valorant.exe", category="Jogos", severity="critical", scope_type="global", enabled=True),
-                            PolicyRule(name="Jogos Roblox", rule_type="application", pattern="robloxplayerbeta.exe", category="Jogos", severity="warning", scope_type="global", enabled=True),
-                            PolicyRule(name="Apostas Bet365", rule_type="domain", pattern="bet365.com", category="Apostas", severity="critical", scope_type="global", enabled=True),
-                            PolicyRule(name="Apostas Betano", rule_type="domain", pattern="betano.com", category="Apostas", severity="critical", scope_type="global", enabled=True),
-                            PolicyRule(name="Streaming Netflix", rule_type="domain", pattern="netflix.com", category="Streaming", severity="warning", scope_type="global", enabled=True),
-                            PolicyRule(name="Redes Sociais Instagram", rule_type="domain", pattern="instagram.com", category="Redes Sociais", severity="warning", scope_type="global", enabled=False),
-                            PolicyRule(name="Redes Sociais TikTok", rule_type="domain", pattern="tiktok.com", category="Redes Sociais", severity="warning", scope_type="global", enabled=True)
-                        ]
-                        db.session.add_all(default_rules)
-                        db.session.commit()
-                        logger.info(f"[MIGRATION] {len(default_rules)} regras corporativas semeadas com sucesso.")
-                    else:
-                        logger.info(f"[MIGRATION] Regras corporativas ja existentes ({count} regras registradas).")
+                    inserted = seed_default_policy_rules()
+                    logger.info(f"[MIGRATION] Fase B concluida ({inserted} regras semeadas nesta execucao).")
                 except Exception as e:
                     db.session.rollback()
                     logger.error(f"[MIGRATION ERROR] Falha na Fase B (PolicyRule): {e}")
