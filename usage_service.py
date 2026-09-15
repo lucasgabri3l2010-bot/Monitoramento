@@ -22,6 +22,18 @@ from datetime_utils import (
 )
 
 
+def to_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """
+    Normaliza qualquer objeto datetime para UTC ingênuo (naive).
+    Garante imunidade total a TypeErrors ao subtrair ou comparar com outros datetimes.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
 def reconcile_daily_usage_for_date(device_id: int, target_date: date) -> DailyUsageSummary:
     """
     Consolida o resumo diário (DailyUsageSummary) de forma ESTRITAMENTE IDEMPOTENTE
@@ -31,7 +43,9 @@ def reconcile_daily_usage_for_date(device_id: int, target_date: date) -> DailyUs
     o cálculo recalcula as fatias exatas das sessões e resulta sempre nos mesmos valores.
     """
     ref_dt = datetime(target_date.year, target_date.month, target_date.day, 12, 0, 0, tzinfo=timezone.utc)
-    start_day_utc, next_day_utc = get_local_day_range_utc(ref_dt)
+    start_day_raw, next_day_raw = get_local_day_range_utc(ref_dt)
+    start_day_utc = to_naive_utc(start_day_raw)
+    next_day_utc = to_naive_utc(next_day_raw)
 
     # Busca todas as sessões que tocam este dia civil
     sessions = UsageSession.query.filter(
@@ -46,14 +60,16 @@ def reconcile_daily_usage_for_date(device_id: int, target_date: date) -> DailyUs
     first_seen: Optional[datetime] = None
     last_seen: Optional[datetime] = None
 
-    now_utc_naive = utc_now().replace(tzinfo=None)
+    now_utc_naive = to_naive_utc(utc_now())
 
     for sess in sessions:
+        s_started = to_naive_utc(sess.started_at)
+        s_ended = to_naive_utc(sess.ended_at)
         # Ponto de término efetivo da sessão
-        effective_end = sess.ended_at or now_utc_naive
+        effective_end = s_ended or now_utc_naive
 
         # Fatia da sessão pertencente estritamente a este dia civil
-        slice_start = max(sess.started_at, start_day_utc)
+        slice_start = max(s_started, start_day_utc) if s_started else start_day_utc
         slice_end = min(effective_end, next_day_utc)
 
         if slice_end > slice_start:
@@ -178,6 +194,10 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
         UsageSession.is_open == True
     ).order_by(UsageSession.started_at.desc()).first()
 
+    s_started = to_naive_utc(open_session.started_at) if open_session else None
+    s_ended = to_naive_utc(open_session.ended_at) if open_session else None
+    d_updated = to_naive_utc(device.updated_at)
+
     # 6. Verificação de Troca de Sessão do Windows (Fast User Switching / RDP)
     if (
         open_session and
@@ -185,24 +205,28 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
         open_session.windows_session_id is not None and
         open_session.windows_session_id != win_session_id
     ):
-        last_point = device.updated_at or open_session.ended_at or now_naive
+        last_point = d_updated or s_ended or now_naive
         open_session.ended_at = last_point
-        open_session.duration_seconds = max(0, int((last_point - open_session.started_at).total_seconds()))
+        open_session.duration_seconds = max(0, int((last_point - s_started).total_seconds())) if s_started else 0
         open_session.is_open = False
-        reconcile_daily_usage_for_date(device.id, get_local_date(open_session.started_at))
+        reconcile_daily_usage_for_date(device.id, get_local_date(s_started))
         open_session = None
+        s_started = None
+        s_ended = None
 
     # 7. Verificação de Gap de Telemetria (PC desligado / suspenso / sem rede)
     if open_session:
-        last_seen = device.updated_at or open_session.ended_at or open_session.started_at
+        last_seen = s_ended or d_updated or s_started or now_naive
         gap_seconds = (now_naive - last_seen).total_seconds()
         if gap_seconds > Config.MAX_USAGE_GAP_SECONDS:
             # Encerra sessão anterior no último ponto confiável de observação (last_seen)
             open_session.ended_at = last_seen
-            open_session.duration_seconds = max(0, int((last_seen - open_session.started_at).total_seconds()))
+            open_session.duration_seconds = max(0, int((last_seen - s_started).total_seconds())) if s_started else 0
             open_session.is_open = False
-            reconcile_daily_usage_for_date(device.id, get_local_date(open_session.started_at))
+            reconcile_daily_usage_for_date(device.id, get_local_date(s_started))
             open_session = None
+            s_started = None
+            s_ended = None
 
     # 8. Início de um Novo Período de Observação (Start do Agent ou Pós-Gap)
     if open_session is None:
@@ -226,13 +250,13 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
     # 9. Continuação com o MESMO Estado
     if open_session.state == session_state:
         current_local_date = get_local_date(now_naive)
-        session_start_date = get_local_date(open_session.started_at)
+        session_start_date = get_local_date(s_started)
 
         # Divisão de meia-noite no fuso corporativo (America/Sao_Paulo)
         if current_local_date != session_start_date:
-            midnight_utc = get_local_midnight_utc(now_naive)
+            midnight_utc = to_naive_utc(get_local_midnight_utc(now_naive))
             open_session.ended_at = midnight_utc
-            open_session.duration_seconds = max(0, int((midnight_utc - open_session.started_at).total_seconds()))
+            open_session.duration_seconds = max(0, int((midnight_utc - s_started).total_seconds())) if s_started else 0
             open_session.is_open = False
             reconcile_daily_usage_for_date(device.id, session_start_date)
 
@@ -252,7 +276,7 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
         else:
             # Estende a sessão atual
             open_session.ended_at = now_naive
-            open_session.duration_seconds = max(0, int((now_naive - open_session.started_at).total_seconds()))
+            open_session.duration_seconds = max(0, int((now_naive - s_started).total_seconds())) if s_started else 0
             reconcile_daily_usage_for_date(device.id, current_local_date)
         return
 
@@ -263,13 +287,13 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
 
         # CLAMP: a transição nunca pode ocorrer antes do início da sessão anterior,
         # e nunca pode estar no futuro.
-        transition_point = max(open_session.started_at, min(now_naive, calculated_last_input))
+        transition_point = max(s_started, min(now_naive, calculated_last_input)) if s_started else now_naive
 
         # Fecha a sessão anterior no ponto exato da transição
         open_session.ended_at = transition_point
-        open_session.duration_seconds = max(0, int((transition_point - open_session.started_at).total_seconds()))
+        open_session.duration_seconds = max(0, int((transition_point - s_started).total_seconds())) if s_started else 0
         open_session.is_open = False
-        reconcile_daily_usage_for_date(device.id, get_local_date(open_session.started_at))
+        reconcile_daily_usage_for_date(device.id, get_local_date(s_started))
 
         # Abre a nova sessão a partir do ponto de transição até o momento presente
         new_session = UsageSession(
@@ -294,7 +318,7 @@ def close_stale_device_sessions(offline_threshold_seconds: Optional[int] = None)
     A sessão é encerrada no último ponto de contato confiável (device.updated_at).
     """
     threshold = offline_threshold_seconds or Config.OFFLINE_THRESHOLD_SECONDS
-    cutoff = utc_now().replace(tzinfo=None) - timedelta(seconds=threshold)
+    cutoff = to_naive_utc(utc_now()) - timedelta(seconds=threshold)
 
     stale_sessions = UsageSession.query.join(Device).filter(
         UsageSession.is_open == True,
@@ -304,11 +328,14 @@ def close_stale_device_sessions(offline_threshold_seconds: Optional[int] = None)
     closed_count = 0
     for sess in stale_sessions:
         dev = sess.device
-        last_point = dev.updated_at or sess.ended_at or sess.started_at
+        s_started = to_naive_utc(sess.started_at)
+        s_ended = to_naive_utc(sess.ended_at)
+        d_updated = to_naive_utc(dev.updated_at)
+        last_point = d_updated or s_ended or s_started or to_naive_utc(utc_now())
         sess.ended_at = last_point
-        sess.duration_seconds = max(0, int((last_point - sess.started_at).total_seconds()))
+        sess.duration_seconds = max(0, int((last_point - s_started).total_seconds())) if s_started else 0
         sess.is_open = False
-        reconcile_daily_usage_for_date(sess.device_id, get_local_date(sess.started_at))
+        reconcile_daily_usage_for_date(sess.device_id, get_local_date(s_started))
         closed_count += 1
 
     if closed_count > 0:
@@ -342,7 +369,9 @@ def get_device_usage_data(device_id: int, target_date_str: Optional[str] = None,
 
     # 2. Timeline do dia alvo
     ref_dt = datetime(target_date.year, target_date.month, target_date.day, 12, 0, 0, tzinfo=timezone.utc)
-    start_utc, next_utc = get_local_day_range_utc(ref_dt)
+    start_raw, next_raw = get_local_day_range_utc(ref_dt)
+    start_utc = to_naive_utc(start_raw)
+    next_utc = to_naive_utc(next_raw)
 
     sessions = UsageSession.query.filter(
         UsageSession.device_id == device_id,
@@ -351,12 +380,14 @@ def get_device_usage_data(device_id: int, target_date_str: Optional[str] = None,
     ).order_by(UsageSession.started_at.asc()).all()
 
     timeline = []
-    now_naive = utc_now().replace(tzinfo=None)
+    now_naive = to_naive_utc(utc_now())
 
     for s in sessions:
-        eff_end = s.ended_at or now_naive
+        s_started = to_naive_utc(s.started_at)
+        s_ended = to_naive_utc(s.ended_at)
+        eff_end = s_ended or now_naive
         # Clampa para o limite do dia selecionado
-        c_start = max(s.started_at, start_utc)
+        c_start = max(s_started, start_utc) if s_started else start_utc
         c_end = min(eff_end, next_utc)
         if c_end > c_start:
             timeline.append({

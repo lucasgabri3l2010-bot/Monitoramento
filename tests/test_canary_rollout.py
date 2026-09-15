@@ -3,6 +3,8 @@ import unittest
 import json
 import io
 import hashlib
+import tempfile
+import shutil
 from datetime import datetime, timezone
 
 # Setup test environment
@@ -25,8 +27,10 @@ class CanaryRolloutTestCase(unittest.TestCase):
         self.app.config["TESTING"] = True
         self.app.config["WTF_CSRF_ENABLED"] = False
         Config.AGENT_SECRET_TOKEN = "test_canary_secret_xyz"
+        self.orig_releases_dir = Config.RELEASES_DIR
+        self.test_releases_dir = tempfile.mkdtemp()
+        Config.RELEASES_DIR = self.test_releases_dir
         self.client = self.app.test_client()
-
         with self.app.app_context():
             db.create_all()
 
@@ -88,6 +92,8 @@ class CanaryRolloutTestCase(unittest.TestCase):
             self.dev_updated_id = self.dev_updated.id
 
     def tearDown(self):
+        Config.RELEASES_DIR = self.orig_releases_dir
+        shutil.rmtree(self.test_releases_dir, ignore_errors=True)
         with self.app.app_context():
             db.session.remove()
 
