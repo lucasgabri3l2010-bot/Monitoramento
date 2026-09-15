@@ -152,24 +152,30 @@ def seed_canary_release_v1_5_0() -> bool:
             mandatory=False,
             storage_type="database" if binary_bytes else "local",
             binary_data=binary_bytes,
-            release_channel="canary",
-            rollout_scope="devices",
+            release_channel="stable",
+            rollout_scope="global",
             status="active",
             created_by="admin"
         )
         db.session.add(rel)
         db.session.flush()
     else:
-        # Se já existe como draft ou inativa, ativa e mantém no canal canary
-        if rel.status in ("draft", "superseded"):
-            rel.status = "active"
-        if rel.release_channel != "stable":  # Se ainda não foi promovida, garante que é canary
-            rel.release_channel = "canary"
-            rel.rollout_scope = "devices"
+        # Promove release para stable / global preservando integridade imutável
+        was_canary = (rel.release_channel == "canary" or rel.rollout_scope != "global")
+        rel.release_channel = "stable"
+        rel.rollout_scope = "global"
+        rel.status = "active"
         rel.sha256 = EXPECTED_SHA
         if binary_bytes and not rel.binary_data:
             rel.binary_data = binary_bytes
             rel.storage_type = "database"
+        if was_canary:
+            audit = PolicyAuditLog(
+                user_name="admin",
+                action="agent_release_promoted_global",
+                details=f"Release v{rel.version} promovida com sucesso de Canary para Stable/Global. SHA-256 preservado: {rel.sha256}."
+            )
+            db.session.add(audit)
 
     # Localiza ou inicializa o registro do computador de teste do Victor
     victor_dev = Device.query.filter((Device.uuid == VICTOR_UUID) | (Device.hostname == "DESKTOP-1E340V5")).first()
@@ -179,15 +185,13 @@ def seed_canary_release_v1_5_0() -> bool:
             hostname="DESKTOP-1E340V5",
             display_name="PC Victor - TI",
             department="TI",
-            agent_version="1.4.1",
+            agent_version="1.5.0",
             updated_at=datetime.now(timezone.utc)
         )
         db.session.add(victor_dev)
         db.session.flush()
-
-    if victor_dev not in rel.target_devices:
-        rel.target_devices.append(victor_dev)
-        logger.info(f"[MIGRATION] Dispositivo {victor_dev.hostname} ({victor_dev.uuid}) vinculado como alvo Canary v{CANARY_VERSION}.")
+    else:
+        victor_dev.agent_version = "1.5.0"
 
     # Atualiza manifesto em disco para redundância
     manifest_data = {
@@ -196,9 +200,9 @@ def seed_canary_release_v1_5_0() -> bool:
         "required": False,
         "release_notes": rel.changelog,
         "download_url": rel.download_url,
-        "release_channel": rel.release_channel,
-        "rollout_scope": rel.rollout_scope,
-        "status": rel.status,
+        "release_channel": "stable",
+        "rollout_scope": "global",
+        "status": "active",
         "published_at": format_iso_utc(datetime.now(timezone.utc)),
         "published_by": "admin"
     }
@@ -211,7 +215,7 @@ def seed_canary_release_v1_5_0() -> bool:
         pass
 
     db.session.commit()
-    logger.info(f"[MIGRATION] Release v{CANARY_VERSION} configurada como CANARY com {len(rel.target_devices)} alvo(s).")
+    logger.info(f"[MIGRATION] Release v{CANARY_VERSION} PROMOVIDA PARA FROTA GLOBAL (Canal: stable, Escopo: global, Status: active).")
     return True
 
 
