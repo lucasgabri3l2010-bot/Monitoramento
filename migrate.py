@@ -14,7 +14,8 @@ import threading
 from config import Config
 from models import (
     db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent,
-    PolicyAuditLog, SystemMetadata, AgentRelease, normalize_domain
+    PolicyAuditLog, SystemMetadata, AgentRelease, UsageSession, DailyUsageSummary,
+    normalize_domain
 )
 from corporate_rules_data import CORPORATE_DEFAULT_RULES
 from servidor import app
@@ -162,7 +163,12 @@ def run_migrations() -> bool:
                                 ("is_admin_device", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT 0"),
                                 ("device_token", "VARCHAR(64)", "VARCHAR(64)"),
                                 ("update_status", "VARCHAR(50) DEFAULT 'up_to_date'", "VARCHAR(50) DEFAULT 'up_to_date'"),
-                                ("last_update_check", "TIMESTAMP", "DATETIME")
+                                ("last_update_check", "TIMESTAMP", "DATETIME"),
+                                ("current_session_state", "VARCHAR(30) DEFAULT 'unknown'", "VARCHAR(30) DEFAULT 'unknown'"),
+                                ("last_input_at", "TIMESTAMP", "DATETIME"),
+                                ("last_idle_seconds", "FLOAT DEFAULT 0.0", "FLOAT DEFAULT 0.0"),
+                                ("user_active", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT 0"),
+                                ("windows_session_id", "INTEGER", "INTEGER")
                             ]
                         ),
                         (

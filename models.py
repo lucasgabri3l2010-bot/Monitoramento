@@ -163,6 +163,13 @@ class Device(db.Model):
     last_disk_used_gb = db.Column(db.Float, default=0.0)
     last_uptime_seconds = db.Column(db.BigInteger, default=0)
     
+    # Rastreamento de Sessão e Uso do Usuário (v1.5.0)
+    current_session_state = db.Column(db.String(30), default="unknown", index=True)  # 'active', 'idle', 'locked', 'unknown'
+    last_input_at = db.Column(db.DateTime, nullable=True)
+    last_idle_seconds = db.Column(db.Float, default=0.0)
+    user_active = db.Column(db.Boolean, default=False)
+    windows_session_id = db.Column(db.Integer, nullable=True)
+
     # Timestamps
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), index=True)
@@ -171,6 +178,8 @@ class Device(db.Model):
     metrics = db.relationship("MetricHistory", backref="device", cascade="all, delete-orphan", lazy="dynamic")
     alerts = db.relationship("Alert", backref="device", cascade="all, delete-orphan", lazy="dynamic")
     policy_events = db.relationship("PolicyEvent", backref="device", cascade="all, delete-orphan", lazy="dynamic")
+    usage_sessions = db.relationship("UsageSession", backref="device", cascade="all, delete-orphan", lazy="dynamic")
+    daily_usage = db.relationship("DailyUsageSummary", backref="device", cascade="all, delete-orphan", lazy="dynamic")
 
     def get_status(self, offline_threshold_seconds: int = 30) -> str:
         """
@@ -303,6 +312,10 @@ class Device(db.Model):
                 act_time = act_time.replace(tzinfo=timezone.utc)
             is_recent_activity = (now - act_time).total_seconds() <= (offline_threshold_seconds * 2)
 
+        # Estado de Sessão e Uso do Usuário (v1.5.0)
+        computed_session_state = "offline" if status == "offline" else (self.current_session_state or "unknown")
+        user_is_active = bool(self.user_active and status != "offline")
+
         return {
             "id": self.id,
             "uuid": self.uuid,
@@ -344,6 +357,19 @@ class Device(db.Model):
                 "critical": "Crítico",
                 "offline": "Offline"
             }.get(status, "Desconhecido"),
+            "session_state": computed_session_state,
+            "session_state_label": {
+                "active": "Ativo",
+                "idle": "Ocioso",
+                "locked": "Bloqueado",
+                "offline": "Offline",
+                "unknown": "Desconhecido"
+            }.get(computed_session_state, "Desconhecido"),
+            "user_active": user_is_active,
+            "idle_seconds": round(self.last_idle_seconds or 0.0, 1),
+            "last_input_at_iso": format_iso_utc(self.last_input_at),
+            "last_input_at": format_local_datetime(self.last_input_at) if self.last_input_at else None,  # LEGACY
+            "windows_session_id": self.windows_session_id,
             "ultimo_contato_iso": format_iso_utc(self.updated_at),
             "ultimo_contato": format_local_datetime(self.updated_at) if self.updated_at else "Nunca",  # LEGACY
             "created_at_iso": format_iso_utc(self.created_at),
@@ -738,5 +764,90 @@ class AgentRelease(db.Model):
             "created_at_iso": format_iso_utc(self.created_at),
             "created_at": format_local_datetime(self.created_at),  # LEGACY
             "created_by": self.created_by
+        }
+
+
+class UsageSession(db.Model):
+    """
+    Registra períodos contínuos de uso do computador por estado (active, idle, locked).
+    Fonte temporal canônica para cálculos de tempo de atividade, ociosidade e bloqueio.
+    """
+    __tablename__ = "usage_sessions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    device_id = db.Column(db.Integer, db.ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    windows_session_id = db.Column(db.Integer, nullable=True)
+    state = db.Column(db.String(30), nullable=False, index=True)  # 'active', 'idle', 'locked'
+    started_at = db.Column(db.DateTime, nullable=False, index=True)  # UTC
+    ended_at = db.Column(db.DateTime, nullable=True, index=True)  # UTC
+    duration_seconds = db.Column(db.Integer, default=0)
+    is_open = db.Column(db.Boolean, default=True, index=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+    __table_args__ = (
+        db.Index("idx_usage_device_open", "device_id", "is_open"),
+        db.Index("idx_usage_device_started", "device_id", "started_at"),
+        db.Index("idx_usage_started_state", "started_at", "state"),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "device_id": self.device_id,
+            "windows_session_id": self.windows_session_id,
+            "state": self.state,
+            "started_at_iso": format_iso_utc(self.started_at),
+            "started_at": format_local_datetime(self.started_at),  # LEGACY
+            "ended_at_iso": format_iso_utc(self.ended_at),
+            "ended_at": format_local_datetime(self.ended_at) if self.ended_at else None,  # LEGACY
+            "duration_seconds": self.duration_seconds or 0,
+            "is_open": bool(self.is_open),
+            "created_at_iso": format_iso_utc(self.created_at)
+        }
+
+
+class DailyUsageSummary(db.Model):
+    """
+    Resumo consolidado diário por computador no fuso corporativo (America/Sao_Paulo).
+    Atualizado de forma idempotente a partir das sessões de uso.
+    """
+    __tablename__ = "daily_usage_summaries"
+
+    id = db.Column(db.Integer, primary_key=True)
+    device_id = db.Column(db.Integer, db.ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    date = db.Column(db.Date, nullable=False, index=True)  # Data civil no fuso corporativo
+    online_seconds = db.Column(db.Integer, default=0)
+    active_seconds = db.Column(db.Integer, default=0)
+    idle_seconds = db.Column(db.Integer, default=0)
+    locked_seconds = db.Column(db.Integer, default=0)
+    offline_seconds = db.Column(db.Integer, default=0)
+    first_seen = db.Column(db.DateTime, nullable=True)  # UTC
+    last_seen = db.Column(db.DateTime, nullable=True)  # UTC
+    active_percentage = db.Column(db.Float, default=0.0)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint("device_id", "date", name="uq_device_daily_usage"),
+        db.Index("idx_daily_usage_date", "date"),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "device_id": self.device_id,
+            "date": str(self.date),
+            "online_seconds": self.online_seconds or 0,
+            "active_seconds": self.active_seconds or 0,
+            "idle_seconds": self.idle_seconds or 0,
+            "locked_seconds": self.locked_seconds or 0,
+            "offline_seconds": self.offline_seconds or 0,
+            "active_percentage": round(self.active_percentage or 0.0, 1),
+            "first_seen_iso": format_iso_utc(self.first_seen),
+            "first_seen": format_local_datetime(self.first_seen) if self.first_seen else None,  # LEGACY
+            "last_seen_iso": format_iso_utc(self.last_seen),
+            "last_seen": format_local_datetime(self.last_seen) if self.last_seen else None,  # LEGACY
+            "updated_at_iso": format_iso_utc(self.updated_at),
+            "updated_at": format_local_datetime(self.updated_at) if self.updated_at else None  # LEGACY
         }
 

@@ -15,14 +15,15 @@ from datetime_utils import (
     utc_now, ensure_utc, to_app_timezone, format_iso_utc,
     format_local_datetime, format_local_time, start_of_local_day_utc,
     start_of_next_local_day_utc, get_local_day_range_utc,
-    get_app_timezone as get_corporate_timezone
+    get_app_timezone as get_corporate_timezone, get_local_date
 )
 from models import (
     db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent,
     PolicyAuditLog, SystemMetadata, AgentRelease, PolicyAllowlist,
-    DomainClassification, compare_versions, parse_semver, normalize_domain
+    DomainClassification, DailyUsageSummary, compare_versions, parse_semver, normalize_domain
 )
 from services import process_agent_payload, get_dashboard_stats, invalidate_policy_rules_cache
+from usage_service import get_device_usage_data
 
 # Configuração de Logging Profissional
 logging.basicConfig(
@@ -274,11 +275,13 @@ def receber_dados_agente():
     try:
         device = process_agent_payload(dados)
         logger.info(f"Métricas recebidas com sucesso de {device.hostname} ({device.ip_address}) - CPU: {device.last_cpu}% | RAM: {device.last_ram}%")
+        idle_threshold = int(SystemMetadata.get_value("idle_threshold_seconds", str(Config.IDLE_THRESHOLD_SECONDS)))
         return jsonify({
             "status": "ok",
             "message": "Dados processados com sucesso",
             "device_id": device.id,
-            "status_computed": device.get_status(Config.OFFLINE_THRESHOLD_SECONDS)
+            "status_computed": device.get_status(Config.OFFLINE_THRESHOLD_SECONDS),
+            "idle_threshold_seconds": idle_threshold
         })
     except ValueError as ve:
         logger.warning(f"Erro de validação em payload de {request.remote_addr}: {ve}")
@@ -320,6 +323,14 @@ def listar_dispositivos():
     # 1. Dispositivos reais cadastrados no banco
     real_devices = Device.query.order_by(Device.updated_at.desc()).all()
     all_items = [d.to_dict(Config.OFFLINE_THRESHOLD_SECONDS) for d in real_devices]
+
+    today_date = get_local_date()
+    today_summaries = {
+        s.device_id: s.to_dict()
+        for s in DailyUsageSummary.query.filter(DailyUsageSummary.date == today_date).all()
+    }
+    for item in all_items:
+        item["today_usage"] = today_summaries.get(item["id"])
 
     # 2. Se DEMO_MODE estiver ativo, anexa os dispositivos virtuais de demonstração
     if Config.DEMO_MODE:
@@ -479,6 +490,54 @@ def remover_dispositivo(device_id):
     db.session.commit()
     logger.info(f"Dispositivo {hostname} (id {device_id}) removido pelo usuário {session.get('username')}")
     return jsonify({"status": "ok", "message": f"Computador {hostname} removido com sucesso."})
+
+
+@app.route("/api/devices/<int:device_id>/usage")
+@login_required
+def obter_uso_dispositivo(device_id):
+    """
+    Retorna o histórico de tempo de uso real, ociosidade e timeline de um computador.
+    """
+    if device_id >= 90000:
+        from demo_data import get_demo_device_usage
+        return jsonify(get_demo_device_usage(device_id))
+
+    device = db.get_or_404(Device, device_id)
+    date_str = request.args.get("date")
+    start_date_str = request.args.get("start_date")
+    end_date_str = request.args.get("end_date")
+    data = get_device_usage_data(device.id, date_str, start_date_str, end_date_str)
+    return jsonify(data)
+
+
+@app.route("/api/settings/idle-threshold", methods=["GET"])
+@login_required
+def obter_idle_threshold():
+    """
+    Retorna o limite de tempo configurado para considerar um computador ocioso.
+    """
+    val = int(SystemMetadata.get_value("idle_threshold_seconds", str(Config.IDLE_THRESHOLD_SECONDS)))
+    return jsonify({"idle_threshold_seconds": val})
+
+
+@app.route("/api/settings/idle-threshold", methods=["POST"])
+@admin_required
+def salvar_idle_threshold():
+    """
+    Atualiza o limite corporativo de tempo para ociosidade (30 a 3600 segundos).
+    Sincronizado automaticamente com os agentes no próximo report.
+    """
+    body = request.get_json(silent=True) or {}
+    val = body.get("idle_threshold_seconds")
+    try:
+        val = int(val)
+        if val < 30 or val > 3600:
+            return jsonify({"error": "O limite de ociosidade deve estar entre 30 e 3600 segundos."}), 400
+        SystemMetadata.set_value("idle_threshold_seconds", str(val))
+        logger.info(f"Limite corporativo de ociosidade atualizado para {val}s por {session.get('username')}")
+        return jsonify({"status": "ok", "idle_threshold_seconds": val})
+    except (TypeError, ValueError):
+        return jsonify({"error": "Valor numérico inválido."}), 400
 
 
 @app.route("/api/stats")

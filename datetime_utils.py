@@ -131,3 +131,19 @@ def get_local_day_range_utc(ref_dt: Optional[datetime] = None, tz_name: Optional
         start_of_local_day_utc(ref_dt, tz_name),
         start_of_next_local_day_utc(ref_dt, tz_name)
     )
+
+
+def get_local_date(ref_dt: Optional[datetime] = None, tz_name: Optional[str] = None):
+    """
+    Retorna a data civil (date) no fuso horário corporativo da empresa (ex: America/Sao_Paulo).
+    """
+    local_dt = to_app_timezone(ref_dt or utc_now(), tz_name)
+    return local_dt.date()
+
+
+def get_local_midnight_utc(ref_dt: Optional[datetime] = None, tz_name: Optional[str] = None) -> datetime:
+    """
+    Retorna o timestamp UTC correspondente à meia-noite (00:00:00) do dia civil local.
+    """
+    return start_of_local_day_utc(ref_dt, tz_name)
+

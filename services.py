@@ -8,10 +8,12 @@ import requests
 
 from models import (
     db, Device, MetricHistory, Alert, PolicyRule, PolicyEvent, PolicyAuditLog,
-    PolicyAllowlist, DomainClassification, SystemMetadata,
+    PolicyAllowlist, DomainClassification, SystemMetadata, UsageSession, DailyUsageSummary,
     match_domain_secure, match_application_secure
 )
 from config import Config
+from datetime_utils import utc_now, get_local_date
+from usage_service import process_device_usage_telemetry, cleanup_old_usage_data
 
 # Categorias canônicas padronizadas
 CATEGORY_MAP = {
@@ -486,10 +488,14 @@ def process_agent_payload(data: dict) -> Device:
     # Avaliação de Alertas de Hardware
     _evaluate_alerts(device, cpu, ram, disco, now)
 
-    # Limpeza aleatória de métricas antigas e eventos de políticas (1 chance em 50 para evitar sobrecarga)
+    # Rastreamento de Sessão e Uso Real do Usuário (v1.5.0)
+    process_device_usage_telemetry(device, data, now)
+
+    # Limpeza aleatória de métricas antigas, eventos e sessões (1 chance em 50 para evitar sobrecarga)
     if random.random() < 0.02:
         cleanup_old_metrics()
         cleanup_old_policy_events()
+        cleanup_old_usage_data()
 
     db.session.commit()
     return device
@@ -896,12 +902,33 @@ def get_dashboard_stats():
                 "is_demo": d.get("is_demo", False)
             })
 
+    # Métricas Operacionais de Uso Real (v1.5.0)
+    today_local = get_local_date(utc_now())
+    today_summaries = DailyUsageSummary.query.filter_by(date=today_local).all()
+    active_seconds_today = sum(s.active_seconds or 0 for s in today_summaries)
+    idle_seconds_today = sum(s.idle_seconds or 0 for s in today_summaries)
+    locked_seconds_today = sum(s.locked_seconds or 0 for s in today_summaries)
+    online_seconds_today = sum(s.online_seconds or 0 for s in today_summaries)
+    avg_active_pct_today = round((active_seconds_today / online_seconds_today * 100.0), 1) if online_seconds_today > 0 else 0.0
+
+    active_now_count = sum(1 for d in all_devices if d.get("status") != "offline" and d.get("session_state") == "active")
+    idle_now_count = sum(1 for d in all_devices if d.get("status") != "offline" and d.get("session_state") == "idle")
+    locked_now_count = sum(1 for d in all_devices if d.get("status") != "offline" and d.get("session_state") == "locked")
+
     return {
         "total_devices": total_devices,
         "online_count": online_count,
         "offline_count": offline_count,
         "warning_count": warning_count,
         "critical_count": critical_count,
+        "active_now": active_now_count,
+        "idle_now": idle_now_count,
+        "locked_now": locked_now_count,
+        "active_seconds_today": active_seconds_today,
+        "idle_seconds_today": idle_seconds_today,
+        "locked_seconds_today": locked_seconds_today,
+        "online_seconds_today": online_seconds_today,
+        "average_active_percentage_today": avg_active_pct_today,
         "avg_cpu": avg_cpu,
         "avg_ram": avg_ram,
         "total_disk_gb": round(total_disk_gb, 1),

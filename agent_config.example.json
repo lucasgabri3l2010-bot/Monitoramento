@@ -6,5 +6,6 @@
     "display_name": "PC-EXPEDICAO-01",
     "interval_seconds": 5,
     "timeout_seconds": 10,
-    "activity_monitoring": true
+    "activity_monitoring": true,
+    "idle_threshold_seconds": 300
 }

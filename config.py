@@ -73,8 +73,14 @@ class Config:
     # Auto-Update do Agente e Gestão de Versões
     AGENT_AUTO_UPDATE_ENABLED = os.getenv("AGENT_AUTO_UPDATE_ENABLED", "true").lower() in ("true", "1", "yes")
     AGENT_UPDATE_CHECK_HOURS = int(os.getenv("AGENT_UPDATE_CHECK_HOURS", "6"))
-    LATEST_AGENT_VERSION = os.getenv("LATEST_AGENT_VERSION", "1.4.0")
+    LATEST_AGENT_VERSION = os.getenv("LATEST_AGENT_VERSION", "1.5.0")
     RELEASES_DIR = os.getenv("RELEASES_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "releases"))
+
+    # Rastreamento de Tempo de Uso Real e Ociosidade (v1.5.0)
+    IDLE_THRESHOLD_SECONDS = int(os.getenv("IDLE_THRESHOLD_SECONDS", "300"))
+    MAX_USAGE_GAP_SECONDS = int(os.getenv("MAX_USAGE_GAP_SECONDS", "120"))
+    USAGE_SESSION_RETENTION_DAYS = int(os.getenv("USAGE_SESSION_RETENTION_DAYS", "90"))
+    USAGE_SUMMARY_RETENTION_DAYS = int(os.getenv("USAGE_SUMMARY_RETENTION_DAYS", "365"))
 
     # Servidor e Porta (Render define dinamicamente a variável de ambiente PORT)
     HOST = os.getenv("HOST", "0.0.0.0")

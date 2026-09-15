@@ -353,6 +353,59 @@ def get_demo_devices() -> list:
 
     for d in devices:
         _enrich_version_info(d)
+        st = d.get("status", "online")
+        if st == "offline":
+            d["session_state"] = "offline"
+            d["session_state_label"] = "Offline"
+            d["user_active"] = False
+            d["idle_seconds"] = 15300.0
+            d["today_usage"] = {
+                "date": str(now.date()),
+                "online_seconds": 14400,
+                "active_seconds": 10800,
+                "idle_seconds": 3600,
+                "locked_seconds": 0,
+                "active_percentage": 75.0,
+            }
+        elif d["id"] == 90002:
+            d["session_state"] = "idle"
+            d["session_state_label"] = "Ocioso"
+            d["user_active"] = False
+            d["idle_seconds"] = 420.0
+            d["today_usage"] = {
+                "date": str(now.date()),
+                "online_seconds": 21600,
+                "active_seconds": 16200,
+                "idle_seconds": 5400,
+                "locked_seconds": 0,
+                "active_percentage": 75.0,
+            }
+        elif d["id"] == 90006:
+            d["session_state"] = "locked"
+            d["session_state_label"] = "Bloqueado"
+            d["user_active"] = False
+            d["idle_seconds"] = 900.0
+            d["today_usage"] = {
+                "date": str(now.date()),
+                "online_seconds": 25200,
+                "active_seconds": 21600,
+                "idle_seconds": 1800,
+                "locked_seconds": 1800,
+                "active_percentage": 85.7,
+            }
+        else:
+            d["session_state"] = "active"
+            d["session_state_label"] = "Ativo"
+            d["user_active"] = True
+            d["idle_seconds"] = 15.0
+            d["today_usage"] = {
+                "date": str(now.date()),
+                "online_seconds": 28800,
+                "active_seconds": 24500,
+                "idle_seconds": 4300,
+                "locked_seconds": 0,
+                "active_percentage": 85.1,
+            }
 
     return devices
 
@@ -640,3 +693,82 @@ def get_demo_policy_events() -> list:
             "is_demo": True
         }
     ]
+
+
+def get_demo_device_usage(device_id: int) -> dict:
+    now = utc_now()
+    today_str = str(now.date())
+    s1_start = now - timedelta(hours=6)
+    s1_end = now - timedelta(hours=3, minutes=30)
+    s2_start = s1_end
+    s2_end = now - timedelta(hours=2, minutes=45)
+    s3_start = s2_end
+    s3_end = now
+    history = []
+    for i in range(1, 8):
+        hist_date = (now - timedelta(days=i)).date()
+        hist_day_start = datetime(hist_date.year, hist_date.month, hist_date.day, 8, 0, 0, tzinfo=timezone.utc)
+        hist_day_end = datetime(hist_date.year, hist_date.month, hist_date.day, 17, 30, 0, tzinfo=timezone.utc)
+        history.append({
+            "id": 88800 + i,
+            "device_id": device_id,
+            "date": str(hist_date),
+            "online_seconds": 32400 - (i * 300),
+            "active_seconds": 27000 - (i * 600),
+            "idle_seconds": 4500 + (i * 200),
+            "locked_seconds": 900 + (i * 100),
+            "active_percentage": round((27000 - (i * 600)) / (32400 - (i * 300)) * 100, 1),
+            "first_seen_iso": format_iso_utc(hist_day_start),
+            "first_seen": format_local_datetime(hist_day_start),
+            "last_seen_iso": format_iso_utc(hist_day_end),
+            "last_seen": format_local_datetime(hist_day_end)
+        })
+
+    return {
+        "device_id": device_id,
+        "date": today_str,
+        "summary": {
+            "online_seconds": 21600,
+            "active_seconds": 18900,
+            "idle_seconds": 2700,
+            "locked_seconds": 0,
+            "active_percentage": 87.5,
+            "first_seen_iso": format_iso_utc(s1_start),
+            "first_seen": format_local_datetime(s1_start),
+            "last_seen_iso": format_iso_utc(s3_end),
+            "last_seen": format_local_datetime(s3_end)
+        },
+        "timeline": [
+            {
+                "id": 99901,
+                "state": "active",
+                "started_at_iso": format_iso_utc(s1_start),
+                "started_at": format_local_datetime(s1_start),
+                "ended_at_iso": format_iso_utc(s1_end),
+                "ended_at": format_local_datetime(s1_end),
+                "duration_seconds": 9000,
+                "is_open": False
+            },
+            {
+                "id": 99902,
+                "state": "idle",
+                "started_at_iso": format_iso_utc(s2_start),
+                "started_at": format_local_datetime(s2_start),
+                "ended_at_iso": format_iso_utc(s2_end),
+                "ended_at": format_local_datetime(s2_end),
+                "duration_seconds": 2700,
+                "is_open": False
+            },
+            {
+                "id": 99903,
+                "state": "active",
+                "started_at_iso": format_iso_utc(s3_start),
+                "started_at": format_local_datetime(s3_start),
+                "ended_at_iso": format_iso_utc(s3_end),
+                "ended_at": format_local_datetime(s3_end),
+                "duration_seconds": 9900,
+                "is_open": True
+            }
+        ],
+        "history": history
+    }

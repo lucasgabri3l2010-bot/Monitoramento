@@ -33,7 +33,7 @@ $manifestFile = Join-Path $extensionDir "manifest.json"
 # -------------------------------------------------------------------------
 # 1. VERIFICACAO DE INSTALACAO BASE
 # -------------------------------------------------------------------------
-Write-Host "[1/6] Verificando diretorio e arquivos de instalacao..." -ForegroundColor Gray
+Write-Host "[1/7] Verificando diretorio e arquivos de instalacao..." -ForegroundColor Gray
 if (Test-Path -Path $installDir) {
     Write-Host "  [OK] Diretorio base presente: $installDir" -ForegroundColor Green
 } else {
@@ -57,7 +57,7 @@ if (Test-Path -Path $updaterExe) {
 # 2. CONFIGURACAO (agent_config.json)
 # -------------------------------------------------------------------------
 Write-Host ""
-Write-Host "[2/6] Verificando configuracao local e variaveis de ambiente..." -ForegroundColor Gray
+Write-Host "[2/7] Verificando configuracao local e variaveis de ambiente..." -ForegroundColor Gray
 
 $overridePath = $env:GIVOVA_CONFIG_PATH
 if (-not $overridePath) {
@@ -115,7 +115,7 @@ if (Test-Path -Path $configFile) {
 # 3. PROCESSO EM EXECUCAO E TAREFA AGENDADA
 # -------------------------------------------------------------------------
 Write-Host ""
-Write-Host "[3/6] Verificando execucao e Task Scheduler..." -ForegroundColor Gray
+Write-Host "[3/7] Verificando execucao e Task Scheduler..." -ForegroundColor Gray
 $procs = Get-Process -Name "GivovaMonitorAgent" -ErrorAction SilentlyContinue
 if ($procs) {
     $pids = ($procs | ForEach-Object { $_.Id }) -join ", "
@@ -139,8 +139,7 @@ try {
 # 4. DIAGNOSTICO DA EXTENSAO CORPORATIVA (CHROME / EDGE)
 # -------------------------------------------------------------------------
 Write-Host ""
-Write-Host "[4/6] Verificando extensao corporativa de dominio..." -ForegroundColor Gray
-
+Write-Host "[4/7] Verificando extensao corporativa de dominio..." -ForegroundColor Gray
 $extInstalled = $false
 $extVersion = "desconhecida"
 
@@ -171,7 +170,7 @@ Write-Host "      3. Clique em 'Carregar sem compactacao' e selecione $extension
 # 5. RECEPTOR LOCAL HTTP NA PORTA 5005
 # -------------------------------------------------------------------------
 Write-Host ""
-Write-Host "[5/6] Verificando receptor local da extensao (127.0.0.1:5005)..." -ForegroundColor Gray
+Write-Host "[5/7] Verificando receptor local da extensao (127.0.0.1:5005)..." -ForegroundColor Gray
 
 $receiverListening = $false
 try {
@@ -259,7 +258,7 @@ Write-Host "  [INFO] Ultimo report confirmado:    $lastSuccessReport" -Foregroun
 # 6. CONECTIVIDADE COM O SERVIDOR RENDER (/health e /health/db)
 # -------------------------------------------------------------------------
 Write-Host ""
-Write-Host "[6/6] Verificando conectividade com o servidor Render..." -ForegroundColor Gray
+Write-Host "[6/7] Verificando conectividade com o servidor Render..." -ForegroundColor Gray
 
 $renderHealth = "FAIL"
 $renderDb = "FAIL"
@@ -289,6 +288,106 @@ try {
     Write-Host "  [OK] Render /health/db: $renderDb" -ForegroundColor Green
 } catch {
     Write-Host "  [WARNING] Falha ao conectar em $healthDbUrl ($($_.Exception.Message))" -ForegroundColor Yellow
+}
+
+# -------------------------------------------------------------------------
+# 7. TELEMETRIA DE ATIVIDADE E ESTADO DA SESSAO (v1.5.0)
+# -------------------------------------------------------------------------
+Write-Host ""
+Write-Host "[7/7] Verificando telemetria de inatividade e sessao Windows (v1.5.0)..." -ForegroundColor Gray
+
+$idleSeconds = -1.0
+$sessionState = "desconhecido"
+$lockState = "unknown"
+$winSessionId = [System.Diagnostics.Process]::GetCurrentProcess().SessionId
+
+$configuredThreshold = 300
+if ($cfg -and $cfg.idle_threshold_seconds) {
+    $configuredThreshold = [int]$cfg.idle_threshold_seconds
+}
+
+try {
+    $csharpCode = @"
+using System;
+using System.Runtime.InteropServices;
+
+public class GivovaWin32Diag {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct LASTINPUTINFO {
+        public uint cbSize;
+        public uint dwTime;
+    }
+
+    [DllImport("user32.dll")]
+    public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+
+    [DllImport("kernel32.dll")]
+    public static extern uint GetTickCount();
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    public static extern bool WTSQuerySessionInformationW(
+        IntPtr hServer,
+        int sessionId,
+        int wtsInfoClass,
+        out IntPtr ppBuffer,
+        out int pBytesReturned
+    );
+
+    [DllImport("wtsapi32.dll")]
+    public static extern void WTSFreeMemory(IntPtr pMemory);
+
+    public static float GetIdleSeconds() {
+        LASTINPUTINFO lii = new LASTINPUTINFO();
+        lii.cbSize = (uint)Marshal.SizeOf(lii);
+        if (GetLastInputInfo(ref lii)) {
+            uint currentTick = GetTickCount();
+            uint idleTicks = currentTick >= lii.dwTime ? (currentTick - lii.dwTime) : 0;
+            return (float)idleTicks / 1000.0f;
+        }
+        return -1.0f;
+    }
+
+    public static string GetSessionLockState(int sessionId) {
+        IntPtr pBuffer = IntPtr.Zero;
+        int bytesReturned = 0;
+        try {
+            if (WTSQuerySessionInformationW(IntPtr.Zero, sessionId, 25, out pBuffer, out bytesReturned)) {
+                if (bytesReturned >= 32) {
+                    int level = Marshal.ReadInt32(pBuffer, 0);
+                    if (level == 1) {
+                        int sessionFlags = Marshal.ReadInt32(pBuffer, 16);
+                        if (sessionFlags == 0) return "locked";
+                        if (sessionFlags == 1) return "unlocked";
+                    }
+                }
+            }
+        } catch {}
+        finally {
+            if (pBuffer != IntPtr.Zero) WTSFreeMemory(pBuffer);
+        }
+        return "unknown";
+    }
+}
+"@
+    Add-Type -TypeDefinition $csharpCode -ErrorAction SilentlyContinue
+
+    $idleSeconds = [GivovaWin32Diag]::GetIdleSeconds()
+    $lockState = [GivovaWin32Diag]::GetSessionLockState($winSessionId)
+
+    if ($lockState -eq "locked") {
+        $sessionState = "bloqueado"
+    } elseif ($idleSeconds -ge $configuredThreshold) {
+        $sessionState = "ocioso"
+    } elseif ($idleSeconds -ge 0) {
+        $sessionState = "ativo"
+    }
+
+    Write-Host "  [OK] GetLastInputInfo: $($idleSeconds.ToString('F1'))s sem interacao local" -ForegroundColor Green
+    Write-Host "  [OK] WTSQuerySessionInformation (Sessao $winSessionId): estado = $lockState" -ForegroundColor Green
+    Write-Host "  [OK] Limiar de inatividade configurado: ${configuredThreshold}s ($([math]::Round($configuredThreshold/60, 1)) min)" -ForegroundColor Gray
+    Write-Host "  [OK] Estado inferido da sessao: $sessionState" -ForegroundColor $(if ($sessionState -eq "ativo") { "Green" } elseif ($sessionState -eq "ocioso") { "Yellow" } else { "Cyan" })
+} catch {
+    Write-Host "  [WARNING] Nao foi possivel consultar chamadas Win32 diretamente no PowerShell: $_" -ForegroundColor Yellow
 }
 
 # -------------------------------------------------------------------------
@@ -326,6 +425,11 @@ Write-Host ""
 Write-Host "Last report attempt:               $lastAttempt"
 Write-Host "Last report HTTP status:           $lastHttpStatus"
 Write-Host "Last successful report:            $lastSuccessReport"
+Write-Host ""
+Write-Host "Session state (v1.5.0):            $sessionState"
+Write-Host "Idle seconds:                      $(if ($idleSeconds -ge 0) { "$($idleSeconds.ToString('F1'))s" } else { 'N/A' })"
+Write-Host "Idle threshold:                    ${configuredThreshold}s"
+Write-Host "Lock state:                        $lockState"
 Write-Host ""
 Write-Host "Task Scheduler:                    $taskState"
 Write-Host "Task Last Result:                  $taskLastResult"

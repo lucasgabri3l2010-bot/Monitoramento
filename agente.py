@@ -31,7 +31,7 @@ if platform.system() == "Windows":
     import ctypes
     from ctypes import wintypes
 
-VERSION = "1.4.1"
+VERSION = "1.5.0"
 LOCAL_RECEIVER_PORT = 5005
 
 
@@ -286,6 +286,155 @@ def get_foreground_application():
         return APP_MAP.get(exe_name, exe_name.replace(".exe", "").capitalize())
     except Exception:
         return None
+
+
+# =========================================================================
+# Estruturas e APIs do Windows para Rastreamento de Ociosidade e Bloqueio
+# =========================================================================
+
+if platform.system() == "Windows":
+    class LASTINPUTINFO(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", wintypes.UINT),
+            ("dwTime", wintypes.DWORD)
+        ]
+
+    WTS_CURRENT_SERVER_HANDLE = 0
+    WTS_CURRENT_SESSION = -1
+    WTSSessionInfoEx = 25
+    WTS_SESSIONSTATE_LOCK = 0
+    WTS_SESSIONSTATE_UNLOCK = 1
+    WTS_SESSIONSTATE_UNKNOWN = 0xFFFFFFFF
+
+    class WTSINFOEX_LEVEL1_W(ctypes.Structure):
+        _fields_ = [
+            ("SessionId", wintypes.ULONG),
+            ("SessionState", wintypes.DWORD),
+            ("SessionFlags", wintypes.DWORD),
+            ("WinStationName", wintypes.WCHAR * 33),
+            ("UserName", wintypes.WCHAR * 257),
+            ("DomainName", wintypes.WCHAR * 18),
+            ("LogonTime", wintypes.LARGE_INTEGER),
+            ("ConnectTime", wintypes.LARGE_INTEGER),
+            ("DisconnectTime", wintypes.LARGE_INTEGER),
+            ("LastInputTime", wintypes.LARGE_INTEGER),
+            ("LogonId", wintypes.LARGE_INTEGER),
+            ("IncomingBytes", wintypes.LARGE_INTEGER),
+            ("OutgoingBytes", wintypes.LARGE_INTEGER),
+            ("IncomingFrames", wintypes.LARGE_INTEGER),
+            ("OutgoingFrames", wintypes.LARGE_INTEGER),
+            ("IncomingCompressedBytes", wintypes.LARGE_INTEGER),
+            ("OutgoingCompressedBytes", wintypes.LARGE_INTEGER)
+        ]
+
+    class WTSINFOEX_UNION(ctypes.Union):
+        _fields_ = [
+            ("WTSInfoExLevel1", WTSINFOEX_LEVEL1_W)
+        ]
+
+    class WTSINFOEXW(ctypes.Structure):
+        _fields_ = [
+            ("Level", wintypes.DWORD),
+            ("Data", WTSINFOEX_UNION)
+        ]
+
+
+def get_idle_seconds() -> float:
+    """
+    Mede com precisão técnica o tempo decorrido desde a última entrada local de teclado/mouse
+    usando GetLastInputInfo do Windows.
+    Garante:
+    - Zero keylogging: não registra quais teclas foram pressionadas nem cliques.
+    - Tratamento de wraparound de 32 bits do contador de tick.
+    - Rejeição de leituras negativas ou anômalas.
+    """
+    if platform.system() != "Windows":
+        return 0.0
+
+    try:
+        lii = LASTINPUTINFO()
+        lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
+        if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii)):
+            now_tick = ctypes.windll.kernel32.GetTickCount()
+            millis = (now_tick - lii.dwTime) & 0xFFFFFFFF
+            idle_sec = millis / 1000.0
+            if idle_sec < 0.0 or idle_sec > (86400 * 365):
+                return 0.0
+            return max(0.0, idle_sec)
+    except Exception as e:
+        logger.debug(f"Falha ao chamar GetLastInputInfo: {e}")
+    return 0.0
+
+
+def get_windows_session_info() -> tuple:
+    """
+    Obtém o ID da sessão interativa do Windows e o estado de bloqueio (locked/unlocked).
+    Prioriza a API oficial WTSQuerySessionInformationW (WTSSessionInfoEx Level 1).
+    Retorna: (windows_session_id: int | None, is_locked: bool | None)
+    """
+    if platform.system() != "Windows":
+        return None, False
+
+    session_id = None
+    is_locked = None
+
+    try:
+        wtsapi32 = ctypes.windll.wtsapi32
+        pBuffer = ctypes.c_void_p()
+        bytesReturned = wintypes.DWORD()
+        success = wtsapi32.WTSQuerySessionInformationW(
+            WTS_CURRENT_SERVER_HANDLE,
+            WTS_CURRENT_SESSION,
+            WTSSessionInfoEx,
+            ctypes.byref(pBuffer),
+            ctypes.byref(bytesReturned)
+        )
+        if success and pBuffer.value:
+            info = ctypes.cast(pBuffer, ctypes.POINTER(WTSINFOEXW)).contents
+            if info.Level == 1:
+                session_id = int(info.Data.WTSInfoExLevel1.SessionId)
+                flags = info.Data.WTSInfoExLevel1.SessionFlags
+                if flags == WTS_SESSIONSTATE_LOCK:
+                    is_locked = True
+                elif flags == WTS_SESSIONSTATE_UNLOCK:
+                    is_locked = False
+            wtsapi32.WTSFreeMemory(pBuffer)
+            if is_locked is not None:
+                return session_id, is_locked
+    except Exception as e:
+        logger.debug(f"Falha na consulta WTSQuerySessionInformationW: {e}")
+
+    # Fallback secundário se WTS não retornar estado conclusivo: OpenInputDesktop
+    try:
+        DESKTOP_SWITCHDESKTOP = 0x0100
+        hDesk = ctypes.windll.user32.OpenInputDesktop(0, False, DESKTOP_SWITCHDESKTOP)
+        if not hDesk or hDesk == 0:
+            return session_id, True
+        else:
+            ctypes.windll.user32.CloseDesktop(hDesk)
+            return session_id, False
+    except Exception:
+        pass
+
+    return session_id, None
+
+
+def determine_session_state(idle_seconds: float, idle_threshold: float, is_locked) -> tuple:
+    """
+    Avalia os sinais coletados e determina o estado canônico da sessão:
+    - 'locked': tela bloqueada no Windows (Win+L / tela de bloqueio).
+    - 'idle': sem interação de teclado/mouse há mais tempo que o threshold.
+    - 'active': interação recente detectada.
+    - 'unknown': falha ou sinal indeterminado.
+    Retorna: (session_state: str, user_active: bool)
+    """
+    if is_locked is True:
+        return "locked", False
+    if idle_seconds is None or idle_seconds < 0:
+        return "unknown", False
+    if idle_seconds >= idle_threshold:
+        return "idle", False
+    return "active", True
 
 
 def parse_semver(v: str) -> tuple:
@@ -660,7 +809,8 @@ def load_config():
         "activity_monitoring": True,
         "auto_update": True,
         "admin_notifications": False,
-        "update_check_interval": 6 * 3600
+        "update_check_interval": 6 * 3600,
+        "idle_threshold_seconds": 300
     }
 
     # 1. Lê arquivo local agent_config.json caso exista
@@ -695,6 +845,11 @@ def load_config():
             cfg["timeout_seconds"] = int(os.getenv("TIMEOUT_SECONDS"))
         except ValueError:
             pass
+    if os.getenv("IDLE_THRESHOLD_SECONDS"):
+        try:
+            cfg["idle_threshold_seconds"] = int(os.getenv("IDLE_THRESHOLD_SECONDS"))
+        except ValueError:
+            pass
     if os.getenv("ACTIVITY_MONITORING_ENABLED") is not None:
         cfg["activity_monitoring"] = os.getenv("ACTIVITY_MONITORING_ENABLED", "true").lower() in ("true", "1", "yes")
     if os.getenv("AUTO_UPDATE") is not None:
@@ -711,6 +866,7 @@ def load_config():
     parser.add_argument("--nome", dest="display_name", help="Nome amigável da máquina")
     parser.add_argument("--intervalo", dest="interval_seconds", type=int, help="Intervalo de envio em segundos")
     parser.add_argument("--timeout", dest="timeout_seconds", type=int, help="Tempo limite para requisições")
+    parser.add_argument("--idle-threshold", "--tempo-ocioso", dest="idle_threshold_seconds", type=int, help="Tempo sem interação para considerar o computador ocioso em segundos")
     parser.add_argument("--sem-atividade", dest="disable_activity", action="store_true", help="Desabilita o monitoramento de janela e domínio ativo")
     parser.add_argument("--sem-autoupdate", dest="disable_autoupdate", action="store_true", help="Desabilita verificação automática de updates")
     parser.add_argument("--admin-notif", dest="admin_notif", action="store_true", help="Habilita polling de notificações Windows de TI")
@@ -728,6 +884,8 @@ def load_config():
         cfg["display_name"] = args.display_name
     if args.interval_seconds:
         cfg["interval_seconds"] = max(2, args.interval_seconds)
+    if args.idle_threshold_seconds:
+        cfg["idle_threshold_seconds"] = max(10, args.idle_threshold_seconds)
     if args.disable_activity:
         cfg["activity_monitoring"] = False
     if args.disable_autoupdate:
@@ -760,9 +918,11 @@ def get_machine_uuid():
         return f"host-{hostname.lower().strip()}"
 
 
-def get_system_metrics(activity_enabled: bool = True):
+def get_system_metrics(activity_enabled: bool = True, idle_threshold_seconds: float = 300.0):
     """
-    Coleta dados técnicos de hardware, rede, sistema operacional e atividade em primeiro plano.
+    Coleta dados técnicos de hardware, rede, sistema operacional, atividade em primeiro plano
+    e telemetria de uso/ociosidade/bloqueio do Windows.
+    Garante privacidade absoluta: zero keylogger, zero captura de cliques ou conteúdo digitado.
     """
     hostname = socket.gethostname()
 
@@ -858,6 +1018,11 @@ def get_system_metrics(activity_enabled: bool = True):
                     active_application = _latest_browser_tab["browser"] or "Google Chrome"
                     active_domain = _latest_browser_tab["domain"]
 
+    # Detecção de Ociosidade e Bloqueio de Sessão do Windows (v1.5.0)
+    idle_seconds = get_idle_seconds()
+    win_session_id, is_locked = get_windows_session_info()
+    session_state, user_active = determine_session_state(idle_seconds, idle_threshold_seconds, is_locked)
+
     return {
         "uuid": get_machine_uuid(),
         "computador": hostname,
@@ -879,6 +1044,11 @@ def get_system_metrics(activity_enabled: bool = True):
         "active_application": active_application,
         "active_domain": active_domain,
         "activity_updated_at": datetime.now(timezone.utc).isoformat() if active_application else None,
+        "idle_seconds": round(idle_seconds, 1),
+        "session_state": session_state,
+        "user_active": user_active,
+        "windows_session_id": win_session_id,
+        "activity_sampled_at": datetime.now(timezone.utc).isoformat(),
         "agent_version": VERSION
     }
 
@@ -887,7 +1057,7 @@ def send_metrics(server_url: str, token: str, payload: dict, timeout: int = 5, d
     """
     Envia métricas para o servidor com headers de autenticação e timeout.
     Suporta autenticação por token compartilhado e token individual de dispositivo.
-    Retorna: (success: bool, status_code: int | None, message: str)
+    Retorna: (success: bool, status_code: int | None, message: str, resp_data: dict | None)
     """
     headers = {
         "Content-Type": "application/json",
@@ -901,24 +1071,30 @@ def send_metrics(server_url: str, token: str, payload: dict, timeout: int = 5, d
 
     try:
         response = requests.post(server_url, json=payload, headers=headers, timeout=timeout)
+        resp_data = None
+        try:
+            resp_data = response.json()
+        except Exception:
+            pass
+
         if response.status_code == 200:
-            return True, 200, "Enviado com sucesso (HTTP 200)"
+            return True, 200, "Enviado com sucesso (HTTP 200)", resp_data
         elif response.status_code == 401:
-            return False, 401, "Falha de autenticação: Token inválido ou rejeitado pelo servidor"
+            return False, 401, "Falha de autenticação: Token inválido ou rejeitado pelo servidor", resp_data
         elif response.status_code == 403:
-            return False, 403, "Acesso negado pelo servidor"
+            return False, 403, "Acesso negado pelo servidor", resp_data
         elif response.status_code == 404:
-            return False, 404, "Endpoint não encontrado"
+            return False, 404, "Endpoint não encontrado", resp_data
         elif response.status_code >= 500:
-            return False, response.status_code, f"Erro interno do servidor ({response.status_code})"
+            return False, response.status_code, f"Erro interno do servidor ({response.status_code})", resp_data
         else:
-            return False, response.status_code, f"Servidor respondeu com código {response.status_code}"
+            return False, response.status_code, f"Servidor respondeu com código {response.status_code}", resp_data
     except requests.exceptions.Timeout:
-        return False, None, "Tempo de resposta esgotado (timeout)"
+        return False, None, "Tempo de resposta esgotado (timeout)", None
     except requests.exceptions.ConnectionError:
-        return False, None, "Servidor indisponível ou conexão recusada"
+        return False, None, "Servidor indisponível ou conexão recusada", None
     except Exception as e:
-        return False, None, f"Erro de comunicação: {str(e)}"
+        return False, None, f"Erro de comunicação: {str(e)}", None
 
 
 
@@ -942,6 +1118,7 @@ def run_agent():
     logger.info(f"   Token validation: {'VALID' if token_valid else 'INVALID'}")
     logger.info(f"   Setor: {config['department']}")
     logger.info(f"   Intervalo: {config['interval_seconds']}s")
+    logger.info(f"   Limite de Ociosidade: {config.get('idle_threshold_seconds', 300)}s")
     logger.info(f"   Monitoramento de Atividade: {'Habilitado' if config['activity_monitoring'] else 'Desabilitado'}")
     logger.info(f"   Auto-Update Remoto: {'Habilitado' if config['auto_update'] else 'Desabilitado'}")
     logger.info(f"   Notificações TI (Admin): {'Habilitado' if config['admin_notifications'] else 'Desabilitado'}")
@@ -972,7 +1149,8 @@ def run_agent():
                     "timeout_seconds": config["timeout_seconds"],
                     "activity_monitoring": config["activity_monitoring"],
                     "auto_update": config.get("auto_update", True),
-                    "admin_notifications": config.get("admin_notifications", False)
+                    "admin_notifications": config.get("admin_notifications", False),
+                    "idle_threshold_seconds": config.get("idle_threshold_seconds", 300)
                 }, f, indent=4)
         except Exception:
             pass
@@ -982,17 +1160,21 @@ def run_agent():
     had_previous_failure = False
     first_success_logged = False
     last_reported_activity = None
+    last_reported_session_state = None
     loop_cycle = 0
 
     while True:
         try:
             loop_cycle += 1
-            metrics = get_system_metrics(activity_enabled=config["activity_monitoring"])
+            metrics = get_system_metrics(
+                activity_enabled=config["activity_monitoring"],
+                idle_threshold_seconds=config.get("idle_threshold_seconds", 300)
+            )
             metrics["setor"] = config["department"]
             if config["display_name"]:
                 metrics["display_name"] = config["display_name"]
 
-            success, status_code, message = send_metrics(
+            success, status_code, message, resp_data = send_metrics(
                 server_url=config["server_url"],
                 token=config["agent_token"],
                 payload=metrics,
@@ -1006,6 +1188,21 @@ def run_agent():
             if success:
                 consecutive_success += 1
                 emit_health_confirmation()
+
+                # Sincronização dinâmica de configuração de ociosidade com o servidor
+                if isinstance(resp_data, dict):
+                    server_thresh = resp_data.get("idle_threshold_seconds")
+                    if server_thresh and isinstance(server_thresh, (int, float)):
+                        if 30 <= server_thresh <= 3600 and server_thresh != config.get("idle_threshold_seconds"):
+                            logger.info(f"Limite de ociosidade sincronizado com o servidor: {config.get('idle_threshold_seconds')}s -> {int(server_thresh)}s")
+                            config["idle_threshold_seconds"] = int(server_thresh)
+
+                # Log de transição de estado da sessão (Directive 35: sem flood)
+                current_session_state = metrics.get("session_state")
+                if current_session_state != last_reported_session_state:
+                    if last_reported_session_state is not None:
+                        logger.info(f"Session state: {last_reported_session_state} -> {current_session_state} (idle: {metrics.get('idle_seconds', 0)}s)")
+                    last_reported_session_state = current_session_state
 
                 if had_previous_failure:
                     logger.info("Conexão restabelecida - Report sent successfully - HTTP 200")
@@ -1025,10 +1222,12 @@ def run_agent():
                         else:
                             activity_log = f" | Atividade: {metrics['active_application']}"
 
+                    session_log = f" | Sessão: {str(metrics.get('session_state', 'unknown')).upper()} (idle: {metrics.get('idle_seconds', 0)}s)"
+
                     logger.info(
                         f"OK [{metrics['hostname']}] CPU: {metrics['cpu']}% | "
                         f"RAM: {metrics['ram']}% ({metrics['ram_used_gb']}G/{metrics['ram_total_gb']}G) | "
-                        f"Disco: {metrics['disco']}%{activity_log} - HTTP 200"
+                        f"Disco: {metrics['disco']}%{activity_log}{session_log} - HTTP 200"
                     )
                     last_reported_activity = current_activity
             else:
