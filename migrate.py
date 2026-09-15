@@ -122,11 +122,17 @@ def seed_canary_release_v1_5_0() -> bool:
     EXPECTED_SHA = "fbaf61d253c9b9fe5ea5f813dabe473b622dd4eb90aa99e0129edba62ffe1743"
     VICTOR_UUID = "node-e0282f022d"
 
-    deploy_exe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist", "GivovaMonitorDeploy", "GivovaMonitorAgent.exe")
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "releases", "1.5.0", "GivovaMonitorAgent.exe"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist", "GivovaMonitorDeploy", "GivovaMonitorAgent.exe"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist", "GivovaMonitorAgent.exe"),
+    ]
     binary_bytes = None
-    if os.path.exists(deploy_exe):
-        with open(deploy_exe, "rb") as f:
-            binary_bytes = f.read()
+    for cand in candidates:
+        if os.path.exists(cand):
+            with open(cand, "rb") as f:
+                binary_bytes = f.read()
+            break
 
     if binary_bytes:
         computed_sha = hashlib.sha256(binary_bytes).hexdigest().lower()

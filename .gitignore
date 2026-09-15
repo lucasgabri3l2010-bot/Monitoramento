@@ -30,9 +30,11 @@ deploy_config.local.json
 # PyInstaller build artifacts and distribution bundles
 build/
 dist/
-releases/
+!dist/GivovaMonitorDeploy/GivovaMonitorAgent.exe
 temp/
 *.exe
+!dist/GivovaMonitorDeploy/GivovaMonitorAgent.exe
+!releases/**/*.exe
 *.spec
 
 # OS files
