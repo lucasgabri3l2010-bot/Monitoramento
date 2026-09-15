@@ -19,7 +19,7 @@ from datetime_utils import (
 )
 from models import (
     db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent,
-    PolicyAuditLog, SystemMetadata, AgentRelease, PolicyAllowlist,
+    PolicyAuditLog, SystemMetadata, AgentRelease, ReleaseTargetDevice, PolicyAllowlist,
     DomainClassification, DailyUsageSummary, compare_versions, parse_semver, normalize_domain
 )
 from services import process_agent_payload, get_dashboard_stats, invalidate_policy_rules_cache
@@ -612,16 +612,30 @@ def resolver_todos_alertas():
 # Rotas de Auto-Update do Agente & Gestão de Releases
 # =====================================================================
 
-@app.route("/api/agent/update", methods=["GET"])
+# =====================================================================
+# Rotas de Auto-Update do Agente & Gestão de Releases (Rollout Canary)
+# =====================================================================
+
+@app.route("/api/agent/update", methods=["GET", "POST"])
 @require_agent_token
 def checar_atualizacao_agente():
     """
     Endpoint autenticado para consulta periódica de atualização pelo agente.
-    Responde com manifesto oficial de release e hash SHA-256 para integridade.
-    Compatível com os parâmetros 'current_version' e 'agent_version'.
+    Suporta Rollout Progressivo (Canary e Stable Global) com seleção SemVer determinística.
+    Compatível com GET (query string) e POST (JSON) do Agent 1.4.1.
     """
-    current_version = (request.args.get("current_version") or request.args.get("agent_version") or "1.0.0").strip()
-    device_uuid = request.args.get("uuid") or request.args.get("device_uuid")
+    import functools
+
+    body = request.get_json(silent=True) or {}
+    current_version = (
+        request.args.get("current_version") or request.args.get("agent_version") or
+        body.get("current_version") or body.get("agent_version") or "1.0.0"
+    ).strip()
+    device_uuid = (
+        request.args.get("uuid") or request.args.get("device_uuid") or
+        body.get("uuid") or body.get("device_uuid") or
+        request.headers.get("X-Device-UUID")
+    )
 
     device = getattr(request, "authenticated_device", None)
     if not device and device_uuid:
@@ -631,19 +645,16 @@ def checar_atualizacao_agente():
     if device:
         device.last_update_check = now
 
-    # Carrega manifesto de release oficial (prioriza AgentRelease persistido no banco)
-    latest_release = AgentRelease.query.order_by(AgentRelease.created_at.desc()).first()
-    if latest_release:
-        latest_version = latest_release.version
-        manifest = {
-            "version": latest_release.version,
-            "minimum_supported_version": latest_release.min_supported_version or "1.0.0",
-            "required": latest_release.mandatory,
-            "sha256": latest_release.sha256,
-            "release_notes": latest_release.changelog or "Atualização de estabilidade e suporte a políticas corporativas.",
-            "download_url": latest_release.download_url or f"/api/agent/download/{latest_release.version}"
-        }
-    else:
+    # Tokens enviados pelo cliente para autenticação estrita
+    sent_device_token = request.headers.get("X-Device-Token")
+    sent_agent_token = request.headers.get("X-Agent-Token") or request.headers.get("Authorization") or ""
+    if sent_agent_token.startswith("Bearer "):
+        sent_agent_token = sent_agent_token.replace("Bearer ", "", 1).strip()
+
+    # 1. Verifica se existem releases cadastradas no banco de dados
+    has_any_release_in_db = db.session.query(AgentRelease.id).first() is not None
+    if not has_any_release_in_db:
+        # Fallback de compatibilidade quando nenhuma release foi cadastrada em banco ainda
         manifest_path = os.path.join(Config.RELEASES_DIR, "manifest.json")
         manifest = {
             "version": Config.LATEST_AGENT_VERSION,
@@ -651,9 +662,10 @@ def checar_atualizacao_agente():
             "required": False,
             "sha256": "",
             "release_notes": "Atualização de estabilidade e suporte a políticas corporativas.",
-            "download_url": f"/api/agent/download/{Config.LATEST_AGENT_VERSION}"
+            "download_url": f"/api/agent/download/{Config.LATEST_AGENT_VERSION}",
+            "release_channel": "stable",
+            "rollout_scope": "global"
         }
-
         if os.path.exists(manifest_path):
             try:
                 with open(manifest_path, "r", encoding="utf-8") as f:
@@ -662,9 +674,115 @@ def checar_atualizacao_agente():
                         manifest.update(saved_m)
             except Exception as e:
                 logger.warning(f"Erro ao ler manifesto de release {manifest_path}: {e}")
-        latest_version = manifest.get("version", Config.LATEST_AGENT_VERSION)
 
-    has_update = compare_versions(latest_version, current_version) > 0
+        latest_version = manifest.get("version", Config.LATEST_AGENT_VERSION)
+        has_update = compare_versions(latest_version, current_version) > 0
+        target_sha256 = manifest.get("sha256", "")
+        download_url = manifest.get("download_url", f"/api/agent/download/{latest_version}")
+
+        if device:
+            device.update_status = "update_available" if has_update else "up_to_date"
+            db.session.commit()
+
+        return jsonify({
+            "update_available": has_update,
+            "version": latest_version,
+            "latest_version": latest_version,
+            "target_version": latest_version,
+            "current_version": current_version,
+            "download_url": download_url,
+            "sha256": target_sha256,
+            "update_id": f"{latest_version}-{int(now.timestamp())}",
+            "required": manifest.get("required", False),
+            "release_notes": manifest.get("release_notes", ""),
+            "release_channel": manifest.get("release_channel", "stable"),
+            "rollout_scope": manifest.get("rollout_scope", "global"),
+            "server_time": format_iso_utc(now)
+        })
+
+    active_releases = AgentRelease.query.filter_by(status="active").all()
+    eligible = []
+
+    for rel in active_releases:
+        # A versão deve ser estritamente mais nova que a versão corrente do agente
+        if compare_versions(rel.version, current_version) <= 0:
+            continue
+
+        # Deve satisfazer a versão mínima suportada pela release
+        if rel.min_supported_version and compare_versions(current_version, rel.min_supported_version) < 0:
+            continue
+
+        # 2. Avaliação de Escopo e Canal de Rollout
+        if rel.release_channel == "stable" and rel.rollout_scope == "global":
+            # Release Global estável: elegível para qualquer dispositivo autenticado
+            eligible.append(rel)
+
+        elif rel.release_channel == "canary" and rel.rollout_scope == "devices":
+            # Release Canary: elegível SOMENTE para dispositivos explicitamente autorizados
+            if not device or not device_uuid or device.uuid != device_uuid:
+                continue
+
+            # Verifica se o dispositivo está na lista de alvos da release
+            is_targeted = any(td.id == device.id for td in rel.target_devices)
+            if not is_targeted:
+                continue
+
+            # Proteção 1: Autenticação Forte do Device Canary
+            if sent_device_token:
+                if not device.device_token or sent_device_token.strip() != device.device_token.strip():
+                    logger.warning(
+                        f"[CANARY SECURITY] Tentativa de obter release Canary v{rel.version} para {device.hostname} "
+                        f"rejeitada: device_token divergente do token individual do dispositivo."
+                    )
+                    continue
+            else:
+                # Fallback para Agent 1.4.1 (sem device_token no config): valida contra AGENT_SECRET_TOKEN
+                if not sent_agent_token or sent_agent_token.strip() != (Config.AGENT_SECRET_TOKEN or "").strip():
+                    logger.warning(
+                        f"[CANARY SECURITY] Tentativa de obter release Canary v{rel.version} para {device.hostname} "
+                        f"rejeitada: token compartilhado ausente ou inválido."
+                    )
+                    continue
+
+            # Dispositivo autenticado e autorizado para Canary
+            eligible.append(rel)
+
+    # 3. Seleção SemVer Determinística: escolhe a maior versão elegível (ex: 1.10.0 > 1.9.0)
+    chosen_release = None
+    if eligible:
+        eligible.sort(key=functools.cmp_to_key(lambda a, b: compare_versions(a.version, b.version)), reverse=True)
+        chosen_release = eligible[0]
+
+    if chosen_release:
+        has_update = True
+        latest_version = chosen_release.version
+        target_sha256 = chosen_release.sha256
+        download_url = chosen_release.download_url or f"/api/agent/download/{chosen_release.version}"
+        manifest = {
+            "version": chosen_release.version,
+            "minimum_supported_version": chosen_release.min_supported_version or "1.0.0",
+            "required": chosen_release.mandatory,
+            "sha256": target_sha256,
+            "release_notes": chosen_release.changelog or "Atualização de estabilidade e suporte a políticas corporativas.",
+            "download_url": download_url,
+            "release_channel": chosen_release.release_channel,
+            "rollout_scope": chosen_release.rollout_scope
+        }
+    else:
+        has_update = False
+        latest_version = current_version
+        target_sha256 = ""
+        download_url = ""
+        manifest = {
+            "version": current_version,
+            "minimum_supported_version": "1.0.0",
+            "required": False,
+            "sha256": "",
+            "release_notes": "",
+            "download_url": "",
+            "release_channel": "stable",
+            "rollout_scope": "global"
+        }
 
     if device:
         device.update_status = "update_available" if has_update else "up_to_date"
@@ -672,51 +790,85 @@ def checar_atualizacao_agente():
 
     return jsonify({
         "update_available": has_update,
+        "version": latest_version,
         "latest_version": latest_version,
         "target_version": latest_version,
         "current_version": current_version,
-        "download_url": manifest.get("download_url", f"/api/agent/download/{latest_version}"),
-        "sha256": manifest.get("sha256", ""),
+        "download_url": download_url,
+        "sha256": target_sha256,
+        "update_id": f"{latest_version}-{int(now.timestamp())}",
         "required": manifest.get("required", False),
         "release_notes": manifest.get("release_notes", ""),
+        "release_channel": manifest.get("release_channel", "stable"),
+        "rollout_scope": manifest.get("rollout_scope", "global"),
         "server_time": format_iso_utc(now)
     })
 
 
 @app.route("/api/agent/download/<path:version>", methods=["GET"])
+@app.route("/api/agent/update/download/<path:version>", methods=["GET"])
 @require_agent_token
 def baixar_versao_agente(version):
     """
     Entrega o binário executável autenticado para o agente.
-    Protegido contra directory traversal através de sanitização da versão.
-    Prioriza binário no banco PostgreSQL (AgentRelease) antes do filesystem do Render.
+    Protegido contra directory traversal e restrito a dispositivos autorizados em releases Canary.
+    Prioriza binário no banco de dados com hash SHA-256 verificado.
     """
     clean_version = version.strip().lstrip("vV")
     if not all(c.isalnum() or c == "." for c in clean_version) or ".." in clean_version:
         return jsonify({"error": "Formato de versão inválido", "code": "INVALID_VERSION"}), 400
 
-    # 1. Verifica se a release está cadastrada no banco de dados (Neon / PostgreSQL)
+    # 1. Localiza a release no banco de dados
     rel = AgentRelease.query.filter_by(version=clean_version).first()
-    if rel:
-        if rel.binary_data:
-            return send_file(
-                io.BytesIO(rel.binary_data),
-                as_attachment=True,
-                download_name=f"GivovaMonitorAgent-v{clean_version}.exe",
-                mimetype="application/octet-stream"
-            )
-        elif rel.download_url and rel.download_url.startswith(("http://", "https://")):
-            return redirect(rel.download_url)
+    if not rel:
+        # Fallback para filesystem se release não estiver em banco
+        exe_path = os.path.join(Config.RELEASES_DIR, clean_version, "GivovaMonitorAgent.exe")
+        if not os.path.exists(exe_path):
+            exe_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist", "GivovaMonitorAgent.exe")
+        if not os.path.exists(exe_path):
+            return jsonify({"error": f"Executável da versão {clean_version} não encontrado no servidor."}), 404
 
-    # 2. Fallback para arquivos em disco local
+        return send_file(
+            exe_path,
+            as_attachment=True,
+            download_name=f"GivovaMonitorAgent-v{clean_version}.exe",
+            mimetype="application/octet-stream"
+        )
+
+    # 2. Se a release estiver pausada ou draft, proíbe download
+    if rel.status in ("paused", "draft"):
+        return jsonify({"error": f"A release v{clean_version} está com status '{rel.status}' e não está disponível para download."}), 403
+
+    # 3. Se a release for Canary, valida que o dispositivo requisitante está expressamente autorizado
+    if rel.release_channel == "canary" and rel.rollout_scope == "devices":
+        device_uuid = request.headers.get("X-Device-UUID") or request.args.get("uuid")
+        device = getattr(request, "authenticated_device", None)
+        if not device and device_uuid:
+            device = Device.query.filter_by(uuid=device_uuid).first()
+
+        if not device or not any(td.id == device.id for td in rel.target_devices):
+            logger.warning(f"[SECURITY] Tentativa de download não autorizada da release Canary v{clean_version} por {request.remote_addr} (UUID: {device_uuid}).")
+            return jsonify({"error": "Dispositivo não autorizado para download desta release Canary.", "code": "CANARY_UNAUTHORIZED"}), 403
+
+    # 4. Entrega binário persistido no banco
+    if rel.binary_data:
+        return send_file(
+            io.BytesIO(rel.binary_data),
+            as_attachment=True,
+            download_name=f"GivovaMonitorAgent-v{clean_version}.exe",
+            mimetype="application/octet-stream"
+        )
+    elif rel.download_url and rel.download_url.startswith(("http://", "https://")):
+        return redirect(rel.download_url)
+
+    # 5. Fallback para arquivo em disco local
     exe_candidates = [
         os.path.join(Config.RELEASES_DIR, clean_version, "GivovaMonitorAgent.exe"),
         os.path.join(Config.RELEASES_DIR, f"v{clean_version}", "GivovaMonitorAgent.exe"),
         os.path.join(Config.RELEASES_DIR, "GivovaMonitorAgent.exe"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist", "releases", clean_version, "GivovaMonitorAgent.exe"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist", "GivovaMonitorDeploy", "GivovaMonitorAgent.exe"),
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist", "GivovaMonitorAgent.exe")
     ]
-
     target_exe = None
     for cand in exe_candidates:
         if os.path.exists(cand):
@@ -735,59 +887,107 @@ def baixar_versao_agente(version):
     )
 
 
+@app.route("/api/admin/releases", methods=["GET"])
+@admin_required
+def listar_releases_agente():
+    """
+    Lista todas as releases de agentes com canal, escopo, status e alvos Canary.
+    """
+    releases = AgentRelease.query.order_by(AgentRelease.created_at.desc()).all()
+    return jsonify({
+        "success": True,
+        "releases": [r.to_dict() for r in releases]
+    })
+
+
 @app.route("/api/admin/releases/publish", methods=["POST"])
-@login_required
+@admin_required
 def publicar_release_agente():
     """
-    Endpoint administrativo para registrar ou atualizar manifesto de release.
-    Persiste o binário na tabela AgentRelease no banco e/ou registra link externo
-    (GitHub Releases / S3) para não depender do filesystem efêmero do Render.
+    Endpoint administrativo para registrar ou atualizar release com suporte a Rollout Canary.
+    Valida invariantes rígidas (canary+devices ou stable+global), calcula SHA-256 no servidor
+    e protege contra modificações em releases ativas (imutabilidade).
     """
     data = request.form if request.form else (request.get_json(silent=True) or {})
     version = data.get("version")
-    sha256_hash = data.get("sha256", "")
+    provided_sha256 = (data.get("sha256") or "").strip().lower()
     release_notes = data.get("release_notes", "")
     required = str(data.get("required", "")).lower() in ("true", "1", "yes")
     external_url = data.get("download_url")
+
+    raw_channel = str(data.get("release_channel", "stable")).strip().lower()
+    raw_scope = str(data.get("rollout_scope", "global")).strip().lower()
+    raw_status = str(data.get("status", "active")).strip().lower()
 
     if not version:
         return jsonify({"error": "O campo 'version' é obrigatório."}), 400
 
     clean_version = version.strip().lstrip("vV")
+
+    # Invariantes Rígidas de Release
+    if raw_channel not in ("canary", "stable"):
+        return jsonify({"error": "Canal inválido. Valores permitidos: 'canary', 'stable'."}), 400
+    if raw_scope not in ("devices", "global"):
+        return jsonify({"error": "Escopo inválido. Valores permitidos: 'devices', 'global'."}), 400
+    if raw_status not in ("draft", "active", "paused", "superseded"):
+        return jsonify({"error": "Status inválido. Valores permitidos: 'draft', 'active', 'paused', 'superseded'."}), 400
+
+    if raw_channel == "canary" and raw_scope != "devices":
+        return jsonify({"error": "Releases Canary devem possuir escopo 'devices'."}), 400
+    if raw_channel == "stable" and raw_scope != "global":
+        return jsonify({"error": "Releases Stable devem possuir escopo 'global'."}), 400
+
+    # Imutabilidade de Release Ativa (User Protection 6)
+    existing_rel = AgentRelease.query.filter_by(version=clean_version).first()
+    has_uploaded_file = ("executable" in request.files) or ("file" in request.files)
+    if existing_rel and existing_rel.status == "active":
+        if has_uploaded_file or (external_url and external_url != existing_rel.download_url):
+            return jsonify({
+                "error": f"A release v{clean_version} já está ativa e é imutável. Para publicar novo código, lance uma nova versão (ex: 1.5.1)."
+            }), 400
+
+    # Leitura e cálculo de SHA-256 dos bytes efetivos pelo servidor (User Protection 2)
+    file_bytes = None
     target_dir = os.path.join(Config.RELEASES_DIR, clean_version)
     os.makedirs(target_dir, exist_ok=True)
 
-    file_bytes = None
-    if "executable" in request.files:
-        file = request.files["executable"]
-        if file.filename.endswith(".exe"):
-            file_bytes = file.read()
-            dest_path = os.path.join(target_dir, "GivovaMonitorAgent.exe")
-            with open(dest_path, "wb") as f:
-                f.write(file_bytes)
-            if not sha256_hash:
-                import hashlib
-                sha256_hash = hashlib.sha256(file_bytes).hexdigest()
+    uploaded_file = request.files.get("executable") or request.files.get("file")
+    if uploaded_file and uploaded_file.filename:
+        file_bytes = uploaded_file.read()
+        dest_path = os.path.join(target_dir, "GivovaMonitorAgent.exe")
+        with open(dest_path, "wb") as f:
+            f.write(file_bytes)
 
-    manifest_data = {
-        "version": clean_version,
-        "sha256": sha256_hash,
-        "required": bool(required),
-        "release_notes": release_notes,
-        "download_url": external_url or f"/api/agent/download/{clean_version}",
-        "published_at": format_iso_utc(utc_now()),
-        "published_by": session.get("username", "admin")
-    }
+    if not file_bytes:
+        # Se não enviou arquivo no multipart, tenta buscar de dist/GivovaMonitorDeploy local
+        deploy_exe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist", "GivovaMonitorDeploy", "GivovaMonitorAgent.exe")
+        if os.path.exists(deploy_exe):
+            with open(deploy_exe, "rb") as f:
+                file_bytes = f.read()
 
-    # Persiste na tabela AgentRelease para garantir sobrevivência no Render/Neon
-    rel = AgentRelease.query.filter_by(version=clean_version).first()
+    server_calculated_sha = None
+    if file_bytes:
+        import hashlib
+        server_calculated_sha = hashlib.sha256(file_bytes).hexdigest().lower()
+        if provided_sha256 and provided_sha256 != server_calculated_sha:
+            return jsonify({
+                "error": f"SHA-256 fornecido ({provided_sha256}) diverge do hash calculado pelo servidor ({server_calculated_sha}). Publicação abortada."
+            }), 400
+
+    sha256_final = server_calculated_sha or provided_sha256 or (existing_rel.sha256 if existing_rel else "")
+
+    rel = existing_rel
     if not rel:
         rel = AgentRelease(version=clean_version)
         db.session.add(rel)
-    rel.sha256 = sha256_hash or "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+    rel.sha256 = sha256_final
     rel.download_url = external_url or f"/api/agent/download/{clean_version}"
     rel.changelog = release_notes
     rel.mandatory = bool(required)
+    rel.release_channel = raw_channel
+    rel.rollout_scope = raw_scope
+    rel.status = raw_status
     rel.created_by = session.get("username", "admin")
     if file_bytes:
         rel.storage_type = "database"
@@ -795,25 +995,243 @@ def publicar_release_agente():
     elif external_url:
         rel.storage_type = "external"
 
-    os.makedirs(Config.RELEASES_DIR, exist_ok=True)
+    # Alvos Canary (se fornecido device_ids)
+    target_ids = data.get("target_device_ids")
+    if target_ids:
+        if isinstance(target_ids, str):
+            try:
+                target_ids = json.loads(target_ids)
+            except Exception:
+                target_ids = [int(x.strip()) for x in target_ids.split(",") if x.strip().isdigit()]
+        if isinstance(target_ids, list):
+            target_devices = Device.query.filter(Device.id.in_(target_ids)).all()
+            rel.target_devices = target_devices
+
+    manifest_data = {
+        "version": clean_version,
+        "sha256": sha256_final,
+        "required": bool(required),
+        "release_notes": release_notes,
+        "download_url": rel.download_url,
+        "release_channel": rel.release_channel,
+        "rollout_scope": rel.rollout_scope,
+        "status": rel.status,
+        "published_at": format_iso_utc(utc_now()),
+        "published_by": session.get("username", "admin")
+    }
+
     manifest_root = os.path.join(Config.RELEASES_DIR, "manifest.json")
-    with open(manifest_root, "w", encoding="utf-8") as f:
-        json.dump(manifest_data, f, indent=2)
+    try:
+        with open(manifest_root, "w", encoding="utf-8") as f:
+            json.dump(manifest_data, f, indent=2)
+    except Exception:
+        pass
 
-    manifest_version_path = os.path.join(target_dir, "manifest.json")
-    with open(manifest_version_path, "w", encoding="utf-8") as f:
-        json.dump(manifest_data, f, indent=2)
-
+    action_label = "agent_release_canary_enabled" if raw_channel == "canary" else "agent_release_published"
     audit = PolicyAuditLog(
         user_name=session.get("username", "admin"),
-        action="RELEASE_PUBLISHED",
-        details=f"Publicada versão {clean_version} com hash SHA-256 {sha256_hash[:16] if sha256_hash else '—'}..."
+        action=action_label,
+        details=f"Publicada release v{clean_version} | Canal: {raw_channel} | Escopo: {raw_scope} | SHA-256: {sha256_final}."
     )
     db.session.add(audit)
     db.session.commit()
 
-    logger.info(f"Release v{clean_version} do agente publicada pelo administrador {session.get('username')}.")
-    return jsonify({"status": "ok", "manifest": manifest_data})
+    logger.info(f"Release v{clean_version} publicada com sucesso (Canal: {raw_channel}, Escopo: {raw_scope}).")
+    return jsonify({"status": "ok", "release": rel.to_dict(), "manifest": manifest_data})
+
+
+@app.route("/api/admin/releases/<int:release_id>/promote", methods=["POST"])
+@admin_required
+def promover_release_agente(release_id):
+    """
+    Promove uma release Canary para Stable/Global.
+    Preserva rigorosamente o binário, URL e hash SHA-256 sem necessidade de recompilação.
+    """
+    rel = db.get_or_404(AgentRelease, release_id)
+
+    if rel.release_channel != "canary":
+        return jsonify({"error": f"Apenas releases no canal 'canary' podem ser promovidas. Release v{rel.version} está em '{rel.release_channel}'."}), 400
+
+    old_sha = rel.sha256
+    rel.release_channel = "stable"
+    rel.rollout_scope = "global"
+    rel.status = "active"
+    rel.updated_at = datetime.now(timezone.utc)
+
+    # Invariante: SHA-256 e binário permanecem rigorosamente idênticos
+    assert rel.sha256 == old_sha, "Violação crítica: o hash SHA-256 da release foi corrompido durante a promoção!"
+
+    audit = PolicyAuditLog(
+        user_name=session.get("username", "admin"),
+        action="agent_release_promoted_global",
+        details=f"Release v{rel.version} promovida com sucesso de Canary para Stable/Global. SHA-256 preservado: {rel.sha256}."
+    )
+    db.session.add(audit)
+    db.session.commit()
+
+    logger.info(f"[PROMOÇÃO GLOBAL] Release v{rel.version} promovida para Stable/Global por {session.get('username')}.")
+    return jsonify({
+        "status": "ok",
+        "message": f"Release v{rel.version} promovida com sucesso para toda a frota.",
+        "release": rel.to_dict()
+    })
+
+
+@app.route("/api/admin/releases/<int:release_id>/pause", methods=["POST"])
+@admin_required
+def pausar_release_agente(release_id):
+    """
+    Pausa a distribuição de uma release para novos computadores sem causar downgrade em máquinas já atualizadas.
+    """
+    rel = db.get_or_404(AgentRelease, release_id)
+    rel.status = "paused"
+    rel.updated_at = datetime.now(timezone.utc)
+
+    audit = PolicyAuditLog(
+        user_name=session.get("username", "admin"),
+        action="agent_release_paused",
+        details=f"Rollout da release v{rel.version} pausado pelo administrador."
+    )
+    db.session.add(audit)
+    db.session.commit()
+
+    logger.info(f"Rollout da release v{rel.version} pausado por {session.get('username')}.")
+    return jsonify({"status": "ok", "message": f"Rollout da versão v{rel.version} pausado com sucesso.", "release": rel.to_dict()})
+
+
+@app.route("/api/admin/releases/<int:release_id>/resume", methods=["POST"])
+@admin_required
+def retomar_release_agente(release_id):
+    """
+    Retoma o rollout de uma release que estava pausada.
+    """
+    rel = db.get_or_404(AgentRelease, release_id)
+    rel.status = "active"
+    rel.updated_at = datetime.now(timezone.utc)
+
+    audit = PolicyAuditLog(
+        user_name=session.get("username", "admin"),
+        action="agent_release_resumed",
+        details=f"Rollout da release v{rel.version} retomado com status 'active'."
+    )
+    db.session.add(audit)
+    db.session.commit()
+
+    logger.info(f"Rollout da release v{rel.version} retomado por {session.get('username')}.")
+    return jsonify({"status": "ok", "message": f"Rollout da versão v{rel.version} retomado.", "release": rel.to_dict()})
+
+
+@app.route("/api/admin/releases/<int:release_id>/targets", methods=["POST"])
+@admin_required
+def atualizar_alvos_release(release_id):
+    """
+    Adiciona ou remove computadores de teste da lista de alvos de uma release Canary.
+    """
+    rel = db.get_or_404(AgentRelease, release_id)
+    if rel.release_channel != "canary":
+        return jsonify({"error": "Alvos de teste só podem ser definidos para releases no canal 'canary'."}), 400
+
+    data = request.get_json(silent=True) or {}
+    device_ids = data.get("device_ids", [])
+    if not isinstance(device_ids, list):
+        return jsonify({"error": "O campo 'device_ids' deve ser uma lista de IDs de computadores."}), 400
+
+    target_devices = Device.query.filter(Device.id.in_(device_ids)).all()
+    rel.target_devices = target_devices
+    rel.updated_at = datetime.now(timezone.utc)
+
+    target_names = ", ".join(d.hostname for d in target_devices)
+    audit = PolicyAuditLog(
+        user_name=session.get("username", "admin"),
+        action="agent_release_targets_updated",
+        details=f"Alvos Canary da release v{rel.version} atualizados: {len(target_devices)} computadores ({target_names or 'Nenhum'})."
+    )
+    db.session.add(audit)
+    db.session.commit()
+
+    logger.info(f"Alvos da release Canary v{rel.version} atualizados por {session.get('username')}: {target_names}")
+    return jsonify({
+        "status": "ok",
+        "message": f"Alvos atualizados com sucesso ({len(target_devices)} computadores autorizados).",
+        "release": rel.to_dict()
+    })
+
+
+@app.route("/api/admin/releases/<int:release_id>/rollout-progress", methods=["GET"])
+@admin_required
+def obter_progresso_rollout(release_id):
+    """
+    Retorna o progresso factual e comprovável do rollout da release na frota de computadores.
+    Não inventa status: distingue estritamente entre Atualizado, Aguardando, Offline e Não Elegível.
+    """
+    rel = db.get_or_404(AgentRelease, release_id)
+    target_ids = {td.id for td in rel.target_devices}
+
+    # Dispositivos reais cadastrados no sistema
+    real_devices = Device.query.filter(Device.id < 90000).order_by(Device.hostname.asc()).all()
+
+    devices_list = []
+    updated_count = 0
+    pending_count = 0
+    offline_count = 0
+    not_targeted_count = 0
+
+    for d in real_devices:
+        is_targeted = (d.id in target_ids)
+        is_eligible = (rel.rollout_scope == "global") or is_targeted
+        status_computed = d.get_status(Config.OFFLINE_THRESHOLD_SECONDS)
+        is_updated = (compare_versions(d.agent_version or "1.0.0", rel.version) >= 0)
+
+        if is_updated:
+            item_status = "updated"
+            item_label = "Atualizado"
+            updated_count += 1
+        elif status_computed == "offline":
+            item_status = "offline"
+            item_label = "Offline"
+            offline_count += 1
+        elif is_eligible:
+            item_status = "pending"
+            item_label = "Aguardando"
+            pending_count += 1
+        else:
+            item_status = "not_targeted"
+            item_label = "Fora do Rollout"
+            not_targeted_count += 1
+
+        devices_list.append({
+            "id": d.id,
+            "hostname": d.hostname,
+            "display_name": d.display_name or d.hostname,
+            "user_name": d.user_name or "—",
+            "department": d.department or "—",
+            "current_version": d.agent_version or "1.0.0",
+            "target_version": rel.version,
+            "status": item_status,
+            "status_label": item_label,
+            "is_targeted": is_targeted,
+            "is_eligible": is_eligible,
+            "last_contact_iso": format_iso_utc(d.updated_at),
+            "last_contact": format_local_datetime(d.updated_at)
+        })
+
+    online_eligible_count = updated_count + pending_count
+    progress_pct = round((updated_count / online_eligible_count * 100.0), 1) if online_eligible_count > 0 else 0.0
+
+    return jsonify({
+        "success": True,
+        "release": rel.to_dict(),
+        "summary": {
+            "total_devices": len(real_devices),
+            "updated_count": updated_count,
+            "pending_count": pending_count,
+            "offline_count": offline_count,
+            "not_targeted_count": not_targeted_count,
+            "online_eligible_count": online_eligible_count,
+            "progress_percent": progress_pct
+        },
+        "devices": devices_list
+    })
 
 
 # =====================================================================

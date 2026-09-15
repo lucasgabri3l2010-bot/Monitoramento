@@ -8,9 +8,14 @@ Garante:
 4. Idempotencia absoluta em multiplos boots/restarts consecutivos.
 """
 
+import os
 import sys
+import json
+import hashlib
 import logging
 import threading
+from datetime import datetime, timezone
+from datetime_utils import format_iso_utc
 from config import Config
 from models import (
     db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent,
@@ -107,6 +112,103 @@ def seed_default_policy_rules(force: bool = False) -> int:
     return inserted_count
 
 
+def seed_canary_release_v1_5_0() -> bool:
+    """
+    Cadastra a release oficial v1.5.0 como Canary no banco de dados.
+    Garante o hash imutável SHA-256 e direciona para o computador do Victor (node-e0282f022d).
+    Não realiza promoção global (preserva rigorosamente o estado Canary).
+    """
+    CANARY_VERSION = "1.5.0"
+    EXPECTED_SHA = "fbaf61d253c9b9fe5ea5f813dabe473b622dd4eb90aa99e0129edba62ffe1743"
+    VICTOR_UUID = "node-e0282f022d"
+
+    deploy_exe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist", "GivovaMonitorDeploy", "GivovaMonitorAgent.exe")
+    binary_bytes = None
+    if os.path.exists(deploy_exe):
+        with open(deploy_exe, "rb") as f:
+            binary_bytes = f.read()
+
+    if binary_bytes:
+        computed_sha = hashlib.sha256(binary_bytes).hexdigest().lower()
+        if computed_sha != EXPECTED_SHA:
+            logger.error(f"[CANARY SEED ERROR] Divergência no hash SHA-256 do executável local: esperado {EXPECTED_SHA}, obtido {computed_sha}")
+            return False
+
+    rel = AgentRelease.query.filter_by(version=CANARY_VERSION).first()
+    if not rel:
+        logger.info(f"[MIGRATION] Publicando release v{CANARY_VERSION} como CANARY no banco...")
+        rel = AgentRelease(
+            version=CANARY_VERSION,
+            sha256=EXPECTED_SHA,
+            download_url=f"/api/agent/download/{CANARY_VERSION}",
+            changelog="Release v1.5.0: Auditoria completa de timezone UTC/America/Sao_Paulo e monitoramento de tempo de uso real e ociosidade por sessão do Windows.",
+            min_supported_version="1.0.0",
+            mandatory=False,
+            storage_type="database" if binary_bytes else "local",
+            binary_data=binary_bytes,
+            release_channel="canary",
+            rollout_scope="devices",
+            status="active",
+            created_by="admin"
+        )
+        db.session.add(rel)
+        db.session.flush()
+    else:
+        # Se já existe como draft ou inativa, ativa e mantém no canal canary
+        if rel.status in ("draft", "superseded"):
+            rel.status = "active"
+        if rel.release_channel != "stable":  # Se ainda não foi promovida, garante que é canary
+            rel.release_channel = "canary"
+            rel.rollout_scope = "devices"
+        rel.sha256 = EXPECTED_SHA
+        if binary_bytes and not rel.binary_data:
+            rel.binary_data = binary_bytes
+            rel.storage_type = "database"
+
+    # Localiza ou inicializa o registro do computador de teste do Victor
+    victor_dev = Device.query.filter((Device.uuid == VICTOR_UUID) | (Device.hostname == "DESKTOP-1E340V5")).first()
+    if not victor_dev:
+        victor_dev = Device(
+            uuid=VICTOR_UUID,
+            hostname="DESKTOP-1E340V5",
+            display_name="PC Victor - TI",
+            department="TI",
+            agent_version="1.4.1",
+            updated_at=datetime.now(timezone.utc)
+        )
+        db.session.add(victor_dev)
+        db.session.flush()
+
+    if victor_dev not in rel.target_devices:
+        rel.target_devices.append(victor_dev)
+        logger.info(f"[MIGRATION] Dispositivo {victor_dev.hostname} ({victor_dev.uuid}) vinculado como alvo Canary v{CANARY_VERSION}.")
+
+    # Atualiza manifesto em disco para redundância
+    manifest_data = {
+        "version": CANARY_VERSION,
+        "sha256": EXPECTED_SHA,
+        "required": False,
+        "release_notes": rel.changelog,
+        "download_url": rel.download_url,
+        "release_channel": rel.release_channel,
+        "rollout_scope": rel.rollout_scope,
+        "status": rel.status,
+        "published_at": format_iso_utc(datetime.now(timezone.utc)),
+        "published_by": "admin"
+    }
+    manifest_root = os.path.join(Config.RELEASES_DIR, "manifest.json")
+    try:
+        os.makedirs(Config.RELEASES_DIR, exist_ok=True)
+        with open(manifest_root, "w", encoding="utf-8") as f:
+            json.dump(manifest_data, f, indent=2)
+    except Exception:
+        pass
+
+    db.session.commit()
+    logger.info(f"[MIGRATION] Release v{CANARY_VERSION} configurada como CANARY com {len(rel.target_devices)} alvo(s).")
+    return True
+
+
 def run_migrations() -> bool:
     """
     Executa o pipeline completo e idempotente de migracao e inicializacao.
@@ -185,6 +287,15 @@ def run_migrations() -> bool:
                                 ("last_notification_sent_at", "TIMESTAMP", "DATETIME"),
                                 ("resolved_by", "VARCHAR(80)", "VARCHAR(80)")
                             ]
+                        ),
+                        (
+                            "agent_releases",
+                            [
+                                ("release_channel", "VARCHAR(30) DEFAULT 'stable'", "VARCHAR(30) DEFAULT 'stable'"),
+                                ("rollout_scope", "VARCHAR(30) DEFAULT 'global'", "VARCHAR(30) DEFAULT 'global'"),
+                                ("status", "VARCHAR(30) DEFAULT 'active'", "VARCHAR(30) DEFAULT 'active'"),
+                                ("updated_at", "TIMESTAMP", "DATETIME")
+                            ]
                         )
                     ]
 
@@ -259,7 +370,21 @@ def run_migrations() -> bool:
                     db.session.remove()
 
                 # -----------------------------------------------------------------
-                # FASE D: Verificacao de Segredos em Producao
+                # FASE D: Seed de Release Canary v1.5.0 (Rollout Controlado)
+                # -----------------------------------------------------------------
+                logger.info("[MIGRATION] Fase D: Verificando release Canary v1.5.0...")
+                try:
+                    db.session.rollback()
+                    seed_canary_release_v1_5_0()
+                except Exception as e:
+                    db.session.rollback()
+                    logger.error(f"[MIGRATION ERROR] Falha na Fase D (Canary Seed): {e}")
+                    raise
+                finally:
+                    db.session.remove()
+
+                # -----------------------------------------------------------------
+                # FASE E: Verificacao de Segredos em Producao
                 # -----------------------------------------------------------------
                 if Config.FLASK_ENV == "production":
                     if "change_in_prod" in Config.SECRET_KEY or "fallback" in Config.SECRET_KEY:

@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from datetime_utils import format_iso_utc, format_local_datetime, format_local_time
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from config import Config
 
 db = SQLAlchemy()
 
@@ -731,11 +732,30 @@ class SystemMetadata(db.Model):
             db.session.rollback()
 
 
+class ReleaseTargetDevice(db.Model):
+    """
+    Tabela associativa entre releases de agentes e dispositivos autorizados para Canary rollout.
+    Permite direcionar releases com rollout_scope='devices' para computadores específicos.
+    """
+    __tablename__ = "release_target_devices"
+
+    id = db.Column(db.Integer, primary_key=True)
+    release_id = db.Column(db.Integer, db.ForeignKey("agent_releases.id", ondelete="CASCADE"), nullable=False, index=True)
+    device_id = db.Column(db.Integer, db.ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint("release_id", "device_id", name="uq_release_target_device"),
+        db.Index("idx_rel_target_dev", "release_id", "device_id"),
+    )
+
+
 class AgentRelease(db.Model):
     """
     Armazenamento persistente de releases de agentes no banco PostgreSQL/SQLite.
     Elimina dependência do filesystem efêmero do Render: suporta tanto URLs externas
     (GitHub Releases / S3 / R2) quanto armazenamento binário nativo no PostgreSQL.
+    Suporta canais de distribuição (canary, stable) e escopos de rollout (devices, global).
     """
     __tablename__ = "agent_releases"
 
@@ -748,11 +768,53 @@ class AgentRelease(db.Model):
     mandatory = db.Column(db.Boolean, default=False)
     storage_type = db.Column(db.String(32), default="external")  # "external", "database", "local"
     binary_data = db.Column(db.LargeBinary, nullable=True)
+
+    # Rollout & Canais (v1.5.0 Canary Architecture)
+    release_channel = db.Column(db.String(30), default="stable", nullable=False, index=True)  # 'canary', 'stable'
+    rollout_scope = db.Column(db.String(30), default="global", nullable=False, index=True)     # 'devices', 'global'
+    status = db.Column(db.String(30), default="active", nullable=False, index=True)             # 'draft', 'active', 'paused', 'superseded'
+
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     created_by = db.Column(db.String(64), default="admin")
 
+    # Relacionamento com computadores alvos para testes Canary
+    target_devices = db.relationship(
+        "Device",
+        secondary="release_target_devices",
+        backref=db.backref("targeted_releases", lazy="dynamic"),
+        lazy="selectin"
+    )
+
+    def validate_invariants(self) -> tuple[bool, str]:
+        """
+        Valida que a release respeita as regras de invariantes corporativas:
+        - Canary deve ter escopo 'devices'
+        - Stable deve ter escopo 'global'
+        """
+        ch = (self.release_channel or "stable").lower()
+        sc = (self.rollout_scope or "global").lower()
+        if ch == "canary" and sc != "devices":
+            return False, "Releases do canal 'canary' exigem escopo 'devices'."
+        if ch == "stable" and sc != "global":
+            return False, "Releases do canal 'stable' exigem escopo 'global'."
+        return True, ""
+
     def to_dict(self) -> dict:
+        targets = [
+            {
+                "id": d.id,
+                "hostname": d.hostname,
+                "uuid": d.uuid,
+                "display_name": d.display_name or d.hostname,
+                "agent_version": d.agent_version,
+                "status": d.get_status(Config.OFFLINE_THRESHOLD_SECONDS)
+            }
+            for d in self.target_devices
+        ] if self.target_devices else []
+
         return {
+            "id": self.id,
             "version": self.version,
             "sha256": self.sha256,
             "download_url": self.download_url,
@@ -761,8 +823,14 @@ class AgentRelease(db.Model):
             "mandatory": self.mandatory,
             "storage_type": self.storage_type,
             "has_binary": bool(self.binary_data),
+            "release_channel": self.release_channel or "stable",
+            "rollout_scope": self.rollout_scope or "global",
+            "status": self.status or "active",
+            "target_device_count": len(targets),
+            "target_devices": targets,
             "created_at_iso": format_iso_utc(self.created_at),
             "created_at": format_local_datetime(self.created_at),  # LEGACY
+            "updated_at_iso": format_iso_utc(self.updated_at),
             "created_by": self.created_by
         }
 
