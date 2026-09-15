@@ -628,8 +628,8 @@ def checar_atualizacao_agente():
 
     body = request.get_json(silent=True) or {}
     current_version = (
-        request.args.get("current_version") or request.args.get("agent_version") or
-        body.get("current_version") or body.get("agent_version") or "1.0.0"
+        request.args.get("current_version") or request.args.get("agent_version") or request.args.get("version") or
+        body.get("current_version") or body.get("agent_version") or body.get("version") or "1.0.0"
     ).strip()
     device_uuid = (
         request.args.get("uuid") or request.args.get("device_uuid") or

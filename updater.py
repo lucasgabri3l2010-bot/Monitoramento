@@ -16,7 +16,7 @@ import shutil
 
 UPDATER_VERSION = "1.1.0"
 
-if "--version" in sys.argv or "--updater-version" in sys.argv:
+if len(sys.argv) == 2 and sys.argv[1] in ("--version", "-v", "--updater-version"):
     print(f"GivovaMonitorUpdater v{UPDATER_VERSION}")
     sys.exit(0)
 
@@ -204,6 +204,10 @@ def run_updater():
             logger.warning(f"Processo PID {args.old_pid} não encerrou no tempo esperado. Forçando encerramento...")
             terminate_pid(args.old_pid, logger)
             time.sleep(2)
+
+    # Garante que nenhum processo filho ou instância adicional do agente permaneça prendendo o arquivo
+    terminate_by_name("GivovaMonitorAgent.exe", logger)
+    time.sleep(1)
 
     # 2. Remove confirmação anterior se existir
     if os.path.exists(confirmed_file):
