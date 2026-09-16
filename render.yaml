@@ -41,4 +41,18 @@ services:
         value: "true"
       - key: DEMO_MODE
         value: "false"
+      - key: R2_ENDPOINT_URL
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        value: givova-monitor-releases
+      - key: R2_REGION
+        value: auto
+      - key: R2_DOWNLOAD_STRATEGY
+        value: redirect
+      - key: R2_FALLBACK_TO_DATABASE
+        value: "true"
 

@@ -86,4 +86,14 @@ class Config:
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", "5000"))
 
+    # Cloudflare R2 Object Storage (Armazenamento de Binários de Releases)
+    R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL", "").strip()
+    R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "").strip()
+    R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "").strip()
+    R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "givova-monitor-releases").strip()
+    R2_REGION = os.getenv("R2_REGION", "auto").strip()
+    R2_DOWNLOAD_STRATEGY = os.getenv("R2_DOWNLOAD_STRATEGY", "redirect").strip().lower()  # "redirect" | "stream"
+    R2_PRESIGNED_URL_EXPIRES_SECONDS = int(os.getenv("R2_PRESIGNED_URL_EXPIRES_SECONDS", "180"))
+    R2_FALLBACK_TO_DATABASE = os.getenv("R2_FALLBACK_TO_DATABASE", "true").lower() in ("true", "1", "yes")
+
 

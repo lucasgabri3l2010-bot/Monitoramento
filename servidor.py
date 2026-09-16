@@ -4,13 +4,14 @@ import secrets
 import logging
 from datetime import datetime, timezone, timedelta
 from functools import wraps
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, send_file
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, send_file, Response
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import io
 from sqlalchemy.orm import undefer
 
+import storage_service
 from config import Config
 from datetime_utils import (
     utc_now, ensure_utc, to_app_timezone, format_iso_utc,
@@ -831,8 +832,8 @@ def baixar_versao_agente(version):
     if not all(c.isalnum() or c == "." for c in clean_version) or ".." in clean_version:
         return jsonify({"error": "Formato de versão inválido", "code": "INVALID_VERSION"}), 400
 
-    # 1. Localiza a release no banco de dados com carregamento explícito do binário (undefer)
-    rel = AgentRelease.query.options(undefer(AgentRelease.binary_data)).filter_by(version=clean_version).first()
+    # 1. Localiza a release no banco de dados (sem carregar o BLOB pesado preventivamente)
+    rel = AgentRelease.query.filter_by(version=clean_version).first()
     if not rel:
         # Fallback para filesystem se release não estiver em banco
         exe_path = os.path.join(Config.RELEASES_DIR, clean_version, "GivovaMonitorAgent.exe")
@@ -863,12 +864,55 @@ def baixar_versao_agente(version):
             logger.warning(f"[SECURITY] Tentativa de download não autorizada da release Canary v{clean_version} por {request.remote_addr} (UUID: {device_uuid}).")
             return jsonify({"error": "Dispositivo não autorizado para download desta release Canary.", "code": "CANARY_UNAUTHORIZED"}), 403
 
-    # 4. Entrega binário persistido no banco
+    download_filename = f"GivovaMonitorAgent-v{clean_version}.exe"
+
+    # 4. Resolução de Armazenamento
+    # 4.1. Cloudflare R2 (Armazenamento Principal de Alta Performance)
+    if rel.storage_type == "r2" and rel.object_key:
+        if storage_service.is_r2_configured():
+            try:
+                if Config.R2_DOWNLOAD_STRATEGY == "stream":
+                    # Modo Streaming através do Render (opcional)
+                    return Response(
+                        storage_service.download_stream(rel.object_key),
+                        mimetype="application/octet-stream",
+                        headers={
+                            "Content-Disposition": f'attachment; filename="{download_filename}"'
+                        }
+                    )
+                else:
+                    # Padrão: Redirecionamento 302 para Presigned URL de curta duração no Cloudflare R2
+                    # O Agent 1.4.1 (requests) segue o redirect automaticamente de forma transparente.
+                    presigned_url = storage_service.generate_presigned_download_url(
+                        rel.object_key,
+                        expires_in=Config.R2_PRESIGNED_URL_EXPIRES_SECONDS,
+                        filename=download_filename
+                    )
+                    return redirect(presigned_url, code=302)
+            except Exception as e:
+                logger.warning(f"Falha ao gerar download via Cloudflare R2 para v{clean_version}: {e}")
+
+        # Fallback controlado para banco de dados caso R2 falhe temporariamente
+        if Config.R2_FALLBACK_TO_DATABASE and rel.binary_data:
+            logger.warning("R2 unavailable; using temporary database fallback")
+            return send_file(
+                io.BytesIO(rel.binary_data),
+                as_attachment=True,
+                download_name=download_filename,
+                mimetype="application/octet-stream"
+            )
+        else:
+            return jsonify({
+                "error": f"Armazenamento da release v{clean_version} temporariamente indisponível.",
+                "code": "STORAGE_UNAVAILABLE"
+            }), 503
+
+    # 4.2. Armazenamento Legado no Banco de Dados
     if rel.binary_data:
         return send_file(
             io.BytesIO(rel.binary_data),
             as_attachment=True,
-            download_name=f"GivovaMonitorAgent-v{clean_version}.exe",
+            download_name=download_filename,
             mimetype="application/octet-stream"
         )
     elif rel.download_url and rel.download_url.startswith(("http://", "https://")):
@@ -1003,8 +1047,33 @@ def publicar_release_agente():
     rel.status = raw_status
     rel.created_by = session.get("username", "admin")
     if file_bytes:
-        rel.storage_type = "database"
-        rel.binary_data = file_bytes
+        rel.file_size = len(file_bytes)
+        if storage_service.is_r2_configured():
+            try:
+                object_key = f"agents/{clean_version}/GivovaMonitorAgent.exe"
+                upload_source = dest_path if ('dest_path' in locals() and os.path.exists(dest_path)) else None
+                if not upload_source:
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".exe") as tf:
+                        tf.write(file_bytes)
+                        upload_source = tf.name
+
+                storage_service.upload_file(
+                    local_path=upload_source,
+                    object_key=object_key,
+                    metadata={"version": clean_version, "sha256": sha256_final}
+                )
+                rel.storage_type = "r2"
+                rel.object_key = object_key
+                rel.binary_data = file_bytes  # Preserva binary_data para fallback de segurança
+                logger.info(f"Release v{clean_version} enviada e registrada no Cloudflare R2 ({object_key}).")
+            except Exception as e:
+                logger.warning(f"Falha no upload para R2 durante publicação, mantendo fallback de banco: {e}")
+                rel.storage_type = "database"
+                rel.binary_data = file_bytes
+        else:
+            rel.storage_type = "database"
+            rel.binary_data = file_bytes
     elif external_url:
         rel.storage_type = "external"
 

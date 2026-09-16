@@ -304,7 +304,9 @@ def run_migrations() -> bool:
                                 ("release_channel", "VARCHAR(30) DEFAULT 'stable'", "VARCHAR(30) DEFAULT 'stable'"),
                                 ("rollout_scope", "VARCHAR(30) DEFAULT 'global'", "VARCHAR(30) DEFAULT 'global'"),
                                 ("status", "VARCHAR(30) DEFAULT 'active'", "VARCHAR(30) DEFAULT 'active'"),
-                                ("updated_at", "TIMESTAMP", "DATETIME")
+                                ("updated_at", "TIMESTAMP", "DATETIME"),
+                                ("object_key", "VARCHAR(512)", "VARCHAR(512)"),
+                                ("file_size", "BIGINT", "INTEGER")
                             ]
                         )
                     ]
