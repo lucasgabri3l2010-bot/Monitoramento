@@ -44,6 +44,18 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 db.init_app(app)
 
 
+@app.after_request
+def add_cache_headers(response):
+    """
+    Desativa cache do navegador para HTML do painel e APIs de administração.
+    Garante que atualizações na interface e status de rollout sejam imediatamente visíveis aos administradores.
+    """
+    if request.path == "/" or request.path.startswith("/api/admin/") or (response.mimetype and response.mimetype == "text/html"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 
 # =====================================================================
 # Middleware & Decorators
@@ -1243,7 +1255,10 @@ def obter_progresso_rollout(release_id):
         "pending_update": pending_count,
         "offline": offline_count,
         "not_targeted": not_targeted_count,
-        "online_eligible": online_eligible_count
+        "online_eligible": online_eligible_count,
+        "online_eligible_count": online_eligible_count,
+        "progress_percent": progress_pct,
+        "progress_pct": progress_pct
     }
 
     return jsonify({

@@ -1317,11 +1317,12 @@
                     <div class="space-y-2">
                         <div class="flex items-center justify-between text-xs font-semibold text-slate-700">
                             <span>Progresso na Frota Conectada</span>
-                            <span id="rollout-progress-summary">0 / 0 computadores online (0.0%)</span>
+                            <span id="rollout-progress-summary">0 / 0 computadores online (0,0%)</span>
                         </div>
                         <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden border border-slate-200">
                             <div id="rollout-progress-bar" class="bg-emerald-500 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
                         </div>
+                        <div id="rollout-progress-subtext" class="text-[11px] text-slate-500 mt-1">0 de 0 PCs online atualizados</div>
                     </div>
 
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
@@ -5279,9 +5280,22 @@ streamdemo.tv,streaming,warning,alert,global
             const pending = summary.pending_count ?? summary.pending_update ?? 0;
             const offline = summary.offline_count ?? summary.offline ?? 0;
             const notTargeted = summary.not_targeted_count ?? summary.not_targeted ?? 0;
-            const onlineEligible = summary.online_eligible_count ?? (updated + pending);
+            const onlineEligible = summary.online_eligible_count ?? summary.online_eligible ?? (updated + pending);
             const total = summary.total_devices ?? (updated + pending + offline + notTargeted);
-            const progressPct = summary.progress_percent ?? summary.progress_pct ?? (onlineEligible > 0 ? Number(((updated / onlineEligible) * 100).toFixed(1)) : 0.0);
+
+            let progress = 0.0;
+            if (typeof summary.progress_percent === "number" && !isNaN(summary.progress_percent)) {
+                progress = summary.progress_percent;
+            } else if (typeof summary.progress_pct === "number" && !isNaN(summary.progress_pct)) {
+                progress = summary.progress_pct;
+            } else if (onlineEligible > 0) {
+                progress = (updated / onlineEligible) * 100.0;
+            }
+
+            const progressFormatted = progress.toLocaleString("pt-BR", {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1
+            });
 
             // 1. Atualiza KPIs
             const elKpiUp = document.getElementById("rollout-kpi-updated");
@@ -5290,18 +5304,22 @@ streamdemo.tv,streaming,warning,alert,global
             const elKpiNot = document.getElementById("rollout-kpi-not-targeted");
             const elSummary = document.getElementById("rollout-progress-summary");
             const elBar = document.getElementById("rollout-progress-bar");
+            const elSub = document.getElementById("rollout-progress-subtext");
 
             if (elKpiUp) elKpiUp.innerText = updated;
             if (elKpiPend) elKpiPend.innerText = pending;
             if (elKpiOff) elKpiOff.innerText = offline;
             if (elKpiNot) elKpiNot.innerText = notTargeted;
 
-            // 2. Denominador da barra de progresso: estritamente online_eligible_count (Item 2)
+            // 2. Denominador da barra de progresso: estritamente online_eligible_count
             if (elSummary) {
-                elSummary.innerText = `${updated} / ${onlineEligible} computadores online (${progressPct}%)`;
+                elSummary.innerText = `${updated} / ${onlineEligible} computadores online (${progressFormatted}%)`;
             }
             if (elBar) {
-                elBar.style.width = `${Math.min(100, Math.max(0, progressPct))}%`;
+                elBar.style.width = `${Math.min(100, Math.max(0, progress))}%`;
+            }
+            if (elSub) {
+                elSub.innerText = `${updated} de ${onlineEligible} PCs online atualizados • ${offline} offline atualizarão ao religar`;
             }
 
             // Atualiza contagem no modal de promoção

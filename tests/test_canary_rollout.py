@@ -767,6 +767,21 @@ class CanaryRolloutTestCase(unittest.TestCase):
         self.assertEqual(counts["pending_update"], 1)
         self.assertEqual(counts["not_targeted"], 1)
         self.assertEqual(counts["online_eligible"], 2)
+        self.assertEqual(counts["online_eligible_count"], 2)
+        self.assertEqual(counts["progress_percent"], 50.0)
+        self.assertEqual(counts["progress_pct"], 50.0)
+
+        # Header Cache-Control desativa cache para APIs administrativas
+        cache_ctrl = resp_progress.headers.get("Cache-Control", "")
+        self.assertIn("no-cache", cache_ctrl)
+        self.assertIn("no-store", cache_ctrl)
+
+        # Header Cache-Control desativa cache para HTML do painel
+        resp_index = self.client.get("/")
+        self.assertEqual(resp_index.status_code, 200)
+        cache_ctrl_index = resp_index.headers.get("Cache-Control", "")
+        self.assertIn("no-cache", cache_ctrl_index)
+        self.assertIn("no-store", cache_ctrl_index)
 
     def test_18_deterministic_device_sorting(self):
         """Cenário 18: Lista de computadores no rollout vem ordenada deterministicamente por department, display_name, hostname, id"""

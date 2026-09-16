@@ -1,4 +1,4 @@
-﻿const assert = require("assert");
+const assert = require("assert");
 
 class RolloutFrontendSimulator {
     constructor() {
@@ -37,9 +37,25 @@ class RolloutFrontendSimulator {
         const pending = summary.pending_count ?? summary.pending_update ?? 0;
         const offline = summary.offline_count ?? summary.offline ?? 0;
         const notTargeted = summary.not_targeted_count ?? summary.not_targeted ?? 0;
-        const onlineEligible = summary.online_eligible_count ?? (updated + pending);
+        const onlineEligible = summary.online_eligible_count ?? summary.online_eligible ?? (updated + pending);
         const total = summary.total_devices ?? (updated + pending + offline + notTargeted);
-        const progressPct = summary.progress_percent ?? summary.progress_pct ?? (onlineEligible > 0 ? Number(((updated / onlineEligible) * 100).toFixed(1)) : 0.0);
+
+        let progress = 0.0;
+        if (typeof summary.progress_percent === "number" && !isNaN(summary.progress_percent)) {
+            progress = summary.progress_percent;
+        } else if (typeof summary.progress_pct === "number" && !isNaN(summary.progress_pct)) {
+            progress = summary.progress_pct;
+        } else if (onlineEligible > 0) {
+            progress = (updated / onlineEligible) * 100.0;
+        }
+
+        const progressFormatted = progress.toLocaleString("pt-BR", {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1
+        });
+
+        const barWidth = `${Math.min(100, Math.max(0, progress))}%`;
+        const subText = `${updated} de ${onlineEligible} PCs online atualizados • ${offline} offline atualizarão ao religar`;
 
         this.renderedKPIs = {
             updated,
@@ -48,8 +64,11 @@ class RolloutFrontendSimulator {
             notTargeted,
             onlineEligible,
             total,
-            progressPct,
-            summaryText: `${updated} / ${onlineEligible} computadores online (${progressPct}%)`
+            progress,
+            progressFormatted,
+            barWidth,
+            subText,
+            summaryText: `${updated} / ${onlineEligible} computadores online (${progressFormatted}%)`
         };
 
         const devices = [...(data.devices || [])];
@@ -153,31 +172,122 @@ async function runTests() {
         console.log("  [PASS] Teste 1: Validação de Schema (Canonical & Alias)");
     }
 
-    // Teste 2: Renderização de KPIs com Denominador online_eligible_count
+    // Teste 2: Renderização de KPIs com Denominador online_eligible_count e Formatação pt-BR
     {
         const sim = new RolloutFrontendSimulator();
-        const payload = {
-            success: true,
-            summary: {
-                total_devices: 31,
-                online_eligible_count: 27,
-                updated_count: 1,
-                pending_count: 26,
-                offline_count: 4,
-                not_targeted_count: 0,
-                progress_percent: 3.7
-            },
-            devices: []
-        };
-        sim.renderizarRollout(payload);
-        assert.strictEqual(sim.renderedKPIs.updated, 1);
-        assert.strictEqual(sim.renderedKPIs.pending, 26);
-        assert.strictEqual(sim.renderedKPIs.offline, 4);
-        assert.strictEqual(sim.renderedKPIs.notTargeted, 0);
-        assert.strictEqual(sim.renderedKPIs.onlineEligible, 27);
-        assert.strictEqual(sim.renderedKPIs.total, 31);
-        assert.strictEqual(sim.renderedKPIs.summaryText, "1 / 27 computadores online (3.7%)");
-        console.log("  [PASS] Teste 2: Renderização de KPIs e denominador de progresso");
+
+        // Cenário 2.1: Estado Atual da Frota (1/27 online, total 31, 4 offline)
+        {
+            const payload = {
+                success: true,
+                summary: {
+                    total_devices: 31,
+                    online_eligible_count: 27,
+                    updated_count: 1,
+                    pending_count: 26,
+                    offline_count: 4,
+                    not_targeted_count: 0,
+                    progress_percent: 3.7
+                },
+                devices: []
+            };
+            sim.renderizarRollout(payload);
+            assert.strictEqual(sim.renderedKPIs.updated, 1);
+            assert.strictEqual(sim.renderedKPIs.pending, 26);
+            assert.strictEqual(sim.renderedKPIs.offline, 4);
+            assert.strictEqual(sim.renderedKPIs.notTargeted, 0);
+            assert.strictEqual(sim.renderedKPIs.onlineEligible, 27);
+            assert.strictEqual(sim.renderedKPIs.total, 31);
+            assert.strictEqual(sim.renderedKPIs.summaryText, "1 / 27 computadores online (3,7%)");
+            assert.strictEqual(sim.renderedKPIs.barWidth, "3.7%");
+            assert.strictEqual(sim.renderedKPIs.subText, "1 de 27 PCs online atualizados • 4 offline atualizarão ao religar");
+        }
+
+        // Cenário 2.2: Conclusão 100% dos Online (27/27 online, total 31, 4 offline)
+        {
+            const payload = {
+                success: true,
+                summary: {
+                    total_devices: 31,
+                    online_eligible_count: 27,
+                    updated_count: 27,
+                    pending_count: 0,
+                    offline_count: 4,
+                    not_targeted_count: 0,
+                    progress_percent: 100.0
+                },
+                devices: []
+            };
+            sim.renderizarRollout(payload);
+            assert.strictEqual(sim.renderedKPIs.summaryText, "27 / 27 computadores online (100,0%)");
+            assert.strictEqual(sim.renderedKPIs.barWidth, "100%");
+            assert.strictEqual(sim.renderedKPIs.subText, "27 de 27 PCs online atualizados • 4 offline atualizarão ao religar");
+        }
+
+        // Cenário 2.3: Início de Rollout 0% (0/27 online, total 31, 4 offline)
+        {
+            const payload = {
+                success: true,
+                summary: {
+                    total_devices: 31,
+                    online_eligible_count: 27,
+                    updated_count: 0,
+                    pending_count: 27,
+                    offline_count: 4,
+                    not_targeted_count: 0,
+                    progress_percent: 0.0
+                },
+                devices: []
+            };
+            sim.renderizarRollout(payload);
+            assert.strictEqual(sim.renderedKPIs.summaryText, "0 / 27 computadores online (0,0%)");
+            assert.strictEqual(sim.renderedKPIs.barWidth, "0%");
+            assert.strictEqual(sim.renderedKPIs.subText, "0 de 27 PCs online atualizados • 4 offline atualizarão ao religar");
+        }
+
+        // Cenário 2.4: Zero computadores (0/0 online, total 0, 0 offline)
+        {
+            const payload = {
+                success: true,
+                summary: {
+                    total_devices: 0,
+                    online_eligible_count: 0,
+                    updated_count: 0,
+                    pending_count: 0,
+                    offline_count: 0,
+                    not_targeted_count: 0,
+                    progress_percent: 0.0
+                },
+                devices: []
+            };
+            sim.renderizarRollout(payload);
+            assert.strictEqual(sim.renderedKPIs.summaryText, "0 / 0 computadores online (0,0%)");
+            assert.strictEqual(sim.renderedKPIs.barWidth, "0%");
+            assert.strictEqual(sim.renderedKPIs.subText, "0 de 0 PCs online atualizados • 0 offline atualizarão ao religar");
+        }
+
+        // Cenário 2.5: Compatibilidade com Alias `counts` puro (sem chave summary)
+        {
+            const payload = {
+                success: true,
+                counts: {
+                    total_devices: 31,
+                    online_eligible: 27,
+                    updated: 1,
+                    pending_update: 26,
+                    offline: 4,
+                    not_targeted: 0,
+                    progress_percent: 3.7
+                },
+                devices: []
+            };
+            sim.renderizarRollout(payload);
+            assert.strictEqual(sim.renderedKPIs.onlineEligible, 27);
+            assert.strictEqual(sim.renderedKPIs.summaryText, "1 / 27 computadores online (3,7%)");
+            assert.strictEqual(sim.renderedKPIs.barWidth, "3.7%");
+        }
+
+        console.log("  [PASS] Teste 2: Renderização de KPIs, denominador online_eligible_count e formatação pt-BR");
     }
 
     // Teste 3: Polling Lento e Bloqueio de Concorrência (Item 6 & 12)
