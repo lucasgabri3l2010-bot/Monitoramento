@@ -9,6 +9,7 @@ from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import io
+from sqlalchemy.orm import undefer
 
 from config import Config
 from datetime_utils import (
@@ -818,8 +819,8 @@ def baixar_versao_agente(version):
     if not all(c.isalnum() or c == "." for c in clean_version) or ".." in clean_version:
         return jsonify({"error": "Formato de versão inválido", "code": "INVALID_VERSION"}), 400
 
-    # 1. Localiza a release no banco de dados
-    rel = AgentRelease.query.filter_by(version=clean_version).first()
+    # 1. Localiza a release no banco de dados com carregamento explícito do binário (undefer)
+    rel = AgentRelease.query.options(undefer(AgentRelease.binary_data)).filter_by(version=clean_version).first()
     if not rel:
         # Fallback para filesystem se release não estiver em banco
         exe_path = os.path.join(Config.RELEASES_DIR, clean_version, "GivovaMonitorAgent.exe")
@@ -1215,21 +1216,41 @@ def obter_progresso_rollout(release_id):
             "last_contact": format_local_datetime(d.updated_at)
         })
 
+    # Ordenação Determinística Estável: departamento ASC, display_name ASC, hostname ASC, id ASC
+    devices_list.sort(key=lambda x: (
+        (x.get("department") or "").lower(),
+        (x.get("display_name") or x.get("hostname") or "").lower(),
+        (x.get("hostname") or "").lower(),
+        x.get("id") or 0
+    ))
+
     online_eligible_count = updated_count + pending_count
     progress_pct = round((updated_count / online_eligible_count * 100.0), 1) if online_eligible_count > 0 else 0.0
+
+    # summary é a fonte de verdade canônica oficial; counts é mantido como alias de compatibilidade
+    summary_data = {
+        "total_devices": len(real_devices),
+        "updated_count": updated_count,
+        "pending_count": pending_count,
+        "offline_count": offline_count,
+        "not_targeted_count": not_targeted_count,
+        "online_eligible_count": online_eligible_count,
+        "progress_percent": progress_pct
+    }
+    counts_alias = {
+        "total_devices": len(real_devices),
+        "updated": updated_count,
+        "pending_update": pending_count,
+        "offline": offline_count,
+        "not_targeted": not_targeted_count,
+        "online_eligible": online_eligible_count
+    }
 
     return jsonify({
         "success": True,
         "release": rel.to_dict(),
-        "summary": {
-            "total_devices": len(real_devices),
-            "updated_count": updated_count,
-            "pending_count": pending_count,
-            "offline_count": offline_count,
-            "not_targeted_count": not_targeted_count,
-            "online_eligible_count": online_eligible_count,
-            "progress_percent": progress_pct
-        },
+        "summary": summary_data,
+        "counts": counts_alias,
         "devices": devices_list
     })
 

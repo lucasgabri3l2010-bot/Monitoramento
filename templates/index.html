@@ -1301,6 +1301,18 @@
                         </div>
                     </div>
 
+                    <!-- Aviso de Falha Transitória de Polling / Servidor (502 / Offline) -->
+                    <div id="rollout-transient-alert" class="hidden px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center justify-between transition-all">
+                        <div class="flex items-center gap-2">
+                            <span class="relative flex h-2 w-2">
+                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                            </span>
+                            <span id="rollout-transient-alert-text">Não foi possível atualizar agora. Tentando novamente...</span>
+                        </div>
+                        <span class="text-[11px] text-amber-600 font-mono" id="rollout-transient-time"></span>
+                    </div>
+
                     <!-- Métricas Fatuais de Rollout na Frota -->
                     <div class="space-y-2">
                         <div class="flex items-center justify-between text-xs font-semibold text-slate-700">
@@ -1339,13 +1351,13 @@
                     </div>
 
                     <!-- Tabela de Acompanhamento por Computador -->
-                    <div class="border border-slate-200 rounded-xl overflow-hidden">
+                    <div class="border border-slate-200 rounded-xl overflow-hidden bg-white">
                         <div class="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs font-semibold text-slate-700">
                             <span>Status Individual dos Computadores no Rollout</span>
                             <span class="text-[11px] text-slate-400 font-normal">Atualizado automaticamente a cada 5s</span>
                         </div>
-                        <div class="max-h-64 overflow-y-auto divide-y divide-slate-100 text-xs" id="rollout-devices-list">
-                            <div class="p-4 text-center text-slate-400">Carregando dados de rollout da frota...</div>
+                        <div class="max-h-72 overflow-y-auto overflow-x-auto text-xs" id="rollout-devices-list">
+                            <div class="p-6 text-center text-slate-400">Carregando dados do rollout da frota...</div>
                         </div>
                     </div>
                 </div>
@@ -2658,6 +2670,8 @@ streamdemo.tv,streaming,warning,alert,global
                 } else if (currentView === "configuracoes") {
                     if (currentRolloutRelease && currentRolloutRelease.id) {
                         carregarProgressoRollout(currentRolloutRelease.id);
+                    } else {
+                        carregarReleasesRollout();
                     }
                 }
 
@@ -5049,12 +5063,16 @@ streamdemo.tv,streaming,warning,alert,global
         let currentRolloutRelease = null;
         let canaryChecklistDevices = [];
         let canarySelectedDeviceIds = new Set();
+        let lastRolloutSnapshot = null;
+        let rolloutRequestInFlight = false;
+        let rolloutRequestSeq = 0;
 
         async function carregarReleasesRollout() {
             try {
                 const resp = await fetch("/api/admin/releases");
                 if (!resp.ok) {
-                    console.error("Falha ao buscar releases:", resp.status);
+                    console.warn(`[Rollout] Falha ao buscar releases (HTTP ${resp.status}).`);
+                    tratarErroRollout(resp.status, "Não foi possível carregar as releases.");
                     return;
                 }
                 const data = await resp.json();
@@ -5112,18 +5130,36 @@ streamdemo.tv,streaming,warning,alert,global
                 // Escopo e Targets
                 const elScope = document.getElementById("rollout-scope-display");
                 const elHint = document.getElementById("rollout-target-hint");
+                const elBtnTargets = document.getElementById("btn-manage-targets");
                 const elBtnTargetCount = document.getElementById("btn-target-count");
-                const targetCount = (rel.target_device_ids || []).length;
-
+                
+                const targetCount = rel.target_device_count ?? (rel.target_devices ? rel.target_devices.length : (rel.target_device_ids || []).length);
                 if (elBtnTargetCount) elBtnTargetCount.innerText = targetCount;
 
+                const isStableGlobal = (rel.release_channel === "stable" && rel.rollout_scope === "global");
+
                 if (elScope) {
-                    if (rel.rollout_scope === "devices" || rel.release_channel === "canary") {
+                    if (isStableGlobal) {
+                        elScope.innerText = "Global (Toda a Frota)";
+                        if (elHint) elHint.innerText = "Todos os computadores elegíveis da empresa";
+                    } else {
                         elScope.innerText = "Canary (Dispositivos Autorizados)";
                         if (elHint) elHint.innerText = `Apenas ${targetCount} computador(es) receberão o binário`;
+                    }
+                }
+
+                // Botão de PCs de Teste: se stable+global, indica Canary original e não mostra 0 errôneo
+                if (elBtnTargets) {
+                    if (isStableGlobal) {
+                        elBtnTargets.innerHTML = `
+                            <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                            <span>Canary original: <span id="btn-target-count">${targetCount > 0 ? targetCount : 1} PC</span></span>
+                        `;
                     } else {
-                        elScope.innerText = "Global (Toda a Frota)";
-                        if (elHint) elHint.innerText = "Todos os computadores elegíveis da frota";
+                        elBtnTargets.innerHTML = `
+                            <svg class="w-3.5 h-3.5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                            <span>PCs de Teste (<span id="btn-target-count">${targetCount}</span>)</span>
+                        `;
                     }
                 }
 
@@ -5134,10 +5170,10 @@ streamdemo.tv,streaming,warning,alert,global
                     elPub.innerText = `${pubTime} (${rel.created_by || "Administrador"})`;
                 }
 
-                // Botão Promover
+                // Botão Promover (Oculto se já for stable global)
                 const elBtnPromote = document.getElementById("btn-promote-global");
                 if (elBtnPromote) {
-                    if (rel.release_channel === "stable" && rel.rollout_scope === "global") {
+                    if (isStableGlobal) {
                         elBtnPromote.classList.add("hidden");
                     } else {
                         elBtnPromote.classList.remove("hidden");
@@ -5149,96 +5185,220 @@ streamdemo.tv,streaming,warning,alert,global
 
             } catch (err) {
                 console.error("Erro ao carregar releases de rollout:", err);
+                tratarErroRollout(0, err.message);
             }
+        }
+
+        function validarSchemaRollout(data) {
+            if (!data || typeof data !== "object" || data.success !== true) return false;
+            const summary = data.summary || data.counts;
+            if (!summary || typeof summary !== "object") return false;
+            if (!Array.isArray(data.devices)) return false;
+            const up = summary.updated_count ?? summary.updated;
+            const pend = summary.pending_count ?? summary.pending_update;
+            if (typeof up !== "number" || typeof pend !== "number") return false;
+            return true;
+        }
+
+        function tratarErroRollout(status, detalhe = "") {
+            const elAlert = document.getElementById("rollout-transient-alert");
+            const elText = document.getElementById("rollout-transient-alert-text");
+            const elTime = document.getElementById("rollout-transient-time");
+            
+            if (elAlert && elText) {
+                elText.innerText = "Não foi possível atualizar agora. Tentando novamente...";
+                if (elTime) {
+                    const now = new Date();
+                    elTime.innerText = `(${now.toLocaleTimeString("pt-BR")})`;
+                }
+                elAlert.classList.remove("hidden");
+            }
+
+            // Se ainda não temos nenhum snapshot válido (falha no 1º load):
+            if (!lastRolloutSnapshot) {
+                const listEl = document.getElementById("rollout-devices-list");
+                if (listEl) {
+                    listEl.innerHTML = `
+                        <div class="p-6 text-center text-amber-600 font-medium">
+                            Não foi possível conectar ao servidor no momento${status ? ` (HTTP ${status})` : ""}. Tentando novamente em instantes...
+                        </div>
+                    `;
+                }
+            }
+            // Se já temos lastRolloutSnapshot, NÃO ZERA os cards nem a tabela (Item 5 e 7)
+        }
+
+        function removerAvisoErroRollout() {
+            const elAlert = document.getElementById("rollout-transient-alert");
+            if (elAlert) elAlert.classList.add("hidden");
         }
 
         async function carregarProgressoRollout(releaseId) {
             if (!releaseId) return;
+            // Proteção contra tempestade de requests e cancelamento infinito (Item 6):
+            if (rolloutRequestInFlight) return;
+            rolloutRequestInFlight = true;
+            const seq = ++rolloutRequestSeq;
+
             try {
                 const resp = await fetch(`/api/admin/releases/${releaseId}/rollout-progress`);
-                if (!resp.ok) return;
+                if (!resp.ok) {
+                    console.warn(`[Rollout] Falha temporária no endpoint (HTTP ${resp.status}). Preservando snapshot.`);
+                    tratarErroRollout(resp.status);
+                    return;
+                }
                 const data = await resp.json();
-                const counts = data.counts || {};
-                const progressPct = data.progress_pct || 0;
-                const devices = data.devices || [];
+                
+                // Se uma requisição mais nova já foi disparada, descarta esta (Anti-race condition)
+                if (seq !== rolloutRequestSeq) return;
 
-                // Atualiza KPIs
-                const elKpiUp = document.getElementById("rollout-kpi-updated");
-                const elKpiPend = document.getElementById("rollout-kpi-pending");
-                const elKpiOff = document.getElementById("rollout-kpi-offline");
-                const elKpiNot = document.getElementById("rollout-kpi-not-targeted");
-                const elSummary = document.getElementById("rollout-progress-summary");
-                const elBar = document.getElementById("rollout-progress-bar");
-
-                if (elKpiUp) elKpiUp.innerText = counts.updated || 0;
-                if (elKpiPend) elKpiPend.innerText = counts.pending_update || 0;
-                if (elKpiOff) elKpiOff.innerText = counts.offline || 0;
-                if (elKpiNot) elKpiNot.innerText = counts.not_targeted || 0;
-
-                if (elSummary) {
-                    elSummary.innerText = `${counts.updated || 0} / ${counts.total_devices || 0} computadores (${progressPct}%)`;
-                }
-                if (elBar) {
-                    elBar.style.width = `${progressPct}%`;
-                }
-
-                // Atualiza modal de promoção global
-                const elPromoteEligible = document.getElementById("promote-eligible-count");
-                if (elPromoteEligible) {
-                    const eligibleTotal = (counts.pending_update || 0) + (counts.offline || 0) + (counts.not_targeted || 0);
-                    elPromoteEligible.innerText = `${eligibleTotal} computadores elegíveis (${counts.total_devices || 0} no total)`;
-                }
-
-                // Renderiza lista de computadores
-                const listEl = document.getElementById("rollout-devices-list");
-                if (!listEl) return;
-
-                if (devices.length === 0) {
-                    listEl.innerHTML = `<div class="p-4 text-center text-slate-400">Nenhum computador cadastrado no sistema.</div>`;
+                // Valida o schema antes de aceitar como snapshot (Item 8)
+                if (!validarSchemaRollout(data)) {
+                    console.warn("[Rollout] Resposta da API recebida sem schema válido:", data);
+                    tratarErroRollout(200, "Schema inválido");
                     return;
                 }
 
-                let html = "";
-                for (const dev of devices) {
-                    let badgeHtml = "";
-                    if (dev.rollout_status === "updated") {
-                        badgeHtml = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">Atualizado</span>`;
-                    } else if (dev.rollout_status === "pending_update") {
-                        badgeHtml = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">Aguardando Update</span>`;
-                    } else if (dev.rollout_status === "offline") {
-                        badgeHtml = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">Offline</span>`;
-                    } else {
-                        badgeHtml = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-400 border border-slate-200">Fora do Rollout</span>`;
-                    }
-
-                    const lastContact = dev.ultimo_contato_iso ? formatDateTime(dev.ultimo_contato_iso) : (dev.ultimo_contato || "Nunca");
-
-                    html += `
-                        <div class="px-4 py-2.5 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                            <div class="flex items-center gap-3 min-w-0">
-                                <div class="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 shrink-0">
-                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-                                </div>
-                                <div class="truncate">
-                                    <div class="font-semibold text-slate-900 truncate flex items-center gap-1.5">
-                                        <span>${dev.name || dev.hostname || "Dispositivo"}</span>
-                                        ${dev.is_canary_target ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">ALVO CANARY</span>' : ''}
-                                    </div>
-                                    <div class="text-[11px] text-slate-400 truncate">${dev.department || "Geral"} • IP: ${dev.ip || "—"} • Contato: ${lastContact}</div>
-                                </div>
-                            </div>
-                            <div class="flex items-center gap-3 shrink-0">
-                                <span class="font-mono text-xs text-slate-600">v${dev.agent_version || "—"}</span>
-                                ${badgeHtml}
-                            </div>
-                        </div>
-                    `;
-                }
-                listEl.innerHTML = html;
+                // Sucesso: registra snapshot e renderiza
+                lastRolloutSnapshot = data;
+                removerAvisoErroRollout();
+                renderizarRollout(data);
 
             } catch (err) {
-                console.error("Erro ao carregar progresso de rollout:", err);
+                console.warn("[Rollout] Falha de rede durante polling de rollout:", err);
+                tratarErroRollout(0, err.message);
+            } finally {
+                rolloutRequestInFlight = false;
             }
+        }
+
+        function renderizarRollout(data) {
+            // summary = canônico oficial; counts = alias de compatibilidade (Item 1 e 9)
+            const summary = data.summary || data.counts || {};
+            const updated = summary.updated_count ?? summary.updated ?? 0;
+            const pending = summary.pending_count ?? summary.pending_update ?? 0;
+            const offline = summary.offline_count ?? summary.offline ?? 0;
+            const notTargeted = summary.not_targeted_count ?? summary.not_targeted ?? 0;
+            const onlineEligible = summary.online_eligible_count ?? (updated + pending);
+            const total = summary.total_devices ?? (updated + pending + offline + notTargeted);
+            const progressPct = summary.progress_percent ?? summary.progress_pct ?? (onlineEligible > 0 ? Number(((updated / onlineEligible) * 100).toFixed(1)) : 0.0);
+
+            // 1. Atualiza KPIs
+            const elKpiUp = document.getElementById("rollout-kpi-updated");
+            const elKpiPend = document.getElementById("rollout-kpi-pending");
+            const elKpiOff = document.getElementById("rollout-kpi-offline");
+            const elKpiNot = document.getElementById("rollout-kpi-not-targeted");
+            const elSummary = document.getElementById("rollout-progress-summary");
+            const elBar = document.getElementById("rollout-progress-bar");
+
+            if (elKpiUp) elKpiUp.innerText = updated;
+            if (elKpiPend) elKpiPend.innerText = pending;
+            if (elKpiOff) elKpiOff.innerText = offline;
+            if (elKpiNot) elKpiNot.innerText = notTargeted;
+
+            // 2. Denominador da barra de progresso: estritamente online_eligible_count (Item 2)
+            if (elSummary) {
+                elSummary.innerText = `${updated} / ${onlineEligible} computadores online (${progressPct}%)`;
+            }
+            if (elBar) {
+                elBar.style.width = `${Math.min(100, Math.max(0, progressPct))}%`;
+            }
+
+            // Atualiza contagem no modal de promoção
+            const elPromoteEligible = document.getElementById("promote-eligible-count");
+            if (elPromoteEligible) {
+                const eligibleTotal = pending + offline + notTargeted;
+                elPromoteEligible.innerText = `${eligibleTotal} computadores elegíveis (${total} no total)`;
+            }
+
+            // 3. Renderiza tabela com computadores
+            const listEl = document.getElementById("rollout-devices-list");
+            if (!listEl) return;
+
+            const devices = [...(data.devices || [])];
+            if (devices.length === 0) {
+                listEl.innerHTML = `<div class="p-6 text-center text-slate-400">Nenhum computador cadastrado no sistema.</div>`;
+                return;
+            }
+
+            // Ordenação determinística estável (Item 10 & 11):
+            // department ASC -> display_name ASC -> hostname ASC -> id ASC
+            devices.sort((a, b) => {
+                const deptA = (a.department || "").toLowerCase();
+                const deptB = (b.department || "").toLowerCase();
+                if (deptA !== deptB) return deptA.localeCompare(deptB, "pt-BR");
+
+                const nameA = (a.display_name || a.hostname || "").toLowerCase();
+                const nameB = (b.display_name || b.hostname || "").toLowerCase();
+                if (nameA !== nameB) return nameA.localeCompare(nameB, "pt-BR");
+
+                const hostA = (a.hostname || "").toLowerCase();
+                const hostB = (b.hostname || "").toLowerCase();
+                if (hostA !== hostB) return hostA.localeCompare(hostB, "pt-BR");
+
+                return (a.id || 0) - (b.id || 0);
+            });
+
+            // Constrói tabela estruturada completa com cabeçalho sticky (Item 3)
+            let tableHtml = `
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-slate-50/90 sticky top-0 z-10 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                        <tr>
+                            <th class="px-4 py-2.5">Computador</th>
+                            <th class="px-3 py-2.5">Departamento</th>
+                            <th class="px-3 py-2.5">Hostname</th>
+                            <th class="px-3 py-2.5">Versão Atual</th>
+                            <th class="px-3 py-2.5">Versão Alvo</th>
+                            <th class="px-3 py-2.5">Status</th>
+                            <th class="px-4 py-2.5 text-right">Último Contato</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 text-xs">
+            `;
+
+            for (const dev of devices) {
+                const st = dev.status || dev.rollout_status;
+                let badgeHtml = "";
+                if (st === "updated") {
+                    badgeHtml = `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">Atualizado</span>`;
+                } else if (st === "pending" || st === "pending_update") {
+                    badgeHtml = `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">Aguardando</span>`;
+                } else if (st === "offline") {
+                    badgeHtml = `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">Offline</span>`;
+                } else {
+                    badgeHtml = `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-400 border border-slate-200">Fora do Rollout</span>`;
+                }
+
+                const lastContact = dev.last_contact || (dev.last_contact_iso ? formatDateTime(dev.last_contact_iso) : (dev.ultimo_contato || "Nunca"));
+                const compName = dev.display_name || dev.name || dev.hostname || "Dispositivo";
+                const isTarget = Boolean(dev.is_targeted || dev.is_canary_target);
+                const currentVer = dev.current_version || dev.agent_version || "—";
+                const targetVer = dev.target_version || (currentRolloutRelease ? currentRolloutRelease.version : "—");
+
+                tableHtml += `
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="px-4 py-2.5 min-w-0">
+                            <div class="flex items-center gap-2 font-semibold text-slate-900 truncate">
+                                <span>${compName}</span>
+                                ${isTarget ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300 shrink-0">CANARY</span>' : ''}
+                            </div>
+                        </td>
+                        <td class="px-3 py-2.5 text-slate-600 truncate">${dev.department || "Geral"}</td>
+                        <td class="px-3 py-2.5 font-mono text-[11px] text-slate-500 truncate">${dev.hostname || "—"}</td>
+                        <td class="px-3 py-2.5 font-mono text-xs text-slate-700">v${currentVer}</td>
+                        <td class="px-3 py-2.5 font-mono text-xs text-slate-500">v${targetVer}</td>
+                        <td class="px-3 py-2.5 whitespace-nowrap">${badgeHtml}</td>
+                        <td class="px-4 py-2.5 text-right text-slate-500 text-[11px] whitespace-nowrap">${lastContact}</td>
+                    </tr>
+                `;
+            }
+
+            tableHtml += `
+                    </tbody>
+                </table>
+            `;
+
+            listEl.innerHTML = tableHtml;
         }
 
         async function alternarPausaRollout() {
@@ -5395,9 +5555,15 @@ streamdemo.tv,streaming,warning,alert,global
 
             // Encontra nome do PC testado
             const targetNames = [];
-            for (const d of canaryChecklistDevices) {
-                if ((currentRolloutRelease.target_device_ids || []).includes(d.id)) {
-                    targetNames.push(d.name || d.hostname);
+            if (currentRolloutRelease.target_devices && currentRolloutRelease.target_devices.length > 0) {
+                for (const td of currentRolloutRelease.target_devices) {
+                    targetNames.push(td.display_name || td.hostname);
+                }
+            } else {
+                for (const d of canaryChecklistDevices) {
+                    if ((currentRolloutRelease.target_device_ids || []).includes(d.id)) {
+                        targetNames.push(d.name || d.hostname);
+                    }
                 }
             }
             const elTested = document.getElementById("promote-tested-pc");

@@ -1,6 +1,9 @@
 from datetime import datetime, timezone
 from datetime_utils import format_iso_utc, format_local_datetime, format_local_time
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import inspect
+from sqlalchemy.orm import deferred
+from sqlalchemy.orm.attributes import NO_VALUE
 from werkzeug.security import generate_password_hash, check_password_hash
 from config import Config
 
@@ -767,7 +770,9 @@ class AgentRelease(db.Model):
     min_supported_version = db.Column(db.String(32), default="1.0.0")
     mandatory = db.Column(db.Boolean, default=False)
     storage_type = db.Column(db.String(32), default="external")  # "external", "database", "local"
-    binary_data = db.Column(db.LargeBinary, nullable=True)
+    # Otimização Crítica: binary_data é deferred para evitar transferir/materializar o BLOB de ~13,7 MB
+    # do PostgreSQL para o worker em consultas de metadata (rollout-progress, listagens e polling).
+    binary_data = deferred(db.Column(db.LargeBinary, nullable=True))
 
     # Rollout & Canais (v1.5.0 Canary Architecture)
     release_channel = db.Column(db.String(30), default="stable", nullable=False, index=True)  # 'canary', 'stable'
@@ -813,6 +818,18 @@ class AgentRelease(db.Model):
             for d in self.target_devices
         ] if self.target_devices else []
 
+        # Determina has_binary com segurança SEM disparar lazy-load do BLOB de 13,7 MB
+        insp = inspect(self)
+        if "binary_data" in insp.dict:
+            has_binary = bool(insp.dict["binary_data"])
+        elif "binary_data" in insp.unloaded or (hasattr(insp.attrs, "binary_data") and insp.attrs.binary_data.loaded_value is NO_VALUE):
+            # Documentação arquitetural: binary_data é deferred para evitar transferir 13,7 MB do PostgreSQL
+            # nas consultas de metadata. Quando unloaded, inferimos has_binary com base em storage_type == 'database'
+            # e presença de sha256 válido, sem materializar o BLOB do banco.
+            has_binary = (self.storage_type == "database" and bool(self.sha256))
+        else:
+            has_binary = False
+
         return {
             "id": self.id,
             "version": self.version,
@@ -822,11 +839,12 @@ class AgentRelease(db.Model):
             "min_supported_version": self.min_supported_version,
             "mandatory": self.mandatory,
             "storage_type": self.storage_type,
-            "has_binary": bool(self.binary_data),
+            "has_binary": has_binary,
             "release_channel": self.release_channel or "stable",
             "rollout_scope": self.rollout_scope or "global",
             "status": self.status or "active",
             "target_device_count": len(targets),
+            "target_device_ids": [t["id"] for t in targets],
             "target_devices": targets,
             "created_at_iso": format_iso_utc(self.created_at),
             "created_at": format_local_datetime(self.created_at),  # LEGACY

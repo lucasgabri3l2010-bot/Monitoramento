@@ -662,6 +662,198 @@ class CanaryRolloutTestCase(unittest.TestCase):
             self.assertIn("agent_release_targets_updated", actions)
             self.assertIn("agent_release_promoted_global", actions)
 
+    def test_16_deferred_blob_lazy_load(self):
+        """Cenário 16: BLOB binário permanece unloaded/deferred em consultas de metadata e carrega apenas no download"""
+        from sqlalchemy import inspect
+        from sqlalchemy.orm.attributes import NO_VALUE
+
+        self._login_admin()
+        test_bytes = b"MOCK_EXECUTABLE_BINARY_DATA_123456789"
+        expected_sha = hashlib.sha256(test_bytes).hexdigest()
+
+        # Publica release com binário
+        resp_pub = self.client.post(
+            "/api/admin/releases/publish",
+            data={
+                "version": "1.6.0",
+                "release_channel": "canary",
+                "rollout_scope": "devices",
+                "status": "active",
+                "target_device_ids": json.dumps([self.dev_victor_id]),
+                "sha256": expected_sha,
+                "file": (io.BytesIO(test_bytes), "GivovaMonitorAgent.exe")
+            },
+            content_type="multipart/form-data"
+        )
+        self.assertEqual(resp_pub.status_code, 200)
+        rel_id = resp_pub.get_json()["release"]["id"]
+
+        with self.app.app_context():
+            # Limpa cache de sessão para forçar SELECT fresco
+            db.session.expire_all()
+
+            # 1. Consulta metadata da release
+            rel = AgentRelease.query.filter_by(id=rel_id).first()
+            self.assertIsNotNone(rel)
+
+            # 2. Verifica se binary_data permanece UNLOADED (não transferido do banco)
+            insp = inspect(rel)
+            self.assertIn("binary_data", insp.unloaded, "binary_data deveria estar marcado como unloaded")
+            self.assertIs(insp.attrs.binary_data.loaded_value, NO_VALUE, "loaded_value deve ser NO_VALUE")
+
+            # 3. Chama to_dict() e verifica que binary_data CONTINUA unloaded (não disparou lazy-load)
+            rel_dict = rel.to_dict()
+            self.assertIn("binary_data", insp.unloaded, "to_dict() não pode forçar lazy-load de binary_data")
+            self.assertIs(insp.attrs.binary_data.loaded_value, NO_VALUE)
+            self.assertTrue(rel_dict["has_binary"], "has_binary deve ser True mesmo com BLOB deferred")
+            self.assertEqual(rel_dict["target_device_count"], 1)
+            self.assertIn(self.dev_victor_id, rel_dict["target_device_ids"])
+
+        # 4. Executa download real autenticado e confirma que binary_data é entregue com integridade
+        resp_dl = self.client.get(
+            f"/api/agent/download/1.6.0?uuid={self.dev_victor.uuid}",
+            headers={"X-Agent-Token": Config.AGENT_SECRET_TOKEN, "X-Device-UUID": self.dev_victor.uuid}
+        )
+        self.assertEqual(resp_dl.status_code, 200)
+        self.assertEqual(resp_dl.data, test_bytes)
+        downloaded_sha = hashlib.sha256(resp_dl.data).hexdigest()
+        self.assertEqual(downloaded_sha, expected_sha)
+
+    def test_17_rollout_progress_summary_and_counts_alias(self):
+        """Cenário 17: Endpoint de rollout-progress retorna summary canônico e alias counts de compatibilidade"""
+        self._login_admin()
+        test_bytes = b"ROLLOUT_PROGRESS_TEST_BIN"
+        sha = hashlib.sha256(test_bytes).hexdigest()
+
+        # Publica release Canary para dev_victor
+        resp_pub = self.client.post(
+            "/api/admin/releases/publish",
+            data={
+                "version": "1.5.0",
+                "release_channel": "canary",
+                "rollout_scope": "devices",
+                "status": "active",
+                "target_device_ids": json.dumps([self.dev_victor_id]),
+                "sha256": sha,
+                "file": (io.BytesIO(test_bytes), "GivovaMonitorAgent.exe")
+            },
+            content_type="multipart/form-data"
+        )
+        rel_id = resp_pub.get_json()["release"]["id"]
+
+        resp_progress = self.client.get(f"/api/admin/releases/{rel_id}/rollout-progress")
+        self.assertEqual(resp_progress.status_code, 200)
+        data = resp_progress.get_json()
+
+        self.assertTrue(data["success"])
+        self.assertIn("summary", data)
+        self.assertIn("counts", data)
+        self.assertIn("devices", data)
+
+        summary = data["summary"]
+        self.assertEqual(summary["total_devices"], 3)
+        # dev_victor é canary target e está em 1.4.1 -> pending (1)
+        # dev_frota não é target em canary -> not_targeted (1)
+        # dev_updated já está em 1.5.0 -> updated (1)
+        self.assertEqual(summary["updated_count"], 1)
+        self.assertEqual(summary["pending_count"], 1)
+        self.assertEqual(summary["not_targeted_count"], 1)
+        self.assertEqual(summary["online_eligible_count"], 2)  # updated(1) + pending(1)
+        self.assertEqual(summary["progress_percent"], 50.0)    # 1/2 = 50.0%
+
+        # Alias de compatibilidade
+        counts = data["counts"]
+        self.assertEqual(counts["updated"], 1)
+        self.assertEqual(counts["pending_update"], 1)
+        self.assertEqual(counts["not_targeted"], 1)
+        self.assertEqual(counts["online_eligible"], 2)
+
+    def test_18_deterministic_device_sorting(self):
+        """Cenário 18: Lista de computadores no rollout vem ordenada deterministicamente por department, display_name, hostname, id"""
+        self._login_admin()
+        test_bytes = b"SORT_TEST_BIN"
+        sha = hashlib.sha256(test_bytes).hexdigest()
+
+        resp_pub = self.client.post(
+            "/api/admin/releases/publish",
+            data={
+                "version": "1.5.0",
+                "release_channel": "stable",
+                "rollout_scope": "global",
+                "status": "active",
+                "sha256": sha,
+                "file": (io.BytesIO(test_bytes), "GivovaMonitorAgent.exe")
+            },
+            content_type="multipart/form-data"
+        )
+        rel_id = resp_pub.get_json()["release"]["id"]
+
+        # Adiciona mais dispositivos com diferentes departamentos
+        with self.app.app_context():
+            d1 = Device(uuid="u-1", hostname="PC-A", display_name="Zeta", department="Comercial", agent_version="1.4.1")
+            d2 = Device(uuid="u-2", hostname="PC-B", display_name="Alpha", department="Comercial", agent_version="1.4.1")
+            d3 = Device(uuid="u-3", hostname="PC-C", display_name="Beta", department="Administrativo", agent_version="1.4.1")
+            db.session.add_all([d1, d2, d3])
+            db.session.commit()
+
+        resp = self.client.get(f"/api/admin/releases/{rel_id}/rollout-progress")
+        self.assertEqual(resp.status_code, 200)
+        devices = resp.get_json()["devices"]
+
+        # Verifica ordenação por department ASC, depois display_name ASC
+        depts = [d["department"].lower() for d in devices]
+        names = [d["display_name"].lower() for d in devices]
+
+        for i in range(len(devices) - 1):
+            d_curr = devices[i]
+            d_next = devices[i + 1]
+            key_curr = (d_curr["department"].lower(), d_curr["display_name"].lower(), d_curr["hostname"].lower(), d_curr["id"])
+            key_next = (d_next["department"].lower(), d_next["display_name"].lower(), d_next["hostname"].lower(), d_next["id"])
+            self.assertLessEqual(key_curr, key_next, f"Ordenação incorreta entre {key_curr} e {key_next}")
+
+    def test_19_stable_global_eligibility(self):
+        """Cenário 19: Release stable + global torna toda a frota elegível, sem depender de target_devices Canary antigos"""
+        self._login_admin()
+        test_bytes = b"GLOBAL_ELIGIBILITY_TEST_BIN"
+        sha = hashlib.sha256(test_bytes).hexdigest()
+
+        # Release com Canary target no dev_victor, mas promovida para stable + global
+        resp_pub = self.client.post(
+            "/api/admin/releases/publish",
+            data={
+                "version": "1.5.0",
+                "release_channel": "canary",
+                "rollout_scope": "devices",
+                "status": "active",
+                "target_device_ids": json.dumps([self.dev_victor_id]),
+                "sha256": sha,
+                "file": (io.BytesIO(test_bytes), "GivovaMonitorAgent.exe")
+            },
+            content_type="multipart/form-data"
+        )
+        rel_id = resp_pub.get_json()["release"]["id"]
+
+        # Promove para global
+        resp_promote = self.client.post(f"/api/admin/releases/{rel_id}/promote")
+        self.assertEqual(resp_promote.status_code, 200)
+
+        # Consulta rollout progress
+        resp_progress = self.client.get(f"/api/admin/releases/{rel_id}/rollout-progress")
+        self.assertEqual(resp_progress.status_code, 200)
+        summary = resp_progress.get_json()["summary"]
+
+        # Com 3 dispositivos cadastrados:
+        # dev_victor (1.4.1) -> pending
+        # dev_frota (1.4.1) -> pending (agora elegível por ser global!)
+        # dev_updated (1.5.0) -> updated
+        # not_targeted DEVE SER ZERO
+        self.assertEqual(summary["not_targeted_count"], 0, "Em stable global nenhum PC deve ser not_targeted")
+        self.assertEqual(summary["pending_count"], 2)
+        self.assertEqual(summary["updated_count"], 1)
+        self.assertEqual(summary["online_eligible_count"], 3)
+        self.assertEqual(summary["progress_percent"], 33.3)
+
 
 if __name__ == "__main__":
     unittest.main()
+
