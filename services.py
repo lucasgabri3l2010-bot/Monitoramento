@@ -401,33 +401,40 @@ def process_agent_payload(data: dict) -> Device:
     now = datetime.now(timezone.utc)
 
     if not device:
+        raw_dept = data.get("setor") or data.get("department")
+        dept = raw_dept.strip() if raw_dept and raw_dept.strip() else "Não informado"
+        raw_disp = data.get("display_name")
+        disp_name = raw_disp.strip() if raw_disp and raw_disp.strip() else hostname
+
         device = Device(
             uuid=uuid,
             hostname=hostname,
-            display_name=data.get("display_name") or hostname,
+            display_name=disp_name,
             user_name=data.get("usuario") or data.get("user_name"),
-            department=data.get("setor") or data.get("department") or "TI",
+            department=dept,
             ip_address=data.get("ip"),
             mac_address=data.get("mac"),
             os_name=data.get("os_name") or data.get("so") or "Windows",
             os_arch=data.get("os_arch") or data.get("arquitetura") or "x64",
             processor=data.get("processor") or data.get("processador"),
-            cpu_cores=data.get("cpu_cores") or data.get("cores"),
-            ram_total_gb=data.get("ram_total_gb") or 0.0,
-            disk_total_gb=data.get("disk_total_gb") or 0.0,
-            agent_version=data.get("agent_version") or data.get("versao_agente"),
+            cpu_cores=data.get("cpu_cores") or data.get("cores") or 1,
+            ram_total_gb=float(data.get("ram_total_gb") or 0.0),
+            disk_total_gb=float(data.get("disk_total_gb") or 0.0),
+            agent_version=data.get("agent_version") or data.get("versao_agente") or "1.0.0",
             created_at=now
         )
+        if data.get("device_token"):
+            device.device_token = data["device_token"]
         db.session.add(device)
         db.session.flush()
 
-    # Atualiza informações de sistema se reportadas
-    if data.get("display_name"):
-        device.display_name = data.get("display_name")
+    # Atualiza informações técnicas do sistema sem sobrescrever campos administrativos configurados
+    if not device.display_name and data.get("display_name"):
+        device.display_name = data.get("display_name").strip()
+    if (not device.department or device.department == "Não informado") and (data.get("setor") or data.get("department")):
+        device.department = (data.get("setor") or data.get("department")).strip()
     if data.get("usuario") or data.get("user_name"):
         device.user_name = data.get("usuario") or data.get("user_name")
-    if data.get("setor") or data.get("department"):
-        device.department = data.get("setor") or data.get("department")
     if data.get("ip"):
         device.ip_address = data.get("ip")
     if data.get("mac"):
@@ -438,9 +445,8 @@ def process_agent_payload(data: dict) -> Device:
         device.ram_total_gb = float(data.get("ram_total_gb"))
     if data.get("disk_total_gb"):
         device.disk_total_gb = float(data.get("disk_total_gb"))
-    if data.get("device_token"):
-        if not device.device_token:
-            device.device_token = data["device_token"]
+    if data.get("device_token") and not device.device_token:
+        device.device_token = data["device_token"]
 
     # Extrai métricas
     cpu = float(data.get("cpu", 0.0))

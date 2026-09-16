@@ -108,42 +108,47 @@ def get_start_of_day_app_tz() -> datetime:
 def require_agent_token(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # 1. Permite token via header 'X-Agent-Token', 'X-Device-Token', 'Authorization' ou via payload JSON
-        token = request.headers.get("X-Agent-Token") or request.headers.get("X-Device-Token") or request.headers.get("Authorization")
-        if token and token.startswith("Bearer "):
-            token = token.replace("Bearer ", "", 1).strip()
+        # 1. Extração estruturada de tokens por cabeçalho e payload JSON
+        sent_agent_token = request.headers.get("X-Agent-Token")
+        sent_device_token = request.headers.get("X-Device-Token")
+        auth = request.headers.get("Authorization")
+        if auth and auth.startswith("Bearer "):
+            auth = auth.replace("Bearer ", "", 1).strip()
 
-        payload_token = None
-        device_uuid = request.headers.get("X-Device-UUID")
-        if request.is_json and request.json:
-            payload_token = request.json.get("token") or request.json.get("agent_token") or request.json.get("device_token")
-            if not device_uuid:
-                device_uuid = request.json.get("uuid")
+        payload_data = request.get_json(silent=True) or {}
+        payload_token = payload_data.get("token") or payload_data.get("agent_token")
+        payload_device_token = payload_data.get("device_token")
+        device_uuid = request.headers.get("X-Device-UUID") or payload_data.get("uuid")
 
-        sent_token = token or payload_token
+        effective_agent_token = sent_agent_token or payload_token or auth
+        effective_device_token = sent_device_token or payload_device_token
+
         request.authenticated_device = None
 
-        # 2. Se informado device_uuid e device_token individual, autentica especificamente aquele computador
-        if device_uuid and sent_token:
+        # 2. Se informado device_uuid, localiza o dispositivo no banco
+        if device_uuid:
             dev = Device.query.filter_by(uuid=device_uuid).first()
             if dev:
                 request.authenticated_device = dev
-                if dev.device_token and dev.device_token.strip() == sent_token.strip():
-                    return f(*args, **kwargs)
+                # Proteção anti-spoofing: se o dispositivo tem device_token cadastrado
+                if dev.device_token:
+                    if effective_device_token:
+                        if effective_device_token.strip() == dev.device_token.strip():
+                            return f(*args, **kwargs)
+                        else:
+                            logger.warning(f"Tentativa de spoofing/token divergente para UUID '{device_uuid}' de {request.remote_addr}")
+                            return jsonify({"error": "Token individual do dispositivo inválido"}), 401
 
-        # 3. Validação contra o AGENT_SECRET_TOKEN compartilhado da empresa
+        # 3. Validação pelo AGENT_SECRET_TOKEN corporativo compartilhado
         expected_token = Config.AGENT_SECRET_TOKEN
         if expected_token:
-            if not sent_token or sent_token.strip() != expected_token.strip():
+            candidate = effective_agent_token or effective_device_token
+            if not candidate or candidate.strip() != expected_token.strip():
                 logger.warning(f"Tentativa de acesso ao agente com token inválido de {request.remote_addr}")
                 return jsonify({"error": "Token de autenticação do agente inválido ou ausente"}), 401
         else:
             logger.error(f"Tentativa de acesso ao agente rejeitada: AGENT_SECRET_TOKEN não configurado no servidor ({request.remote_addr})")
             return jsonify({"error": "Autenticação do agente não configurada no servidor"}), 401
-
-        # Vincula o dispositivo à requisição se já localizado por UUID
-        if not request.authenticated_device and device_uuid:
-            request.authenticated_device = Device.query.filter_by(uuid=device_uuid).first()
 
         return f(*args, **kwargs)
     return decorated_function

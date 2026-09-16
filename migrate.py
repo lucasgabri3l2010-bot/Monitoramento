@@ -112,46 +112,32 @@ def seed_default_policy_rules(force: bool = False) -> int:
     return inserted_count
 
 
-def seed_canary_release_v1_5_0() -> bool:
+def seed_official_release_v1_5_0() -> bool:
     """
-    Cadastra a release oficial v1.5.0 como Canary no banco de dados.
-    Garante o hash imutável SHA-256 e direciona para o computador do Victor (node-e0282f022d).
-    Não realiza promoção global (preserva rigorosamente o estado Canary).
+    Cadastra ou atualiza de forma estritamente idempotente a release oficial v1.5.0
+    com armazenamento apontando para o Cloudflare R2 (storage_type='r2'),
+    canal estável, escopo global e status ativo.
+    NÃO cria computadores falsos no banco de dados.
     """
-    CANARY_VERSION = "1.5.0"
+    RELEASE_VERSION = "1.5.0"
     EXPECTED_SHA = "fbaf61d253c9b9fe5ea5f813dabe473b622dd4eb90aa99e0129edba62ffe1743"
-    VICTOR_UUID = "node-e0282f022d"
+    OBJECT_KEY = "agents/1.5.0/GivovaMonitorAgent.exe"
+    FILE_SIZE = 13724916
 
-    candidates = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "releases", "1.5.0", "GivovaMonitorAgent.exe"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist", "GivovaMonitorDeploy", "GivovaMonitorAgent.exe"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist", "GivovaMonitorAgent.exe"),
-    ]
-    binary_bytes = None
-    for cand in candidates:
-        if os.path.exists(cand):
-            with open(cand, "rb") as f:
-                binary_bytes = f.read()
-            break
-
-    if binary_bytes:
-        computed_sha = hashlib.sha256(binary_bytes).hexdigest().lower()
-        if computed_sha != EXPECTED_SHA:
-            logger.error(f"[CANARY SEED ERROR] Divergência no hash SHA-256 do executável local: esperado {EXPECTED_SHA}, obtido {computed_sha}")
-            return False
-
-    rel = AgentRelease.query.filter_by(version=CANARY_VERSION).first()
+    rel = AgentRelease.query.filter_by(version=RELEASE_VERSION).first()
     if not rel:
-        logger.info(f"[MIGRATION] Publicando release v{CANARY_VERSION} como CANARY no banco...")
+        logger.info(f"[MIGRATION] Registrando release oficial v{RELEASE_VERSION} (R2 Global)...")
         rel = AgentRelease(
-            version=CANARY_VERSION,
+            version=RELEASE_VERSION,
             sha256=EXPECTED_SHA,
-            download_url=f"/api/agent/download/{CANARY_VERSION}",
-            changelog="Release v1.5.0: Auditoria completa de timezone UTC/America/Sao_Paulo e monitoramento de tempo de uso real e ociosidade por sessão do Windows.",
+            download_url=f"/api/agent/download/{RELEASE_VERSION}",
+            changelog="Release oficial v1.5.0: Auditoria completa de timezone UTC/America/Sao_Paulo e monitoramento de tempo de uso real e ociosidade por sessão do Windows.",
             min_supported_version="1.0.0",
             mandatory=False,
-            storage_type="database" if binary_bytes else "local",
-            binary_data=binary_bytes,
+            storage_type="r2",
+            object_key=OBJECT_KEY,
+            file_size=FILE_SIZE,
+            binary_data=None,
             release_channel="stable",
             rollout_scope="global",
             status="active",
@@ -160,42 +146,19 @@ def seed_canary_release_v1_5_0() -> bool:
         db.session.add(rel)
         db.session.flush()
     else:
-        # Promove release para stable / global preservando integridade imutável
-        was_canary = (rel.release_channel == "canary" or rel.rollout_scope != "global")
+        # Garante configuração estável global R2 preservando SHA imutável
+        rel.sha256 = EXPECTED_SHA
+        rel.storage_type = "r2"
+        rel.object_key = OBJECT_KEY
+        rel.file_size = FILE_SIZE
         rel.release_channel = "stable"
         rel.rollout_scope = "global"
         rel.status = "active"
-        rel.sha256 = EXPECTED_SHA
-        if binary_bytes and not rel.binary_data:
-            rel.binary_data = binary_bytes
-            rel.storage_type = "database"
-        if was_canary:
-            audit = PolicyAuditLog(
-                user_name="admin",
-                action="agent_release_promoted_global",
-                details=f"Release v{rel.version} promovida com sucesso de Canary para Stable/Global. SHA-256 preservado: {rel.sha256}."
-            )
-            db.session.add(audit)
-
-    # Localiza ou inicializa o registro do computador de teste do Victor
-    victor_dev = Device.query.filter((Device.uuid == VICTOR_UUID) | (Device.hostname == "DESKTOP-1E340V5")).first()
-    if not victor_dev:
-        victor_dev = Device(
-            uuid=VICTOR_UUID,
-            hostname="DESKTOP-1E340V5",
-            display_name="PC Victor - TI",
-            department="TI",
-            agent_version="1.5.0",
-            updated_at=datetime.now(timezone.utc)
-        )
-        db.session.add(victor_dev)
-        db.session.flush()
-    else:
-        victor_dev.agent_version = "1.5.0"
+        rel.download_url = f"/api/agent/download/{RELEASE_VERSION}"
 
     # Atualiza manifesto em disco para redundância
     manifest_data = {
-        "version": CANARY_VERSION,
+        "version": RELEASE_VERSION,
         "sha256": EXPECTED_SHA,
         "required": False,
         "release_notes": rel.changelog,
@@ -203,6 +166,9 @@ def seed_canary_release_v1_5_0() -> bool:
         "release_channel": "stable",
         "rollout_scope": "global",
         "status": "active",
+        "storage_type": "r2",
+        "object_key": OBJECT_KEY,
+        "file_size": FILE_SIZE,
         "published_at": format_iso_utc(datetime.now(timezone.utc)),
         "published_by": "admin"
     }
@@ -215,8 +181,12 @@ def seed_canary_release_v1_5_0() -> bool:
         pass
 
     db.session.commit()
-    logger.info(f"[MIGRATION] Release v{CANARY_VERSION} PROMOVIDA PARA FROTA GLOBAL (Canal: stable, Escopo: global, Status: active).")
+    logger.info(f"[MIGRATION] Release v{RELEASE_VERSION} configurada com sucesso (Canal: stable, Escopo: global, Status: active, Storage: r2).")
     return True
+
+
+# Mantém compatibilidade com chamadas legadas
+seed_canary_release_v1_5_0 = seed_official_release_v1_5_0
 
 
 def run_migrations() -> bool:

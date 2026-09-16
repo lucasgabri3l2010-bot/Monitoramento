@@ -131,7 +131,7 @@ class Device(db.Model):
     hostname = db.Column(db.String(120), nullable=False, index=True)
     display_name = db.Column(db.String(120), nullable=True)
     user_name = db.Column(db.String(120), nullable=True)
-    department = db.Column(db.String(100), default="TI", index=True)
+    department = db.Column(db.String(100), default="Não informado", index=True)
     
     # Informações de Rede
     ip_address = db.Column(db.String(64), nullable=True)
