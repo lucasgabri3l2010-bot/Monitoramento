@@ -112,6 +112,7 @@ logger = logging.getLogger("GivovaAgent")
 
 # Named Mutex para controle de instância única no Windows
 _single_instance_mutex = None
+_shutdown_event = threading.Event()
 
 
 def acquire_single_instance_mutex() -> bool:
@@ -154,6 +155,29 @@ def acquire_single_instance_mutex() -> bool:
     except Exception as e:
         logger.warning(f"Não foi possível verificar mutex de instância única: {e}")
         return True
+
+
+def release_single_instance_mutex():
+    """Libera explicitamente o mutex antes do processo ser encerrado para atualização."""
+    global _single_instance_mutex
+    handle = _single_instance_mutex
+    _single_instance_mutex = None
+    if not handle or platform.system() != "Windows":
+        return
+
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.ReleaseMutex(handle)
+        kernel32.CloseHandle(handle)
+    except Exception as e:
+        logger.warning(f"Não foi possível liberar mutex de instância única: {e}")
+
+
+def request_agent_shutdown(reason: str):
+    """Solicita que o loop principal finalize o processo atual de forma coordenada."""
+    if not _shutdown_event.is_set():
+        logger.info(f"Shutdown coordenado solicitado: {reason}")
+        _shutdown_event.set()
 
 # Estado compartilhado e thread-safe para telemetria de abas da extensão corporativa
 _tab_lock = threading.Lock()
@@ -521,19 +545,24 @@ def start_auto_update_worker(config: dict):
 
 def _auto_update_loop(config: dict):
     # Jitter inicial aleatório (20 a 45 segundos após início)
-    time.sleep(random.randint(20, 45))
+    if _shutdown_event.wait(random.randint(20, 45)):
+        return
     check_interval = config.get("update_check_interval", 6 * 3600)
 
-    while True:
+    while not _shutdown_event.is_set():
         try:
             _check_and_apply_update(config)
         except Exception as e:
             logger.warning(f"Erro no ciclo de verificação de atualização: {e}")
 
+        if _shutdown_event.is_set():
+            return
+
         # Intervalo com jitter de até ± 10 minutos
         jitter = random.randint(-600, 600)
         sleep_time = max(300, check_interval + jitter)
-        time.sleep(sleep_time)
+        if _shutdown_event.wait(sleep_time):
+            return
 
 
 def _check_and_apply_update(config: dict):
@@ -690,10 +719,27 @@ def _check_and_apply_update(config: dict):
     CREATE_NEW_PROCESS_GROUP = 0x00000200
     flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP if platform.system() == "Windows" else 0
 
-    subprocess.Popen(cmd, cwd=APP_DIR, creationflags=flags)
-    time.sleep(1)
-    # Encerra agente para liberação do lock no Windows
-    sys.exit(0)
+    try:
+        updater_process = subprocess.Popen(
+            cmd,
+            cwd=APP_DIR,
+            creationflags=flags,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True
+        )
+    except Exception as e:
+        logger.error(f"Falha ao iniciar GivovaMonitorUpdater: {e}")
+        return False
+
+    if updater_process.poll() is not None:
+        logger.error("GivovaMonitorUpdater encerrou antes do shutdown do agente; atualização abortada.")
+        return False
+
+    logger.info(f"GivovaMonitorUpdater iniciado com PID {updater_process.pid}; solicitando encerramento coordenado do agente.")
+    request_agent_shutdown("updater iniciado para aplicar atualização")
+    return True
 
 
 def start_admin_notifications_worker(config: dict):
@@ -1099,6 +1145,7 @@ def send_metrics(server_url: str, token: str, payload: dict, timeout: int = 5, d
 
 
 def run_agent():
+    _shutdown_event.clear()
     # Garante instância única por máquina/sessão
     if not acquire_single_instance_mutex():
         sys.exit(0)
@@ -1128,8 +1175,9 @@ def run_agent():
         logger.error("Agent authentication configuration is invalid.")
 
     # Inicia o receptor local para a extensão Chromium se o monitoramento de atividade estiver ativo
+    extension_receiver = None
     if config["activity_monitoring"]:
-        start_extension_receiver(LOCAL_RECEIVER_PORT)
+        extension_receiver = start_extension_receiver(LOCAL_RECEIVER_PORT)
 
     # Inicia workers de background para auto-update e notificações de TI
     start_auto_update_worker(config)
@@ -1163,7 +1211,7 @@ def run_agent():
     last_reported_session_state = None
     loop_cycle = 0
 
-    while True:
+    while not _shutdown_event.is_set():
         try:
             loop_cycle += 1
             metrics = get_system_metrics(
@@ -1250,7 +1298,18 @@ def run_agent():
         if fail_count > 3:
             # Em caso de instabilidade prolongada (ex: cold start do Render), pausa suavemente para poupar recursos
             sleep_time = min(20, config["interval_seconds"] * min(fail_count - 2, 4))
-        time.sleep(sleep_time)
+        if _shutdown_event.wait(sleep_time):
+            break
+
+    if extension_receiver:
+        try:
+            extension_receiver.shutdown()
+            extension_receiver.server_close()
+        except Exception as e:
+            logger.warning(f"Erro ao encerrar receptor local da extensão: {e}")
+
+    release_single_instance_mutex()
+    logger.info("Agente encerrado com recursos locais liberados.")
 
 
 if __name__ == "__main__":
