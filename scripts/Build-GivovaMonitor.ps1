@@ -4,7 +4,8 @@
 .DESCRIPTION
     Compila os executaveis GivovaMonitorAgent.exe e GivovaMonitorUpdater.exe do zero,
     valida rigorosamente a configuracao de producao (rejeita localhost e tokens ausentes),
-    monta a pasta oficial dist\GivovaMonitorDeploy e gera o deployment_manifest.json sem secrets.
+    monta a pasta oficial dist\GivovaMonitorDeploy e o pacote USB
+    dist\GivovaRecovery-1.5.1, sem secrets.
 .PARAMETER ServerUrl
     URL do servidor para telemetria. Se omitida, busca em deploy_config.local.json, GIVOVA_PRODUCTION_SERVER_URL ou agent_config.json.
 .PARAMETER AgentToken
@@ -47,10 +48,11 @@ Write-Host "[1/6] Limpando artefatos e diretorios anteriores..." -ForegroundColo
 $buildAgentDir = Join-Path $repoRoot "build\GivovaMonitorAgent"
 $buildUpdaterDir = Join-Path $repoRoot "build\GivovaMonitorUpdater"
 $distDeployDir = Join-Path $repoRoot "dist\GivovaMonitorDeploy"
+$distRecoveryDir = Join-Path $repoRoot "dist\GivovaRecovery-1.5.1"
 $distAgentExe = Join-Path $repoRoot "dist\GivovaMonitorAgent.exe"
 $distUpdaterExe = Join-Path $repoRoot "dist\GivovaMonitorUpdater.exe"
 
-foreach ($dir in @($buildAgentDir, $buildUpdaterDir, $distDeployDir)) {
+foreach ($dir in @($buildAgentDir, $buildUpdaterDir, $distDeployDir, $distRecoveryDir)) {
     if (Test-Path -Path $dir) {
         Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -240,6 +242,13 @@ Write-Host "      [OK] GivovaMonitorAgent.exe gerado: ${agentSizeMb} MB" -Foregr
 $updaterScript = Join-Path $repoRoot "updater.py"
 Write-Host "      Compilando GivovaMonitorUpdater.exe..." -ForegroundColor Gray
 
+$updaterSource = Get-Content -LiteralPath $updaterScript -Raw -Encoding UTF8
+if ($updaterSource -match 'if\s+"--version"\s+in\s+sys\.argv' -or
+    $updaterSource -notmatch 'len\(sys\.argv\)\s*==\s*2') {
+    Write-Error "O fonte do updater ainda contem o encerramento indevido com --version. Build abortado."
+    exit 1
+}
+
 $updaterArgs = @(
     "--noconsole",
     "--onefile",
@@ -282,7 +291,6 @@ Copy-Item -Path $distUpdaterExe -Destination (Join-Path $distDeployDir "GivovaMo
 Copy-Item -Path (Join-Path $repoRoot "scripts\Install-GivovaMonitor.ps1") -Destination (Join-Path $distDeployDir "Instalar-GivovaMonitor.ps1") -Force
 Copy-Item -Path (Join-Path $repoRoot "scripts\Uninstall-GivovaMonitor.ps1") -Destination (Join-Path $distDeployDir "Desinstalar-GivovaMonitor.ps1") -Force
 Copy-Item -Path (Join-Path $repoRoot "scripts\Diagnose-GivovaMonitor.ps1") -Destination (Join-Path $distDeployDir "Diagnose-GivovaMonitor.ps1") -Force
-Copy-Item -Path (Join-Path $repoRoot "scripts\Recover-Agent-To-1.5.1.ps1") -Destination (Join-Path $distDeployDir "Recover-Agent-To-1.5.1.ps1") -Force
 
 # 5.3 Extensao corporativa Chrome / Edge
 $srcExtension = Join-Path $repoRoot "extension"
@@ -345,7 +353,44 @@ $shaAgent = (Get-FileHash -Path (Join-Path $distDeployDir "GivovaMonitorAgent.ex
 $shaUpdater = (Get-FileHash -Path (Join-Path $distDeployDir "GivovaMonitorUpdater.exe") -Algorithm SHA256).Hash.ToLower()
 $buildDateIso = (Get-Date).ToString("yyyy-MM-ddTHH:mm:sszzz")
 
-# 5.7 Geracao do deployment_manifest.json (SEM SECRETS)
+# 5.7 Pacote de recuperacao por pendrive. Os hashes sao embutidos no script
+# somente apos a compilacao, para validar exatamente os dois binarios entregues.
+$recoveryTemplatePath = Join-Path $repoRoot "scripts\Recover-Givova.ps1"
+$recoveryTemplate = Get-Content -LiteralPath $recoveryTemplatePath -Raw -Encoding UTF8
+if ($recoveryTemplate -notmatch '__AGENT_SHA256__' -or $recoveryTemplate -notmatch '__UPDATER_SHA256__') {
+    Write-Error "Template da recuperacao nao contem os marcadores de SHA-256 esperados."
+    exit 1
+}
+
+# O Agent do pacote e o binario 1.5.1 PUBLICADO (mesmo SHA-256 do manifesto de release),
+# para que a frota recuperada rode exatamente o executavel distribuido pelo servidor.
+# O Updater e o recem-compilado, pois a correcao dele so existe no fonte atual.
+$recoveryVersion = "1.5.1"
+$releaseManifestPath = Join-Path $repoRoot "releases\manifest.json"
+$releaseManifest = Get-Content -LiteralPath $releaseManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($releaseManifest.version -ne $recoveryVersion -or $releaseManifest.sha256 -notmatch '^[a-fA-F0-9]{64}$') {
+    Write-Error "releases\manifest.json nao descreve a release $recoveryVersion com SHA-256 valido."
+    exit 1
+}
+$recoveryAgentSource = Join-Path $repoRoot "dist\releases\$recoveryVersion\GivovaMonitorAgent.exe"
+if (-not (Test-Path -LiteralPath $recoveryAgentSource -PathType Leaf)) {
+    Write-Error "Binario publicado do Agent $recoveryVersion ausente: $recoveryAgentSource"
+    exit 1
+}
+$shaRecoveryAgent = (Get-FileHash -LiteralPath $recoveryAgentSource -Algorithm SHA256).Hash.ToLower()
+if ($shaRecoveryAgent -ne $releaseManifest.sha256.ToLower()) {
+    Write-Error "O Agent em $recoveryAgentSource nao corresponde ao SHA-256 publicado da release $recoveryVersion."
+    exit 1
+}
+$renderedRecovery = $recoveryTemplate.Replace("__AGENT_SHA256__", $shaRecoveryAgent).Replace("__UPDATER_SHA256__", $shaUpdater)
+
+New-Item -Path $distRecoveryDir -ItemType Directory -Force | Out-Null
+Copy-Item -LiteralPath $recoveryAgentSource -Destination (Join-Path $distRecoveryDir "GivovaMonitorAgent.exe") -Force
+Copy-Item -Path $distUpdaterExe -Destination (Join-Path $distRecoveryDir "GivovaMonitorUpdater.exe") -Force
+Copy-Item -Path (Join-Path $repoRoot "scripts\ATUALIZAR_GIVOVA.cmd") -Destination (Join-Path $distRecoveryDir "ATUALIZAR_GIVOVA.cmd") -Force
+$renderedRecovery | Set-Content -Path (Join-Path $distRecoveryDir "Recover-Givova.ps1") -Encoding UTF8
+
+# 5.8 Geracao do deployment_manifest.json (SEM SECRETS)
 $manifestObj = [ordered]@{
     package_name = "GivovaMonitorDeploy"
     build_date = $buildDateIso
@@ -498,6 +543,26 @@ foreach ($f in $expectedFiles) {
     }
 }
 
+$recoveryExpectedFiles = @(
+    "ATUALIZAR_GIVOVA.cmd",
+    "Recover-Givova.ps1",
+    "GivovaMonitorAgent.exe",
+    "GivovaMonitorUpdater.exe"
+)
+foreach ($f in $recoveryExpectedFiles) {
+    $fp = Join-Path $distRecoveryDir $f
+    if (-not (Test-Path -LiteralPath $fp -PathType Leaf)) {
+        Write-Error "Arquivo obrigatorio ausente no pacote de recuperacao: $f"
+        exit 1
+    }
+}
+
+if ((Get-FileHash -LiteralPath (Join-Path $distRecoveryDir "GivovaMonitorAgent.exe") -Algorithm SHA256).Hash.ToLower() -ne $shaRecoveryAgent -or
+    (Get-FileHash -LiteralPath (Join-Path $distRecoveryDir "GivovaMonitorUpdater.exe") -Algorithm SHA256).Hash.ToLower() -ne $shaUpdater) {
+    Write-Error "Os hashes dos binarios do pacote de recuperacao nao correspondem a release publicada e ao Updater compilado."
+    exit 1
+}
+
 if (-not (Test-Path -Path (Join-Path $distDeployDir "extension\manifest.json"))) {
     Write-Error "Extensao obrigatoria ausente em: $distDeployDir\extension"
     exit 1
@@ -514,6 +579,8 @@ Write-Host "  Versao Extensao: v$extensionVersion" -ForegroundColor Gray
 Write-Host "  Servidor:        $resolvedServerUrl" -ForegroundColor Gray
 Write-Host "  Hash Agent:      $shaAgent" -ForegroundColor Gray
 Write-Host "  Hash Updater:    $shaUpdater" -ForegroundColor Gray
+Write-Host "  Pendrive:        $distRecoveryDir" -ForegroundColor Cyan
+Write-Host "  Hash Agent USB:  $shaRecoveryAgent (release publicada $recoveryVersion)" -ForegroundColor Gray
 Write-Host "  Zero Secrets:    Token validado e omitido do Git/Manifesto" -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host ""
