@@ -389,5 +389,67 @@ class TestColdCutoverAiven(unittest.TestCase):
             self.assertEqual(UsageSession.query.count(), 1)
 
 
+    def test_10_existing_device_report_updates_agent_version_for_dashboard(self):
+        """A new report from the same device persists its reported version."""
+        with patch.object(bootstrap_module.storage_service, "is_r2_configured", return_value=True):
+            bootstrap_module.bootstrap_database(
+                db_url=self.db_uri,
+                admin_user="admin",
+                admin_pass="AdminPassCutover@2026!",
+                verify_r2=False
+            )
+
+        headers = {
+            "Content-Type": "application/json",
+            "X-Agent-Token": "givova_fleet_secret_token_cutover_2026",
+            "X-Device-UUID": "node-version-upgrade",
+            "User-Agent": "GivovaMonitorAgent/1.4.1"
+        }
+        initial_report = {
+            "uuid": "node-version-upgrade",
+            "computador": "PC-UPGRADE-01",
+            "display_name": "PC Operacoes",
+            "setor": "Operacoes",
+            "agent_version": "1.4.1",
+            "cpu": 10.0,
+            "ram": 20.0
+        }
+        self.assertEqual(
+            self.client.post("/api/agent/report", json=initial_report, headers=headers).status_code,
+            200
+        )
+        with app.app_context():
+            device = Device.query.filter_by(uuid="node-version-upgrade").first()
+            device.display_name = "PC Operacoes Custom"
+            device.department = "Operacoes Custom"
+            db.session.commit()
+
+        headers["User-Agent"] = "GivovaMonitorAgent/1.5.0"
+        upgraded_report = {
+            **initial_report,
+            "agent_version": "1.5.0",
+            "display_name": "Attempted overwrite",
+            "setor": "TI"
+        }
+        self.assertEqual(
+            self.client.post("/api/agent/report", json=upgraded_report, headers=headers).status_code,
+            200
+        )
+
+        with app.app_context():
+            device = Device.query.filter_by(uuid="node-version-upgrade").first()
+            self.assertEqual(device.agent_version, "1.5.0")
+            self.assertEqual(device.display_name, "PC Operacoes Custom")
+            self.assertEqual(device.department, "Operacoes Custom")
+
+        self.assertEqual(self.client.post("/login", data={
+            "username": "admin",
+            "password": "AdminPassCutover@2026!"
+        }).status_code, 302)
+        dashboard_devices = self.client.get("/api/devices").get_json()
+        dashboard_device = next(d for d in dashboard_devices if d["uuid"] == "node-version-upgrade")
+        self.assertEqual(dashboard_device["agent_version"], "1.5.0")
+
+
 if __name__ == "__main__":
     unittest.main()
