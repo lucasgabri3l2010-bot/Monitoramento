@@ -35,6 +35,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("GivovaMonitor")
 
+
+def get_r2_download_strategy():
+    """Reads the download strategy from the current process environment."""
+    return os.getenv("R2_DOWNLOAD_STRATEGY", "redirect").strip().lower()
+
+
+logger.info("R2 download strategy: %s", get_r2_download_strategy())
+
 app = Flask(__name__)
 app.config.from_object(Config)
 app.permanent_session_lifetime = timedelta(days=7)
@@ -876,13 +884,14 @@ def baixar_versao_agente(version):
     if rel.storage_type == "r2" and rel.object_key:
         if storage_service.is_r2_configured():
             try:
-                if Config.R2_DOWNLOAD_STRATEGY == "stream":
+                if get_r2_download_strategy() == "stream":
                     # Modo Streaming através do Render (opcional)
                     return Response(
                         storage_service.download_stream(rel.object_key),
                         mimetype="application/octet-stream",
                         headers={
-                            "Content-Disposition": f'attachment; filename="{download_filename}"'
+                            "Content-Disposition": f'attachment; filename="{download_filename}"',
+                            **({"Content-Length": str(rel.file_size)} if rel.file_size is not None else {})
                         }
                     )
                 else:

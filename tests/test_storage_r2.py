@@ -166,6 +166,7 @@ class StorageR2TestCase(unittest.TestCase):
         self.assertEqual(resp.data, test_bytes)
         self.assertEqual(hashlib.sha256(resp.data).hexdigest(), sha)
 
+    @patch.dict(os.environ, {"R2_DOWNLOAD_STRATEGY": "redirect"})
     @patch("storage_service.generate_presigned_download_url")
     def test_07_download_r2_redirect_flow(self, mock_presign):
         """Teste 7: Release com storage_type='r2' redireciona via HTTP 302 para URL presigned do R2"""
@@ -196,10 +197,10 @@ class StorageR2TestCase(unittest.TestCase):
             filename="GivovaMonitorAgent-v1.5.0.exe"
         )
 
+    @patch.dict(os.environ, {"R2_DOWNLOAD_STRATEGY": "stream"})
     @patch("storage_service.download_stream")
     def test_08_download_r2_streaming_strategy(self, mock_stream):
         """Teste 8: Estratégia 'stream' entrega os bytes do R2 diretamente pelo Render com HTTP 200"""
-        Config.R2_DOWNLOAD_STRATEGY = "stream"
         mock_chunks = [b"CHUNK_A_", b"CHUNK_B_", b"CHUNK_C"]
         mock_stream.return_value = iter(mock_chunks)
 
@@ -210,7 +211,7 @@ class StorageR2TestCase(unittest.TestCase):
                 download_url="/api/agent/download/1.5.0",
                 storage_type="r2",
                 object_key="agents/1.5.0/GivovaMonitorAgent.exe",
-                file_size=24,
+                file_size=len(b"CHUNK_A_CHUNK_B_CHUNK_C"),
                 release_channel="stable",
                 rollout_scope="global",
                 status="active"
@@ -222,6 +223,12 @@ class StorageR2TestCase(unittest.TestCase):
         resp = self.client.get("/api/agent/download/1.5.0", headers=headers)
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data, b"CHUNK_A_CHUNK_B_CHUNK_C")
+        self.assertEqual(resp.mimetype, "application/octet-stream")
+        self.assertEqual(resp.headers.get("Content-Length"), "23")
+        self.assertEqual(
+            hashlib.sha256(resp.data).hexdigest(),
+            hashlib.sha256(b"CHUNK_A_CHUNK_B_CHUNK_C").hexdigest()
+        )
 
     @patch("storage_service.generate_presigned_download_url")
     def test_09_download_r2_failure_database_fallback(self, mock_presign):
@@ -413,9 +420,10 @@ class StorageR2TestCase(unittest.TestCase):
         self.assertFalse(ok_hash)
         self.assertIn("SHA-256 diverge", reason_hash)
 
-    @patch("storage_service.generate_presigned_download_url")
-    def test_15_agent_1_4_1_full_update_and_download_flow(self, mock_presign):
-        """Teste 15: Simulação completa do Agent 1.4.1 seguindo redirect 302 e validando SHA-256 idêntico"""
+    @patch.dict(os.environ, {"R2_DOWNLOAD_STRATEGY": "stream"})
+    @patch("storage_service.download_stream")
+    def test_15_agent_1_4_1_full_update_and_download_flow(self, mock_stream):
+        """Teste 15: Agent 1.4.1 recebe stream HTTP 200 com SHA-256 preservado."""
         expected_bytes = b"GIVOVA_MONITOR_EXE_V1_5_0_BINARY_STREAM"
         official_sha = hashlib.sha256(expected_bytes).hexdigest()
 
@@ -450,14 +458,13 @@ class StorageR2TestCase(unittest.TestCase):
         self.assertEqual(up_data["sha256"], official_sha)
 
         # 2. Agent solicita download em /api/agent/download/1.5.0
-        mock_presign.return_value = "https://mock-r2.cloudflarestorage.com/agents/1.5.0/GivovaMonitorAgent.exe?sig=test"
+        mock_stream.return_value = iter([expected_bytes])
         resp_dl = self.client.get(up_data["download_url"], headers=headers)
-        self.assertEqual(resp_dl.status_code, 302)
-        redirect_target = resp_dl.headers.get("Location")
-        self.assertEqual(redirect_target, "https://mock-r2.cloudflarestorage.com/agents/1.5.0/GivovaMonitorAgent.exe?sig=test")
+        self.assertEqual(resp_dl.status_code, 200)
+        self.assertEqual(resp_dl.data, expected_bytes)
 
-        # 3. Agent segue redirect para o R2 (simulado) e computa o SHA-256
-        computed_sha = hashlib.sha256(expected_bytes).hexdigest()
+        # 3. Agent computa o SHA-256 do stream recebido
+        computed_sha = hashlib.sha256(resp_dl.data).hexdigest()
         self.assertEqual(computed_sha, up_data["sha256"])
         with self.app.app_context():
             saved_rel = AgentRelease.query.filter_by(version="1.5.0").first()
