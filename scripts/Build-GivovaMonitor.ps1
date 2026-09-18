@@ -282,6 +282,7 @@ Copy-Item -Path $distUpdaterExe -Destination (Join-Path $distDeployDir "GivovaMo
 Copy-Item -Path (Join-Path $repoRoot "scripts\Install-GivovaMonitor.ps1") -Destination (Join-Path $distDeployDir "Instalar-GivovaMonitor.ps1") -Force
 Copy-Item -Path (Join-Path $repoRoot "scripts\Uninstall-GivovaMonitor.ps1") -Destination (Join-Path $distDeployDir "Desinstalar-GivovaMonitor.ps1") -Force
 Copy-Item -Path (Join-Path $repoRoot "scripts\Diagnose-GivovaMonitor.ps1") -Destination (Join-Path $distDeployDir "Diagnose-GivovaMonitor.ps1") -Force
+Copy-Item -Path (Join-Path $repoRoot "scripts\Recover-Agent-To-1.5.1.ps1") -Destination (Join-Path $distDeployDir "Recover-Agent-To-1.5.1.ps1") -Force
 
 # 5.3 Extensao corporativa Chrome / Edge
 $srcExtension = Join-Path $repoRoot "extension"

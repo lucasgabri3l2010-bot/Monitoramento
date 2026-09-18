@@ -43,6 +43,9 @@ class AutoUpdateShutdownTestCase(unittest.TestCase):
             "device_token": None,
         }
 
+    def test_corrected_agent_release_is_1_5_1(self):
+        self.assertEqual(agente.VERSION, "1.5.1")
+
     def _valid_update_responses(self, version="2.0.0", payload=b"new-agent-binary"):
         digest = hashlib.sha256(payload).hexdigest()
         return [

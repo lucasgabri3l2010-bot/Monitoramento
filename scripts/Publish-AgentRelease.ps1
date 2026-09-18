@@ -159,7 +159,7 @@ if ($PublishToServer) {
             username = $AdminUser
             password = $AdminPassword
         }
-        $loginResp = Invoke-WebRequest -Uri $loginEndpoint -Method POST -Body $loginBody -WebSession $session -MaximumRedirection 0 -ErrorAction SilentlyContinue
+        $loginResp = Invoke-WebRequest -Uri $loginEndpoint -Method POST -Body $loginBody -WebSession $session -ErrorAction Stop
 
         # 2. Upload do binário e manifesto
         Write-Host "      Enviando executável e manifesto para $publishEndpoint..." -ForegroundColor Gray
@@ -171,9 +171,23 @@ if ($PublishToServer) {
         $fileHeader = "--$boundary" + $CRLF +
                       'Content-Disposition: form-data; name="file"; filename="GivovaMonitorAgent.exe"' + $CRLF +
                       'Content-Type: application/octet-stream' + $CRLF + $CRLF
-        $manifestPart = $CRLF + "--$boundary" + $CRLF +
-                        'Content-Disposition: form-data; name="manifest"' + $CRLF + $CRLF +
-                        $manifestJson + $CRLF + "--$boundary--" + $CRLF
+        $publishFields = [ordered]@{
+            version = $Version
+            sha256 = $fileHash
+            release_notes = $Changelog
+            required = if ($Mandatory) { "true" } else { "false" }
+            download_url = $effectiveDownloadUrl
+            release_channel = "stable"
+            rollout_scope = "global"
+            status = "active"
+        }
+        $fieldParts = ""
+        foreach ($entry in $publishFields.GetEnumerator()) {
+            $fieldParts += $CRLF + "--$boundary" + $CRLF +
+                           "Content-Disposition: form-data; name=`"$($entry.Key)`"" + $CRLF + $CRLF +
+                           "$($entry.Value)"
+        }
+        $manifestPart = $fieldParts + $CRLF + "--$boundary--" + $CRLF
 
         $headerBytes = [System.Text.Encoding]::UTF8.GetBytes($fileHeader)
         $trailerBytes = [System.Text.Encoding]::UTF8.GetBytes($manifestPart)
@@ -187,7 +201,8 @@ if ($PublishToServer) {
             "Content-Type" = "multipart/form-data; boundary=$boundary"
         }
 
-        $publishResp = Invoke-RestMethod -Uri $publishEndpoint -Method POST -Body $totalBody -Headers $headers -WebSession $session
+        $publishRaw = Invoke-WebRequest -Uri $publishEndpoint -Method POST -Body $totalBody -Headers $headers -WebSession $session -ErrorAction Stop
+        $publishResp = $publishRaw.Content | ConvertFrom-Json
         Write-Host "      Sucesso na publicação no servidor: $($publishResp.message)" -ForegroundColor Green
     } catch {
         Write-Warning "Não foi possível publicar diretamente no servidor via API: $_"
