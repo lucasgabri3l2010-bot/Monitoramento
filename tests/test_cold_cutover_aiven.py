@@ -6,9 +6,9 @@ Simulação completa:
 3. Agente v1.4.1 reportando e reconstruindo o Device automaticamente.
 4. Proteção contra sobrescrita de campos administrativos configurados.
 5. Proteção anti-spoofing de tokens.
-6. Consulta de atualização para v1.5.0.
+6. Consulta de atualização para v1.5.1.
 7. Redirecionamento 302 para Cloudflare R2 com hash SHA-256 oficial preservado.
-8. Report de agente v1.5.0 já atualizado.
+8. Report de agente v1.5.1 já atualizado.
 9. Dashboard administrativo e login.
 10. Políticas e telemetria UsageSession iniciando do cutover em diante.
 11. Zero dados fictícios ou computadores inventados.
@@ -98,7 +98,7 @@ class TestColdCutoverAiven(unittest.TestCase):
         """1. Simula base vazia -> Executa bootstrap de produção."""
         with patch.object(bootstrap_module.storage_service, "is_r2_configured", return_value=True), \
              patch.object(bootstrap_module.storage_service, "object_exists", return_value=True), \
-             patch.object(bootstrap_module.storage_service, "get_object_metadata", return_value={"size": 13724916}):
+             patch.object(bootstrap_module.storage_service, "get_object_metadata", return_value={"size": 13725252}):
             
             success = bootstrap_module.bootstrap_database(
                 db_url=self.db_uri,
@@ -114,13 +114,13 @@ class TestColdCutoverAiven(unittest.TestCase):
             self.assertIsNotNone(admin)
             self.assertTrue(admin.check_password("AdminPassCutover@2026!"))
 
-            # Verifica que a release 1.5.0 foi registrada com R2 global
-            rel = AgentRelease.query.filter_by(version="1.5.0").first()
+            # Verifica que a release 1.5.1 foi registrada com R2 global
+            rel = AgentRelease.query.filter_by(version="1.5.1").first()
             self.assertIsNotNone(rel)
             self.assertEqual(rel.storage_type, "r2")
-            self.assertEqual(rel.object_key, "agents/1.5.0/GivovaMonitorAgent.exe")
-            self.assertEqual(rel.file_size, 13724916)
-            self.assertEqual(rel.sha256, "fbaf61d253c9b9fe5ea5f813dabe473b622dd4eb90aa99e0129edba62ffe1743")
+            self.assertEqual(rel.object_key, "agents/1.5.1/GivovaMonitorAgent.exe")
+            self.assertEqual(rel.file_size, 13725252)
+            self.assertEqual(rel.sha256, "e16bfc32798e4e395e28b0035bd27b2c9c3eedbdba8229776b914fbfc34a8288")
             self.assertEqual(rel.release_channel, "stable")
             self.assertEqual(rel.rollout_scope, "global")
             self.assertEqual(rel.status, "active")
@@ -259,7 +259,7 @@ class TestColdCutoverAiven(unittest.TestCase):
         self.assertEqual(resp_legit.status_code, 200)
 
     def test_05_agent_queries_update_and_receives_r2_release(self):
-        """5. Agent 1.4.1 consulta /api/agent/update e é direcionado para a release 1.5.0."""
+        """5. Agent 1.4.1 consulta /api/agent/update e é direcionado para a release 1.5.1."""
         with patch.object(bootstrap_module.storage_service, "is_r2_configured", return_value=True):
             bootstrap_module.bootstrap_database(db_url=self.db_uri, verify_r2=False)
 
@@ -276,28 +276,28 @@ class TestColdCutoverAiven(unittest.TestCase):
         data = resp.get_json()
 
         self.assertTrue(data.get("update_available"))
-        self.assertEqual(data.get("target_version"), "1.5.0")
-        self.assertEqual(data.get("sha256"), "fbaf61d253c9b9fe5ea5f813dabe473b622dd4eb90aa99e0129edba62ffe1743")
-        self.assertIn("/api/agent/download/1.5.0", data.get("download_url"))
+        self.assertEqual(data.get("target_version"), "1.5.1")
+        self.assertEqual(data.get("sha256"), "e16bfc32798e4e395e28b0035bd27b2c9c3eedbdba8229776b914fbfc34a8288")
+        self.assertIn("/api/agent/download/1.5.1", data.get("download_url"))
 
     def test_06_r2_download_302_redirect(self):
-        """6. Download da release v1.5.0 redireciona para Cloudflare R2 via HTTP 302."""
+        """6. Download da release v1.5.1 redireciona para Cloudflare R2 via HTTP 302."""
         with patch.object(bootstrap_module.storage_service, "is_r2_configured", return_value=True):
             bootstrap_module.bootstrap_database(db_url=self.db_uri, verify_r2=False)
 
-        presigned_target = "https://test-account.r2.cloudflarestorage.com/givova-monitor-releases/agents/1.5.0/GivovaMonitorAgent.exe?sig=123"
+        presigned_target = "https://test-account.r2.cloudflarestorage.com/givova-monitor-releases/agents/1.5.1/GivovaMonitorAgent.exe?sig=123"
 
         with patch("storage_service.is_r2_configured", return_value=True), \
              patch("storage_service.generate_presigned_download_url", return_value=presigned_target) as mock_url:
 
             headers = {"X-Agent-Token": "givova_fleet_secret_token_cutover_2026"}
-            resp = self.client.get("/api/agent/download/1.5.0", headers=headers)
+            resp = self.client.get("/api/agent/download/1.5.1", headers=headers)
             self.assertEqual(resp.status_code, 302)
             self.assertEqual(resp.headers.get("Location"), presigned_target)
             mock_url.assert_called_once()
 
-    def test_07_agent_1_5_0_reports_up_to_date(self):
-        """7. Agent v1.5.0 já atualizado reporta e é reconhecido como up_to_date."""
+    def test_07_agent_1_5_1_reports_up_to_date(self):
+        """7. Agent v1.5.1 já atualizado reporta e é reconhecido como up_to_date."""
         with patch.object(bootstrap_module.storage_service, "is_r2_configured", return_value=True):
             bootstrap_module.bootstrap_database(db_url=self.db_uri, verify_r2=False)
 
@@ -310,15 +310,15 @@ class TestColdCutoverAiven(unittest.TestCase):
             "uuid": "node-150-test",
             "computador": "PC-TI-01",
             "usuario": "victor",
-            "agent_version": "1.5.0",
+            "agent_version": "1.5.1",
             "cpu": 12.0,
             "ram": 40.0
         }
         resp = self.client.post("/api/agent/report", json=payload, headers=headers)
         self.assertEqual(resp.status_code, 200)
 
-        # Consulta de update pelo 1.5.0 não deve oferecer atualização
-        resp_upd = self.client.get("/api/agent/update", headers=headers, query_string={"current_version": "1.5.0", "uuid": "node-150-test"})
+        # Consulta de update pelo 1.5.1 não deve oferecer atualização
+        resp_upd = self.client.get("/api/agent/update", headers=headers, query_string={"current_version": "1.5.1", "uuid": "node-150-test"})
         self.assertEqual(resp_upd.status_code, 200)
         self.assertFalse(resp_upd.get_json().get("update_available", False))
 
@@ -363,7 +363,7 @@ class TestColdCutoverAiven(unittest.TestCase):
             "uuid": "node-session-test",
             "computador": "PC-OP-01",
             "usuario": "operador",
-            "agent_version": "1.5.0",
+            "agent_version": "1.5.1",
             "active_application": "chrome.exe",
             "active_domain": "google.com",
             "session_state": "active",
@@ -424,10 +424,10 @@ class TestColdCutoverAiven(unittest.TestCase):
             device.department = "Operacoes Custom"
             db.session.commit()
 
-        headers["User-Agent"] = "GivovaMonitorAgent/1.5.0"
+        headers["User-Agent"] = "GivovaMonitorAgent/1.5.1"
         upgraded_report = {
             **initial_report,
-            "agent_version": "1.5.0",
+            "agent_version": "1.5.1",
             "display_name": "Attempted overwrite",
             "setor": "TI"
         }
@@ -438,7 +438,7 @@ class TestColdCutoverAiven(unittest.TestCase):
 
         with app.app_context():
             device = Device.query.filter_by(uuid="node-version-upgrade").first()
-            self.assertEqual(device.agent_version, "1.5.0")
+            self.assertEqual(device.agent_version, "1.5.1")
             self.assertEqual(device.display_name, "PC Operacoes Custom")
             self.assertEqual(device.department, "Operacoes Custom")
 
@@ -448,7 +448,7 @@ class TestColdCutoverAiven(unittest.TestCase):
         }).status_code, 302)
         dashboard_devices = self.client.get("/api/devices").get_json()
         dashboard_device = next(d for d in dashboard_devices if d["uuid"] == "node-version-upgrade")
-        self.assertEqual(dashboard_device["agent_version"], "1.5.0")
+        self.assertEqual(dashboard_device["agent_version"], "1.5.1")
 
 
 if __name__ == "__main__":

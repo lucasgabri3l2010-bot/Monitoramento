@@ -8,14 +8,9 @@ Garante:
 4. Idempotencia absoluta em multiplos boots/restarts consecutivos.
 """
 
-import os
 import sys
-import json
-import hashlib
 import logging
 import threading
-from datetime import datetime, timezone
-from datetime_utils import format_iso_utc
 from config import Config
 from models import (
     db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent,
@@ -112,17 +107,17 @@ def seed_default_policy_rules(force: bool = False) -> int:
     return inserted_count
 
 
-def seed_official_release_v1_5_0() -> bool:
+def seed_official_release_v1_5_1() -> bool:
     """
-    Cadastra ou atualiza de forma estritamente idempotente a release oficial v1.5.0
+    Cadastra ou atualiza de forma estritamente idempotente a release oficial v1.5.1
     com armazenamento apontando para o Cloudflare R2 (storage_type='r2'),
     canal estável, escopo global e status ativo.
     NÃO cria computadores falsos no banco de dados.
     """
-    RELEASE_VERSION = "1.5.0"
-    EXPECTED_SHA = "fbaf61d253c9b9fe5ea5f813dabe473b622dd4eb90aa99e0129edba62ffe1743"
-    OBJECT_KEY = "agents/1.5.0/GivovaMonitorAgent.exe"
-    FILE_SIZE = 13724916
+    RELEASE_VERSION = "1.5.1"
+    EXPECTED_SHA = "e16bfc32798e4e395e28b0035bd27b2c9c3eedbdba8229776b914fbfc34a8288"
+    OBJECT_KEY = "agents/1.5.1/GivovaMonitorAgent.exe"
+    FILE_SIZE = 13725252
 
     rel = AgentRelease.query.filter_by(version=RELEASE_VERSION).first()
     if not rel:
@@ -131,7 +126,7 @@ def seed_official_release_v1_5_0() -> bool:
             version=RELEASE_VERSION,
             sha256=EXPECTED_SHA,
             download_url=f"/api/agent/download/{RELEASE_VERSION}",
-            changelog="Release oficial v1.5.0: Auditoria completa de timezone UTC/America/Sao_Paulo e monitoramento de tempo de uso real e ociosidade por sessão do Windows.",
+            changelog="Release 1.5.1: corrige o shutdown coordenado do auto-update para permitir a execucao do updater e a liberacao do mutex.",
             min_supported_version="1.0.0",
             mandatory=False,
             storage_type="r2",
@@ -156,37 +151,14 @@ def seed_official_release_v1_5_0() -> bool:
         rel.status = "active"
         rel.download_url = f"/api/agent/download/{RELEASE_VERSION}"
 
-    # Atualiza manifesto em disco para redundância
-    manifest_data = {
-        "version": RELEASE_VERSION,
-        "sha256": EXPECTED_SHA,
-        "required": False,
-        "release_notes": rel.changelog,
-        "download_url": rel.download_url,
-        "release_channel": "stable",
-        "rollout_scope": "global",
-        "status": "active",
-        "storage_type": "r2",
-        "object_key": OBJECT_KEY,
-        "file_size": FILE_SIZE,
-        "published_at": format_iso_utc(datetime.now(timezone.utc)),
-        "published_by": "admin"
-    }
-    manifest_root = os.path.join(Config.RELEASES_DIR, "manifest.json")
-    try:
-        os.makedirs(Config.RELEASES_DIR, exist_ok=True)
-        with open(manifest_root, "w", encoding="utf-8") as f:
-            json.dump(manifest_data, f, indent=2)
-    except Exception:
-        pass
-
     db.session.commit()
     logger.info(f"[MIGRATION] Release v{RELEASE_VERSION} configurada com sucesso (Canal: stable, Escopo: global, Status: active, Storage: r2).")
     return True
 
 
-# Mantém compatibilidade com chamadas legadas
-seed_canary_release_v1_5_0 = seed_official_release_v1_5_0
+# Mantém compatibilidade com chamadas legadas sem voltar a semear a 1.5.0.
+seed_official_release_v1_5_0 = seed_official_release_v1_5_1
+seed_canary_release_v1_5_0 = seed_official_release_v1_5_1
 
 
 def run_migrations() -> bool:
@@ -352,12 +324,12 @@ def run_migrations() -> bool:
                     db.session.remove()
 
                 # -----------------------------------------------------------------
-                # FASE D: Seed de Release Canary v1.5.0 (Rollout Controlado)
+                # FASE D: Seed da release oficial v1.5.1
                 # -----------------------------------------------------------------
-                logger.info("[MIGRATION] Fase D: Verificando release Canary v1.5.0...")
+                logger.info("[MIGRATION] Fase D: Verificando release oficial v1.5.1...")
                 try:
                     db.session.rollback()
-                    seed_canary_release_v1_5_0()
+                    seed_official_release_v1_5_1()
                 except Exception as e:
                     db.session.rollback()
                     logger.error(f"[MIGRATION ERROR] Falha na Fase D (Canary Seed): {e}")

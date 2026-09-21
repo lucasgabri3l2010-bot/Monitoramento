@@ -73,7 +73,7 @@ class Config:
     # Auto-Update do Agente e Gestão de Versões
     AGENT_AUTO_UPDATE_ENABLED = os.getenv("AGENT_AUTO_UPDATE_ENABLED", "true").lower() in ("true", "1", "yes")
     AGENT_UPDATE_CHECK_HOURS = int(os.getenv("AGENT_UPDATE_CHECK_HOURS", "6"))
-    LATEST_AGENT_VERSION = os.getenv("LATEST_AGENT_VERSION", "1.5.0")
+    LATEST_AGENT_VERSION = os.getenv("LATEST_AGENT_VERSION", "1.5.1")
     RELEASES_DIR = os.getenv("RELEASES_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "releases"))
 
     # Rastreamento de Tempo de Uso Real e Ociosidade (v1.5.0)

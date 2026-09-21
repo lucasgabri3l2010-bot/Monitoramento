@@ -1237,7 +1237,7 @@
                     </div>
                 </div>
 
-                <!-- Gestão de Releases e Rollout Canary (v1.5.0) -->
+                <!-- Gestão de Releases e Rollout Canary -->
                 <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-5" id="agent-rollout-panel">
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
                         <div>
@@ -1248,7 +1248,7 @@
                                     </svg>
                                     <span>Gestão de Releases & Rollout Canary do Agente</span>
                                 </h2>
-                                <span id="rollout-version-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200">v1.5.0</span>
+                                <span id="rollout-version-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200">v1.5.1</span>
                                 <span id="rollout-channel-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200">CANARY</span>
                                 <span id="rollout-status-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">Ativo</span>
                             </div>
@@ -1279,7 +1279,7 @@
                         <div>
                             <span class="text-slate-500 font-medium">Hash de Integridade SHA-256 (Oficial):</span>
                             <div class="flex items-center gap-1.5 mt-1 font-mono text-[11px] text-slate-800 break-all bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
-                                <span id="rollout-sha-display" class="truncate">fbaf61d253c9b9fe5ea5f813dabe473b622dd4eb90aa99e0129edba62ffe1743</span>
+                                <span id="rollout-sha-display" class="truncate">e16bfc32798e4e395e28b0035bd27b2c9c3eedbdba8229776b914fbfc34a8288</span>
                                 <button onclick="copiarShaRollout()" title="Copiar Hash SHA-256" class="text-slate-400 hover:text-slate-700 p-0.5 shrink-0">
                                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
                                 </button>
@@ -1327,7 +1327,7 @@
 
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                         <div class="p-3 bg-emerald-50/50 rounded-xl border border-emerald-200">
-                            <span class="text-emerald-700 font-medium">Atualizados (v1.5.0)</span>
+                            <span class="text-emerald-700 font-medium">Atualizados (v1.5.1)</span>
                             <div class="text-xl font-bold text-emerald-800 mt-0.5" id="rollout-kpi-updated">0</div>
                             <span class="text-[10px] text-emerald-600 font-medium">Confirmados saudáveis</span>
                         </div>
@@ -1355,7 +1355,7 @@
                     <div class="border border-slate-200 rounded-xl overflow-hidden bg-white">
                         <div class="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs font-semibold text-slate-700">
                             <span>Status Individual dos Computadores no Rollout</span>
-                            <span class="text-[11px] text-slate-400 font-normal">Atualizado automaticamente a cada 5s</span>
+                            <span class="text-[11px] text-slate-400 font-normal">Atualizado sob demanda e a cada 60s</span>
                         </div>
                         <div class="max-h-72 overflow-y-auto overflow-x-auto text-xs" id="rollout-devices-list">
                             <div class="p-6 text-center text-slate-400">Carregando dados do rollout da frota...</div>
@@ -1523,7 +1523,7 @@
                         <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
                             <span class="text-slate-400">Versão do Agente</span>
                             <div class="flex items-center gap-1.5 mt-0.5">
-                                <span id="modal-dev-agent" class="font-semibold text-slate-800 truncate">v1.5.0</span>
+                                <span id="modal-dev-agent" class="font-semibold text-slate-800 truncate">v1.5.1</span>
                                 <span id="modal-dev-version-badge" class="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">Atualizado</span>
                             </div>
                         </div>
@@ -1843,7 +1843,7 @@
     </div>
 
     <!-- ================================================================= -->
-    <!-- MODAL DE SELEÇÃO DE ALVOS CANARY (v1.5.0)                         -->
+    <!-- MODAL DE SELEÇÃO DE ALVOS CANARY                              -->
     <!-- ================================================================= -->
     <div id="modal-canary-targets" class="fixed inset-0 z-55 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 hidden">
         <div class="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-lg p-6 animate-in fade-in zoom-in-95 duration-150 space-y-4">
@@ -1853,7 +1853,7 @@
                         <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">CANARY</span>
                         <span>Computadores de Teste Autorizados</span>
                     </h2>
-                    <p class="text-xs text-slate-500 mt-0.5">Selecione quais postos de trabalho receberão a release v1.5.0 para validação controlada.</p>
+                    <p class="text-xs text-slate-500 mt-0.5">Selecione quais postos de trabalho receberão a release ativa para validação controlada.</p>
                 </div>
                 <button onclick="fecharModalAlvosCanary()" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
@@ -1896,7 +1896,7 @@
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path></svg>
                 </div>
                 <div>
-                    <h2 class="text-base font-bold text-slate-900">Promover Agent v1.5.0 para Toda a Frota?</h2>
+                    <h2 class="text-base font-bold text-slate-900">Promover a release ativa para toda a frota?</h2>
                     <p class="text-xs text-slate-500 mt-0.5">Liberação global para todos os computadores cadastrados.</p>
                 </div>
             </div>
@@ -1904,7 +1904,7 @@
             <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2.5">
                 <div class="flex items-center justify-between">
                     <span class="text-slate-500">Versão:</span>
-                    <span class="font-bold text-slate-800">1.5.0 (Oficial)</span>
+                    <span class="font-bold text-slate-800">1.5.1 (Oficial)</span>
                 </div>
                 <div class="flex items-center justify-between">
                     <span class="text-slate-500">Ambiente onde foi testada:</span>
@@ -5113,7 +5113,7 @@ streamdemo.tv,streaming,warning,alert,global
         }
 
         // =====================================================================
-        // GESTÃO DE RELEASES & CANARY ROLLOUT PROGRESSIVO (v1.5.0)
+        // GESTÃO DE RELEASES & CANARY ROLLOUT PROGRESSIVO
         // =====================================================================
         let currentRolloutRelease = null;
         let canaryChecklistDevices = [];
@@ -5667,7 +5667,7 @@ streamdemo.tv,streaming,warning,alert,global
                 }
                 fecharModalPromocaoGlobal();
                 await carregarReleasesRollout();
-                alert("Release v1.5.0 promovida com sucesso para Stable / Global!");
+                alert(`Release v${currentRolloutRelease.version} promovida com sucesso para Stable / Global!`);
             } catch (err) {
                 console.error(err);
                 alert("Erro de conexão ao promover release.");

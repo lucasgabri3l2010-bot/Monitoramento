@@ -3,7 +3,7 @@
 Givova Transportes - Script de Bootstrap Idempotente do Banco de Produção (Aiven)
 Finalidade: Inicializar uma base de dados PostgreSQL vazia (Aiven) para Cold Cutover,
             garantindo 100% de integridade estrutural, regras corporativas oficiais,
-            usuário administrador seguro e release v1.5.0 (R2) SEM criar dados fictícios,
+            usuário administrador seguro e release v1.5.1 (R2) SEM criar dados fictícios,
             computadores falsos ou histórico simulado.
 
 Uso:
@@ -143,21 +143,21 @@ def bootstrap_database(db_url: str = None, admin_user: str = None, admin_pass: s
             return False
 
         # ---------------------------------------------------------------------
-        # 4. Registro Oficial da Release v1.5.0 (Cloudflare R2 Global)
+        # 4. Registro Oficial da Release v1.5.1 (Cloudflare R2 Global)
         # ---------------------------------------------------------------------
-        EXPECTED_SHA = "fbaf61d253c9b9fe5ea5f813dabe473b622dd4eb90aa99e0129edba62ffe1743"
-        OBJECT_KEY = "agents/1.5.0/GivovaMonitorAgent.exe"
-        FILE_SIZE = 13724916
+        EXPECTED_SHA = "e16bfc32798e4e395e28b0035bd27b2c9c3eedbdba8229776b914fbfc34a8288"
+        OBJECT_KEY = "agents/1.5.1/GivovaMonitorAgent.exe"
+        FILE_SIZE = 13725252
 
-        logger.info("[ETAPA 4/6] Verificando cadastro da release oficial v1.5.0 (Cloudflare R2)...")
+        logger.info("[ETAPA 4/6] Verificando cadastro da release oficial v1.5.1 (Cloudflare R2)...")
         try:
-            rel = AgentRelease.query.filter_by(version="1.5.0").first()
+            rel = AgentRelease.query.filter_by(version="1.5.1").first()
             if not rel:
                 rel = AgentRelease(
-                    version="1.5.0",
+                    version="1.5.1",
                     sha256=EXPECTED_SHA,
-                    download_url="/api/agent/download/1.5.0",
-                    changelog="Release oficial v1.5.0: Rollout Global via Cloudflare R2 e telemetria de uso real.",
+                    download_url="/api/agent/download/1.5.1",
+                    changelog="Release 1.5.1: corrige o shutdown coordenado do auto-update e a liberacao do mutex.",
                     min_supported_version="1.0.0",
                     mandatory=False,
                     storage_type="r2",
@@ -171,7 +171,7 @@ def bootstrap_database(db_url: str = None, admin_user: str = None, admin_pass: s
                 )
                 db.session.add(rel)
                 db.session.commit()
-                logger.info("Release v1.5.0 cadastrada com sucesso (stable, global, r2).")
+                logger.info("Release v1.5.1 cadastrada com sucesso (stable, global, r2).")
             else:
                 rel.sha256 = EXPECTED_SHA
                 rel.storage_type = "r2"
@@ -180,11 +180,12 @@ def bootstrap_database(db_url: str = None, admin_user: str = None, admin_pass: s
                 rel.release_channel = "stable"
                 rel.rollout_scope = "global"
                 rel.status = "active"
+                rel.download_url = "/api/agent/download/1.5.1"
                 db.session.commit()
-                logger.info("Release v1.5.0 atualizada e validada.")
+                logger.info("Release v1.5.1 atualizada e validada.")
         except Exception as e:
             db.session.rollback()
-            logger.critical(f"Erro ao registrar release v1.5.0: {e}")
+            logger.critical(f"Erro ao registrar release v1.5.1: {e}")
             return False
 
         # ---------------------------------------------------------------------
@@ -221,7 +222,7 @@ def bootstrap_database(db_url: str = None, admin_user: str = None, admin_pass: s
                     else:
                         logger.warning(
                             f"[AVISO R2] Objeto '{OBJECT_KEY}' ainda não existe no bucket R2 '{Config.R2_BUCKET_NAME}'. "
-                            f"Execute 'python scripts/upload_release_to_r2.py --version 1.5.0' para enviá-lo."
+                            f"Execute 'python scripts/upload_release_to_r2.py --version 1.5.1' para enviá-lo."
                         )
                 except Exception as e:
                     logger.warning(f"Não foi possível checar objeto no R2: {e}")
