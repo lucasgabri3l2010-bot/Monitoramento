@@ -4,7 +4,7 @@ import secrets
 import logging
 from datetime import datetime, timezone, timedelta
 from functools import wraps
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, send_file, Response
+from flask import Flask, g, request, jsonify, render_template, redirect, url_for, session, flash, send_file, Response
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -12,6 +12,12 @@ import io
 from sqlalchemy.orm import undefer
 
 import storage_service
+from telemetry import (
+    install_sql_query_counter,
+    response_size_bytes,
+    telemetry,
+    track_release_stream,
+)
 from config import Config
 from datetime_utils import (
     utc_now, ensure_utc, to_app_timezone, format_iso_utc,
@@ -51,6 +57,33 @@ app.permanent_session_lifetime = timedelta(days=7)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 db.init_app(app)
+install_sql_query_counter()
+
+
+@app.before_request
+def start_request_telemetry():
+    """Starts aggregate-only request accounting without retaining sensitive data."""
+    import time
+    g.telemetry_started_at = time.perf_counter()
+    g.telemetry_sql_queries = 0
+
+
+@app.after_request
+def record_request_telemetry(response):
+    import time
+    started_at = getattr(g, "telemetry_started_at", time.perf_counter())
+    endpoint = request.url_rule.rule if request.url_rule else "unmatched"
+    telemetry.record_request(
+        method=request.method,
+        endpoint=endpoint,
+        status_code=response.status_code,
+        request_bytes=request.content_length or 0,
+        response_bytes=response_size_bytes(response),
+        duration_ms=(time.perf_counter() - started_at) * 1000.0,
+        sql_queries=getattr(g, "telemetry_sql_queries", 0),
+    )
+    telemetry.maybe_emit(logger)
+    return response
 
 
 @app.after_request
@@ -886,8 +919,12 @@ def baixar_versao_agente(version):
             try:
                 if get_r2_download_strategy() == "stream":
                     # Modo Streaming através do Render (opcional)
+                    telemetry.record_release_attempt("r2_stream")
                     return Response(
-                        storage_service.download_stream(rel.object_key),
+                        track_release_stream(
+                            storage_service.download_stream(rel.object_key),
+                            mode="r2_stream",
+                        ),
                         mimetype="application/octet-stream",
                         headers={
                             "Content-Disposition": f'attachment; filename="{download_filename}"',
@@ -902,6 +939,7 @@ def baixar_versao_agente(version):
                         expires_in=Config.R2_PRESIGNED_URL_EXPIRES_SECONDS,
                         filename=download_filename
                     )
+                    telemetry.record_release_attempt("r2_redirect")
                     return redirect(presigned_url, code=302)
             except Exception as e:
                 logger.warning(f"Falha ao gerar download via Cloudflare R2 para v{clean_version}: {e}")
@@ -909,6 +947,8 @@ def baixar_versao_agente(version):
         # Fallback controlado para banco de dados caso R2 falhe temporariamente
         if Config.R2_FALLBACK_TO_DATABASE and rel.binary_data:
             logger.warning("R2 unavailable; using temporary database fallback")
+            telemetry.record_release_attempt("database_fallback")
+            telemetry.record_release_bytes("database_fallback", len(rel.binary_data))
             return send_file(
                 io.BytesIO(rel.binary_data),
                 as_attachment=True,
@@ -923,6 +963,8 @@ def baixar_versao_agente(version):
 
     # 4.2. Armazenamento Legado no Banco de Dados
     if rel.binary_data:
+        telemetry.record_release_attempt("database")
+        telemetry.record_release_bytes("database", len(rel.binary_data))
         return send_file(
             io.BytesIO(rel.binary_data),
             as_attachment=True,
@@ -930,6 +972,7 @@ def baixar_versao_agente(version):
             mimetype="application/octet-stream"
         )
     elif rel.download_url and rel.download_url.startswith(("http://", "https://")):
+        telemetry.record_release_attempt("external_redirect")
         return redirect(rel.download_url)
 
     # 5. Fallback para arquivo em disco local
@@ -950,6 +993,8 @@ def baixar_versao_agente(version):
         logger.warning(f"Executável da versão {clean_version} não encontrado no repositório de releases.")
         return jsonify({"error": f"Executável da versão {clean_version} não disponível para download no servidor."}), 404
 
+    telemetry.record_release_attempt("filesystem")
+    telemetry.record_release_bytes("filesystem", os.path.getsize(target_exe))
     return send_file(
         target_exe,
         as_attachment=True,
