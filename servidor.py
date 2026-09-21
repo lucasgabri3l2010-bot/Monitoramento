@@ -2,6 +2,7 @@ import os
 import json
 import secrets
 import logging
+import gzip
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 from flask import Flask, g, request, jsonify, render_template, redirect, url_for, session, flash, send_file, Response
@@ -206,6 +207,31 @@ def add_security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["X-XSS-Protection"] = "1; mode=block"
+    return response
+
+
+@app.after_request
+def optimize_dashboard_responses(response):
+    """Enables private conditional GETs and gzip for the two polling endpoints."""
+    if request.method != "GET" or request.path not in ("/api/stats", "/api/devices"):
+        return response
+    if response.status_code != 200 or not response.is_json:
+        return response
+
+    response.cache_control.private = True
+    response.cache_control.no_cache = True
+    response.vary.add("Cookie")
+
+    body = response.get_data()
+    accepts_gzip = "gzip" in request.headers.get("Accept-Encoding", "").lower()
+    if accepts_gzip and len(body) >= 1024:
+        response.set_data(gzip.compress(body, compresslevel=5))
+        response.headers["Content-Encoding"] = "gzip"
+        response.headers["Content-Length"] = str(len(response.get_data()))
+        response.vary.add("Accept-Encoding")
+
+    response.add_etag()
+    response.make_conditional(request)
     return response
 
 

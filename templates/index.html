@@ -2484,6 +2484,18 @@ streamdemo.tv,streaming,warning,alert,global
         let usageFilterPeriod = '7d';
         let usageCustomStart = '';
         let usageCustomEnd = '';
+        let dashboardRequestController = null;
+        let dashboardRequestSequence = 0;
+        let dashboardPollingInitialized = false;
+        const dashboardResponseCache = new Map();
+        const viewRefreshSeconds = {
+            dashboard: 15,
+            computadores: 15,
+            setores: 30,
+            alertas: 30,
+            politicas: 30,
+            configuracoes: 60
+        };
 
         // Inicialização
         document.addEventListener("DOMContentLoaded", () => {
@@ -2499,6 +2511,14 @@ streamdemo.tv,streaming,warning,alert,global
 
             // Inicia ciclo de contagem regressiva
             iniciarContador();
+            dashboardPollingInitialized = true;
+        });
+
+        document.addEventListener("visibilitychange", () => {
+            refreshSeconds = getRefreshIntervalSeconds();
+            if (!document.hidden) {
+                carregarDados();
+            }
         });
 
         function toggleSidebar() {
@@ -2576,37 +2596,74 @@ streamdemo.tv,streaming,warning,alert,global
                 carregarConfiguracaoIdle();
                 carregarReleasesRollout();
             }
+
+            if (dashboardPollingInitialized) {
+                refreshSeconds = getRefreshIntervalSeconds();
+                carregarDados();
+            }
+        }
+
+        function getRefreshIntervalSeconds() {
+            return document.hidden ? 120 : (viewRefreshSeconds[currentView] || 30);
         }
 
         function iniciarContador() {
             clearInterval(countdownTimer);
-            refreshSeconds = 5;
+            refreshSeconds = getRefreshIntervalSeconds();
             countdownTimer = setInterval(() => {
                 refreshSeconds--;
                 if (refreshSeconds <= 0) {
                     carregarDados();
-                    refreshSeconds = 5;
+                    refreshSeconds = getRefreshIntervalSeconds();
                 }
                 document.getElementById("sync-countdown").innerText = `${refreshSeconds}s`;
             }, 1000);
+        }
+
+        function dashboardEndpointsForView(viewName) {
+            if (viewName === "dashboard") return ["/api/stats"];
+            if (viewName === "computadores") return ["/api/devices"];
+            if (viewName === "setores") return ["/api/stats", "/api/devices"];
+            return ["/api/stats"];
+        }
+
+        async function fetchDashboardJson(url, signal) {
+            const cached = dashboardResponseCache.get(url);
+            const headers = cached && cached.etag ? { "If-None-Match": cached.etag } : {};
+            const response = await fetch(url, { signal, headers });
+            if (response.status === 304 && cached) return cached.data;
+            if (!response.ok) throw new Error(`Erro ${response.status} ao consultar ${url}`);
+            const data = await response.json();
+            dashboardResponseCache.set(url, {
+                etag: response.headers.get("ETag"),
+                data
+            });
+            return data;
         }
 
         async function carregarDados(manual = false) {
             const refreshIcon = document.getElementById("refresh-icon");
             if (manual) refreshIcon.classList.add("animate-spin");
 
+            if (dashboardRequestController) dashboardRequestController.abort();
+            const controller = new AbortController();
+            const requestSequence = ++dashboardRequestSequence;
+            dashboardRequestController = controller;
+
             try {
-                const [respStats, respDevices] = await Promise.all([
-                    fetch("/api/stats"),
-                    fetch("/api/devices")
-                ]);
+                const endpoints = dashboardEndpointsForView(currentView);
+                const payloads = await Promise.all(
+                    endpoints.map(url => fetchDashboardJson(url, controller.signal))
+                );
+                if (requestSequence !== dashboardRequestSequence) return;
 
-                if (!respStats.ok || !respDevices.ok) {
-                    throw new Error("Erro de comunicação com o backend");
-                }
-
-                estatisticasGerais = await respStats.json();
-                todosDispositivos = await respDevices.json();
+                const resultByEndpoint = Object.fromEntries(
+                    endpoints.map((url, index) => [url, payloads[index]])
+                );
+                const newStats = resultByEndpoint["/api/stats"];
+                const newDevices = resultByEndpoint["/api/devices"];
+                if (newStats) estatisticasGerais = newStats;
+                if (newDevices) todosDispositivos = newDevices;
 
                 // Oculta aviso de erro se visível
                 document.getElementById("connection-alert").classList.add("hidden");
@@ -2614,42 +2671,35 @@ streamdemo.tv,streaming,warning,alert,global
                 document.getElementById("sync-dot").className = "relative inline-flex rounded-full h-2 w-2 bg-emerald-500";
                 document.getElementById("sync-ping").className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
 
-                // Atualiza KPIs do Dashboard
-                atualizarKPIs(estatisticasGerais);
-
-                // Atualiza Gráficos do Dashboard
-                atualizarGraficosDashboard(estatisticasGerais);
-
-                // Atualiza Rankings
-                atualizarRankings(estatisticasGerais);
-
-                // Atualiza Tabela de Computadores
-                aplicarFiltrosDispositivos();
+                if (newStats) {
+                    atualizarKPIs(estatisticasGerais);
+                    atualizarGraficosDashboard(estatisticasGerais);
+                    atualizarRankings(estatisticasGerais);
+                }
+                if (newDevices) aplicarFiltrosDispositivos();
 
                 // Atualiza badge de alertas de hardware
                 const badge = document.getElementById("badge-alertas-count");
-                if (estatisticasGerais.active_alerts_count > 0) {
+                if (newStats && estatisticasGerais.active_alerts_count > 0) {
                     badge.innerText = estatisticasGerais.active_alerts_count;
                     badge.classList.remove("hidden");
-                } else {
-                    badge.classList.add("hidden");
-                }
+                } else if (newStats) badge.classList.add("hidden");
 
                 // Atualiza badges de políticas corporativas
-                const polCount = estatisticasGerais.active_policy_alerts_count || 0;
+                const polCount = newStats ? (estatisticasGerais.active_policy_alerts_count || 0) : null;
                 const badgePol = document.getElementById("badge-politicas-count");
                 const bellBadge = document.getElementById("header-bell-badge");
-                if (badgePol) {
+                if (badgePol && polCount !== null) {
                     badgePol.innerText = polCount;
                     badgePol.classList.toggle("hidden", polCount === 0);
                 }
-                if (bellBadge) {
+                if (bellBadge && polCount !== null) {
                     bellBadge.innerText = polCount;
                     bellBadge.classList.toggle("hidden", polCount === 0);
                 }
 
                 // Atualiza gestão de versões em Agente & Config
-                if (estatisticasGerais.fleet_versions) {
+                if (newStats && estatisticasGerais.fleet_versions) {
                     const fv = estatisticasGerais.fleet_versions;
                     const elUp = document.getElementById("cfg-fleet-uptodate");
                     const elPend = document.getElementById("cfg-fleet-pending");
@@ -2677,12 +2727,16 @@ streamdemo.tv,streaming,warning,alert,global
                 }
 
             } catch (err) {
+                if (err.name === "AbortError") return;
                 console.error("Erro ao carregar telemetria:", err);
                 document.getElementById("connection-alert").classList.remove("hidden");
                 document.getElementById("sync-text").innerText = "Reconectando";
                 document.getElementById("sync-dot").className = "relative inline-flex rounded-full h-2 w-2 bg-amber-500";
                 document.getElementById("sync-ping").className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75";
             } finally {
+                if (dashboardRequestController === controller) {
+                    dashboardRequestController = null;
+                }
                 if (manual) {
                     setTimeout(() => refreshIcon.classList.remove("animate-spin"), 500);
                 }
