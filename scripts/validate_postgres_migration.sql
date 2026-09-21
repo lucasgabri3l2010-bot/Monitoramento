@@ -61,16 +61,14 @@ ORDER BY sequence_name;
 \echo '=== SEQUENCE VALUES VS TABLE MAX ==='
 SELECT format(
     'SELECT %L AS table_name, %L AS column_name, max(%I) AS table_max, '
-    'curr.last_value, curr.is_called FROM %I.%I CROSS JOIN %s curr;',
+    's.last_value AS sequence_last_value FROM %I.%I, %I s WHERE s.sequence_name = pg_get_serial_sequence(%L::regclass, %L) GROUP BY s.last_value',
     cols.table_name,
     cols.column_name,
     cols.column_name,
     cols.table_schema,
     cols.table_name,
-    pg_get_serial_sequence(
-        format('%I.%I', cols.table_schema, cols.table_name),
-        cols.column_name
-    )
+    cols.table_schema,
+    cols.column_name
 )
 FROM information_schema.columns cols
 WHERE cols.table_schema = 'public'
