@@ -105,6 +105,40 @@ class CachedPolicyRule:
         return False
 
 
+class CachedPolicyAllowlist:
+    """Lightweight allowlist entry safe to reuse outside the ORM session."""
+
+    def __init__(self, pattern: str, target_type: str, scope_type: str,
+                 scope_target: str | None, enabled: bool):
+        self.pattern = pattern
+        self.target_type = target_type
+        self.scope_type = scope_type
+        self.scope_target = scope_target
+        self.enabled = enabled
+
+    def matches(self, app_name: str | None, domain: str | None, device_dept: str | None,
+                device_host: str | None, device_uuid: str | None) -> bool:
+        if not self.enabled:
+            return False
+
+        if self.scope_type == "department":
+            if not device_dept or device_dept.lower().strip() != str(self.scope_target).lower().strip():
+                return False
+        elif self.scope_type == "device":
+            target = str(self.scope_target).lower().strip()
+            host_match = device_host and device_host.lower().strip() == target
+            uuid_match = device_uuid and device_uuid.lower().strip() == target
+            if not (host_match or uuid_match):
+                return False
+
+        clean_pattern = self.pattern.strip().lower()
+        if self.target_type == "domain":
+            return bool(domain and match_domain_secure(domain, clean_pattern))
+        if self.target_type == "application":
+            return bool(app_name and match_application_secure(app_name, clean_pattern))
+        return False
+
+
 class DomainReputationProvider(ABC):
     @abstractmethod
     def classify_domain(self, domain: str) -> dict:
@@ -307,7 +341,51 @@ def _reevaluate_devices_for_domain(domain: str):
 _local_rules_cache = None
 _local_rules_version = None
 _last_version_check_time = 0
+_local_allowlists_cache = None
+_last_allowlists_load_time = 0
 LOCAL_VERSION_CHECK_INTERVAL = 5.0  # Checa a versão global no banco no máximo a cada 5 segundos
+_idle_threshold_cache = None
+_idle_threshold_cache_time = 0
+STATE_EVALUATION_INTERVAL_SECONDS = 30.0
+_evaluation_cache_lock = threading.Lock()
+_last_policy_evaluation = {}
+_last_normal_alert_evaluation = {}
+
+
+def _policy_evaluation_due(device: Device) -> bool:
+    now_ts = time.monotonic()
+    signature = (
+        device.active_app,
+        device.active_domain,
+        device.department,
+        device.hostname,
+        device.uuid,
+    )
+    with _evaluation_cache_lock:
+        previous = _last_policy_evaluation.get(device.id)
+        return not (
+            previous is not None and previous[0] == signature and
+            (now_ts - previous[1]) < STATE_EVALUATION_INTERVAL_SECONDS
+        )
+
+
+def _mark_policy_evaluated(device: Device) -> None:
+    signature = (
+        device.active_app,
+        device.active_domain,
+        device.department,
+        device.hostname,
+        device.uuid,
+    )
+    with _evaluation_cache_lock:
+        _last_policy_evaluation[device.id] = (signature, time.monotonic())
+
+
+def _normal_alert_evaluation_due(device_id: int) -> bool:
+    now_ts = time.monotonic()
+    with _evaluation_cache_lock:
+        previous = _last_normal_alert_evaluation.get(device_id)
+        return previous is None or (now_ts - previous) >= STATE_EVALUATION_INTERVAL_SECONDS
 
 
 def get_active_policy_rules() -> list:
@@ -362,6 +440,65 @@ def get_active_policy_rules() -> list:
         return _local_rules_cache or []
 
 
+def get_active_policy_allowlists() -> list:
+    """Returns detached allowlist entries, refreshing at most once per cache window."""
+    global _local_allowlists_cache, _last_allowlists_load_time
+    now_ts = time.time()
+    if (_local_allowlists_cache is not None and
+            (now_ts - _last_allowlists_load_time) < LOCAL_VERSION_CHECK_INTERVAL):
+        return _local_allowlists_cache
+
+    try:
+        rows = PolicyAllowlist.query.filter_by(enabled=True).all()
+        _local_allowlists_cache = [
+            CachedPolicyAllowlist(
+                pattern=row.pattern,
+                target_type=row.target_type,
+                scope_type=row.scope_type,
+                scope_target=row.scope_target,
+                enabled=row.enabled,
+            )
+            for row in rows
+        ]
+        _last_allowlists_load_time = now_ts
+        return _local_allowlists_cache
+    except Exception as exc:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        print(f"[PolicyCache] Erro ao carregar allowlist: {exc}")
+        return _local_allowlists_cache or []
+
+
+def get_idle_threshold_seconds() -> int:
+    """Reads the server-authoritative idle threshold at most once per cache window."""
+    global _idle_threshold_cache, _idle_threshold_cache_time
+    now_ts = time.time()
+    if (_idle_threshold_cache is not None and
+            (now_ts - _idle_threshold_cache_time) < LOCAL_VERSION_CHECK_INTERVAL):
+        return _idle_threshold_cache
+
+    raw_value = SystemMetadata.get_value(
+        "idle_threshold_seconds",
+        str(Config.IDLE_THRESHOLD_SECONDS),
+    )
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        value = int(Config.IDLE_THRESHOLD_SECONDS)
+    _idle_threshold_cache = value
+    _idle_threshold_cache_time = now_ts
+    return value
+
+
+def cache_idle_threshold_seconds(value: int) -> None:
+    """Makes an administrative update visible immediately in the current worker."""
+    global _idle_threshold_cache, _idle_threshold_cache_time
+    _idle_threshold_cache = int(value)
+    _idle_threshold_cache_time = time.time()
+
+
 def invalidate_policy_rules_cache():
     """
     Invalida o cache corporativo de políticas entre TODOS os workers do Gunicorn:
@@ -370,9 +507,14 @@ def invalidate_policy_rules_cache():
     Qualquer outro worker do Gunicorn detectará a nova versão no próximo ciclo de checagem.
     """
     global _local_rules_cache, _local_rules_version, _last_version_check_time
+    global _local_allowlists_cache, _last_allowlists_load_time
     _local_rules_cache = None
     _local_rules_version = None
     _last_version_check_time = 0
+    _local_allowlists_cache = None
+    _last_allowlists_load_time = 0
+    with _evaluation_cache_lock:
+        _last_policy_evaluation.clear()
 
     try:
         new_version = str(int(time.time() * 1000))
@@ -380,7 +522,7 @@ def invalidate_policy_rules_cache():
     except Exception as e:
         print(f"[PolicyCache] Erro ao persistir nova versão global de políticas: {e}")
 
-def process_agent_payload(data: dict) -> Device:
+def process_agent_payload(data: dict, existing_device: Device | None = None) -> Device:
     """
     Processa payload enviado pelo agente de monitoramento, atualiza o dispositivo,
     registra métrica histórica e avalia condições de alerta.
@@ -395,8 +537,13 @@ def process_agent_payload(data: dict) -> Device:
     if not uuid:
         uuid = f"host-{hostname.lower().strip()}"
 
-    # Busca dispositivo existente por UUID ou pelo hostname
-    device = Device.query.filter((Device.uuid == uuid) | (Device.hostname == hostname)).first()
+    # O middleware de autenticação já localizou o UUID. Reutiliza a mesma
+    # instância para evitar uma segunda consulta no caminho quente.
+    device = existing_device
+    if device is not None and device.uuid != uuid:
+        device = None
+    if device is None:
+        device = Device.query.filter((Device.uuid == uuid) | (Device.hostname == hostname)).first()
 
     now = datetime.now(timezone.utc)
 
@@ -471,31 +618,35 @@ def process_agent_payload(data: dict) -> Device:
         device.active_domain = data.get("active_domain")
         device.activity_updated_at = now
 
-    # Avaliação de Políticas Corporativas de Uso (com cache em memória e deduplicação)
-    if Config.POLICY_MONITORING_ENABLED:
-        if device.active_app or device.active_domain:
-            _evaluate_policies(device, now)
-        else:
-            _close_open_policy_events(device, now)
+    # Mantém as alterações pendentes até que o fluxo de uso precise efetivamente
+    # persistir. Assim, SELECTs intermediários não geram UPDATEs parciais do Device.
+    with db.session.no_autoflush:
+        # Avaliação de Políticas Corporativas de Uso (com cache em memória e deduplicação)
+        if Config.POLICY_MONITORING_ENABLED and _policy_evaluation_due(device):
+            if device.active_app or device.active_domain:
+                _evaluate_policies(device, now)
+            else:
+                _close_open_policy_events(device, now)
+            _mark_policy_evaluated(device)
 
-    # Registra no histórico temporal
-    metric = MetricHistory(
-        device_id=device.id,
-        timestamp=now,
-        cpu_percent=cpu,
-        ram_percent=ram,
-        ram_used_gb=ram_used_gb,
-        disk_percent=disco,
-        disk_used_gb=disk_used_gb,
-        uptime_seconds=uptime_seconds
-    )
-    db.session.add(metric)
+        # Registra no histórico temporal
+        metric = MetricHistory(
+            device_id=device.id,
+            timestamp=now,
+            cpu_percent=cpu,
+            ram_percent=ram,
+            ram_used_gb=ram_used_gb,
+            disk_percent=disco,
+            disk_used_gb=disk_used_gb,
+            uptime_seconds=uptime_seconds
+        )
+        db.session.add(metric)
 
-    # Avaliação de Alertas de Hardware
-    _evaluate_alerts(device, cpu, ram, disco, now)
+        # Avaliação de Alertas de Hardware
+        _evaluate_alerts(device, cpu, ram, disco, now)
 
-    # Rastreamento de Sessão e Uso Real do Usuário (v1.5.0)
-    process_device_usage_telemetry(device, data, now)
+        # Rastreamento de Sessão e Uso Real do Usuário (v1.5.0)
+        process_device_usage_telemetry(device, data, now)
 
     # Limpeza aleatória de métricas antigas, eventos e sessões (1 chance em 50 para evitar sobrecarga)
     if random.random() < 0.02:
@@ -511,7 +662,7 @@ def _is_allowlisted(app_name: str | None, domain: str | None, device_dept: str |
     """
     Verifica se a atividade está liberada por Allowlist (Precedência: Device > Department > Global).
     """
-    allowlists = PolicyAllowlist.query.filter_by(enabled=True).all()
+    allowlists = get_active_policy_allowlists()
     # 1. Scope Device
     for al in allowlists:
         if al.scope_type == "device" and al.matches(app_name, domain, device_dept, device_host, device_uuid):
@@ -714,19 +865,42 @@ def _evaluate_alerts(device: Device, cpu: float, ram: float, disco: float, now: 
     """
     Avalia limites e registra ou resolve alertas de forma idempotente.
     """
+    normal_readings = (
+        cpu < (Config.CPU_ALERT_PERCENT - 10.0) and
+        ram < (Config.RAM_ALERT_PERCENT - 10.0) and
+        disco < (Config.DISK_ALERT_PERCENT - 5.0)
+    )
+    if normal_readings and not _normal_alert_evaluation_due(device.id):
+        return
+
     fifteen_mins_ago = now - timedelta(minutes=15)
+    unresolved_alerts = Alert.query.filter(
+        Alert.device_id == device.id,
+        Alert.alert_type.in_(("cpu_high", "ram_high", "disk_high")),
+        Alert.is_resolved == False,
+    ).all()
+    alerts_by_type = {alert_type: [] for alert_type in ("cpu_high", "ram_high", "disk_high")}
+    for alert in unresolved_alerts:
+        alerts_by_type[alert.alert_type].append(alert)
+
+    def has_recent(alert_type: str) -> bool:
+        for alert in alerts_by_type[alert_type]:
+            created_at = alert.created_at
+            if created_at and created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            if created_at and created_at >= fifteen_mins_ago:
+                return True
+        return False
+
+    def resolve_all(alert_type: str) -> None:
+        for alert in alerts_by_type[alert_type]:
+            alert.is_resolved = True
+            alert.resolved_at = now
 
     # 1. Alerta de CPU
     if cpu >= Config.CPU_ALERT_PERCENT:
         sev = "critical" if cpu >= 95.0 else "warning"
-        recent_alert = Alert.query.filter(
-            Alert.device_id == device.id,
-            Alert.alert_type == "cpu_high",
-            Alert.is_resolved == False,
-            Alert.created_at >= fifteen_mins_ago
-        ).first()
-
-        if not recent_alert:
+        if not has_recent("cpu_high"):
             alert = Alert(
                 device_id=device.id,
                 severity=sev,
@@ -737,22 +911,12 @@ def _evaluate_alerts(device: Device, cpu: float, ram: float, disco: float, now: 
             db.session.add(alert)
     elif cpu < (Config.CPU_ALERT_PERCENT - 10.0):
         # Auto-resolve alertas anteriores de CPU
-        unresolved = Alert.query.filter_by(device_id=device.id, alert_type="cpu_high", is_resolved=False).all()
-        for a in unresolved:
-            a.is_resolved = True
-            a.resolved_at = now
+        resolve_all("cpu_high")
 
     # 2. Alerta de RAM
     if ram >= Config.RAM_ALERT_PERCENT:
         sev = "critical" if ram >= 95.0 else "warning"
-        recent_alert = Alert.query.filter(
-            Alert.device_id == device.id,
-            Alert.alert_type == "ram_high",
-            Alert.is_resolved == False,
-            Alert.created_at >= fifteen_mins_ago
-        ).first()
-
-        if not recent_alert:
+        if not has_recent("ram_high"):
             alert = Alert(
                 device_id=device.id,
                 severity=sev,
@@ -762,22 +926,12 @@ def _evaluate_alerts(device: Device, cpu: float, ram: float, disco: float, now: 
             )
             db.session.add(alert)
     elif ram < (Config.RAM_ALERT_PERCENT - 10.0):
-        unresolved = Alert.query.filter_by(device_id=device.id, alert_type="ram_high", is_resolved=False).all()
-        for a in unresolved:
-            a.is_resolved = True
-            a.resolved_at = now
+        resolve_all("ram_high")
 
     # 3. Alerta de Disco
     if disco >= Config.DISK_ALERT_PERCENT:
         sev = "critical" if disco >= 95.0 else "warning"
-        recent_alert = Alert.query.filter(
-            Alert.device_id == device.id,
-            Alert.alert_type == "disk_high",
-            Alert.is_resolved == False,
-            Alert.created_at >= fifteen_mins_ago
-        ).first()
-
-        if not recent_alert:
+        if not has_recent("disk_high"):
             alert = Alert(
                 device_id=device.id,
                 severity=sev,
@@ -787,10 +941,11 @@ def _evaluate_alerts(device: Device, cpu: float, ram: float, disco: float, now: 
             )
             db.session.add(alert)
     elif disco < (Config.DISK_ALERT_PERCENT - 5.0):
-        unresolved = Alert.query.filter_by(device_id=device.id, alert_type="disk_high", is_resolved=False).all()
-        for a in unresolved:
-            a.is_resolved = True
-            a.resolved_at = now
+        resolve_all("disk_high")
+
+    if normal_readings:
+        with _evaluation_cache_lock:
+            _last_normal_alert_evaluation[device.id] = time.monotonic()
 
 
 def cleanup_old_metrics():

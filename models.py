@@ -7,7 +7,7 @@ from sqlalchemy.orm.attributes import NO_VALUE
 from werkzeug.security import generate_password_hash, check_password_hash
 from config import Config
 
-db = SQLAlchemy()
+db = SQLAlchemy(session_options={"expire_on_commit": False})
 
 class User(db.Model):
     __tablename__ = "users"

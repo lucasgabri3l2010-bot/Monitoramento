@@ -30,7 +30,13 @@ from models import (
     PolicyAuditLog, SystemMetadata, AgentRelease, ReleaseTargetDevice, PolicyAllowlist,
     DomainClassification, DailyUsageSummary, compare_versions, parse_semver, normalize_domain
 )
-from services import process_agent_payload, get_dashboard_stats, invalidate_policy_rules_cache
+from services import (
+    cache_idle_threshold_seconds,
+    get_dashboard_stats,
+    get_idle_threshold_seconds,
+    invalidate_policy_rules_cache,
+    process_agent_payload,
+)
 from usage_service import get_device_usage_data
 
 # Configuração de Logging Profissional
@@ -333,9 +339,9 @@ def receber_dados_agente():
         return jsonify({"error": "Payload JSON inválido ou vazio"}), 400
 
     try:
-        device = process_agent_payload(dados)
+        device = process_agent_payload(dados, existing_device=getattr(request, "authenticated_device", None))
         logger.info(f"Métricas recebidas com sucesso de {device.hostname} ({device.ip_address}) - CPU: {device.last_cpu}% | RAM: {device.last_ram}%")
-        idle_threshold = int(SystemMetadata.get_value("idle_threshold_seconds", str(Config.IDLE_THRESHOLD_SECONDS)))
+        idle_threshold = get_idle_threshold_seconds()
         return jsonify({
             "status": "ok",
             "message": "Dados processados com sucesso",
@@ -576,7 +582,7 @@ def obter_idle_threshold():
     """
     Retorna o limite de tempo configurado para considerar um computador ocioso.
     """
-    val = int(SystemMetadata.get_value("idle_threshold_seconds", str(Config.IDLE_THRESHOLD_SECONDS)))
+    val = get_idle_threshold_seconds()
     return jsonify({"idle_threshold_seconds": val})
 
 
@@ -594,6 +600,7 @@ def salvar_idle_threshold():
         if val < 30 or val > 3600:
             return jsonify({"error": "O limite de ociosidade deve estar entre 30 e 3600 segundos."}), 400
         SystemMetadata.set_value("idle_threshold_seconds", str(val))
+        cache_idle_threshold_seconds(val)
         logger.info(f"Limite corporativo de ociosidade atualizado para {val}s por {session.get('username')}")
         return jsonify({"status": "ok", "idle_threshold_seconds": val})
     except (TypeError, ValueError):

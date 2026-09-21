@@ -12,6 +12,8 @@ Responsabilidades:
 
 from datetime import datetime, timezone, timedelta, date
 from typing import Optional, List, Dict, Any
+import threading
+import time
 
 from config import Config
 from models import db, Device, UsageSession, DailyUsageSummary
@@ -20,6 +22,28 @@ from datetime_utils import (
     get_local_day_range_utc, get_local_midnight_utc, format_iso_utc,
     format_local_datetime
 )
+
+
+USAGE_SUMMARY_RECONCILE_INTERVAL_SECONDS = 30.0
+_summary_reconcile_lock = threading.Lock()
+_last_summary_reconcile = {}
+
+
+def _mark_summary_reconciled(device_id: int, target_date: date) -> None:
+    with _summary_reconcile_lock:
+        _last_summary_reconcile[(device_id, target_date)] = time.monotonic()
+
+
+def _summary_reconcile_due(device_id: int, target_date: date) -> bool:
+    """Limits expensive full-day aggregation on steady-state six-second reports."""
+    now = time.monotonic()
+    key = (device_id, target_date)
+    with _summary_reconcile_lock:
+        last_run = _last_summary_reconcile.get(key)
+        if last_run is not None and (now - last_run) < USAGE_SUMMARY_RECONCILE_INTERVAL_SECONDS:
+            return False
+        _last_summary_reconcile[key] = now
+        return True
 
 
 def to_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
@@ -244,7 +268,9 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
         )
         db.session.add(new_session)
         db.session.flush()
-        reconcile_daily_usage_for_date(device.id, get_local_date(now_naive))
+        initial_date = get_local_date(now_naive)
+        reconcile_daily_usage_for_date(device.id, initial_date)
+        _mark_summary_reconciled(device.id, initial_date)
         return
 
     # 9. Continuação com o MESMO Estado
@@ -277,7 +303,8 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
             # Estende a sessão atual
             open_session.ended_at = now_naive
             open_session.duration_seconds = max(0, int((now_naive - s_started).total_seconds())) if s_started else 0
-            reconcile_daily_usage_for_date(device.id, current_local_date)
+            if _summary_reconcile_due(device.id, current_local_date):
+                reconcile_daily_usage_for_date(device.id, current_local_date)
         return
 
     # 10. Transição de Estado (ex: active -> idle, idle -> active, active -> locked)
