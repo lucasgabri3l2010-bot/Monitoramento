@@ -314,62 +314,36 @@ def login_page():
         password = request.form.get("password", "")
 
         user = User.query.filter_by(username=username).first()
-        # TEMPORARY Railway authentication diagnostics. Remove after the login
-        # failure is identified. Never log usernames, passwords, hashes, session
-        # values, cookies, remote addresses, or exception details here.
-        logger.info(
-            "[TEMP AUTH DIAGNOSTIC] username_lookup=%s",
-            "success" if user is not None else "failure",
-        )
         if username == "admin":
-            logger.info(
-                "[TEMP AUTH DIAGNOSTIC] admin_exists=%s "
-                "active_enabled=not_applicable_no_status_field role=%r "
-                "password_hash_present=%s",
-                "yes" if user is not None else "no",
-                user.role if user is not None else None,
-                "yes" if user is not None and bool(user.password_hash) else "no",
-            )
+            pass
 
         password_verified = False
         if user is not None:
             try:
                 password_verified = user.check_password(password)
             except Exception:
-                logger.info("[TEMP AUTH DIAGNOSTIC] password_verification=failure")
-                logger.info("[TEMP AUTH DIAGNOSTIC] session_creation=failure")
-                logger.info("[TEMP AUTH DIAGNOSTIC] response_status=500")
                 raise
-
-        logger.info(
-            "[TEMP AUTH DIAGNOSTIC] password_verification=%s",
-            "success" if password_verified else "failure",
-        )
 
         if user and password_verified:
             session.permanent = True
             session["user_id"] = user.id
             session["username"] = user.username
             session["role"] = user.role
-            logger.info("[TEMP AUTH DIAGNOSTIC] session_creation=success")
             user.last_login = datetime.now(timezone.utc)
             try:
                 db.session.commit()
             except Exception:
-                logger.info("[TEMP AUTH DIAGNOSTIC] response_status=500")
                 raise
             logger.info(f"Usuário {username} realizou login com sucesso de {request.remote_addr}")
             next_url = request.args.get("next") or url_for("painel")
             response = redirect(next_url)
-            logger.info("[TEMP AUTH DIAGNOSTIC] response_status=%d", response.status_code)
             return response
         else:
-            logger.info("[TEMP AUTH DIAGNOSTIC] session_creation=failure")
             logger.warning(f"Tentativa de login inválida para '{username}' de {request.remote_addr}")
             flash("Usuário ou senha incorretos.", "danger")
 
     if request.method == "POST":
-        logger.info("[TEMP AUTH DIAGNOSTIC] response_status=200")
+        pass
     return render_template("login.html")
 
 
