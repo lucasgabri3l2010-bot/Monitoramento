@@ -870,6 +870,12 @@ def _evaluate_alerts(device: Device, cpu: float, ram: float, disco: float, now: 
         ram < (Config.RAM_ALERT_PERCENT - 10.0) and
         disco < (Config.DISK_ALERT_PERCENT - 5.0)
     )
+    # Uma leitura fora da faixa normal invalida o atalho. Assim, o primeiro
+    # report normal subsequente sempre consulta e resolve alertas abertos,
+    # inclusive quando IDs são reutilizados após remoção/recriação do device.
+    if not normal_readings:
+        with _evaluation_cache_lock:
+            _last_normal_alert_evaluation.pop(device.id, None)
     if normal_readings and not _normal_alert_evaluation_due(device.id):
         return
 
