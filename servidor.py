@@ -366,7 +366,7 @@ def receber_dados_agente():
 
     try:
         device = process_agent_payload(dados, existing_device=getattr(request, "authenticated_device", None))
-        logger.info(f"Métricas recebidas com sucesso de {device.hostname} ({device.ip_address}) - CPU: {device.last_cpu}% | RAM: {device.last_ram}%")
+        logger.debug(f"Métricas recebidas com sucesso de {device.hostname} ({device.ip_address}) - CPU: {device.last_cpu}% | RAM: {device.last_ram}%")
         idle_threshold = get_idle_threshold_seconds()
         return jsonify({
             "status": "ok",
