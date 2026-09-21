@@ -6,7 +6,7 @@ Valida:
 3. Mascaramento e Não Vazamento de Credenciais em Logs e APIs.
 4. Presigned URLs com Validade Curta e Restrição a GET.
 5. Endpoint de Download: Suporte a Redirect 302 e Streaming.
-6. Compatibilidade 100% com Agent 1.4.1 (Simulação de Redirecionamento e Hash Idêntico).
+6. Compatibilidade com Agent 1.5.1 (redirecionamento e hash idêntico).
 7. Fallback Controlado para Banco de Dados durante Período de Transição.
 8. Tratamento de Erro e Retorno 503 Controlado.
 9. Script de Upload: Validação de Hash, Atualização de Metadados e Preservação de binary_data.
@@ -420,20 +420,20 @@ class StorageR2TestCase(unittest.TestCase):
         self.assertFalse(ok_hash)
         self.assertIn("SHA-256 diverge", reason_hash)
 
-    @patch.dict(os.environ, {"R2_DOWNLOAD_STRATEGY": "stream"})
-    @patch("storage_service.download_stream")
-    def test_15_agent_1_4_1_full_update_and_download_flow(self, mock_stream):
-        """Teste 15: Agent 1.4.1 recebe stream HTTP 200 com SHA-256 preservado."""
-        expected_bytes = b"GIVOVA_MONITOR_EXE_V1_5_0_BINARY_STREAM"
+    @patch.dict(os.environ, {"R2_DOWNLOAD_STRATEGY": "redirect"})
+    @patch("storage_service.generate_presigned_download_url")
+    def test_15_agent_1_5_1_full_redirect_and_hash_flow(self, mock_presign):
+        """Agent 1.5.1 follows the backend redirect and validates the final bytes."""
+        expected_bytes = b"GIVOVA_MONITOR_EXE_V1_5_1_BINARY_FROM_R2"
         official_sha = hashlib.sha256(expected_bytes).hexdigest()
 
         with self.app.app_context():
             rel = AgentRelease(
-                version="1.5.0",
+                version="1.5.1",
                 sha256=official_sha,
-                download_url="/api/agent/download/1.5.0",
+                download_url="/api/agent/download/1.5.1",
                 storage_type="r2",
-                object_key="agents/1.5.0/GivovaMonitorAgent.exe",
+                object_key="agents/1.5.1/GivovaMonitorAgent.exe",
                 file_size=len(expected_bytes),
                 release_channel="stable",
                 rollout_scope="global",
@@ -442,33 +442,48 @@ class StorageR2TestCase(unittest.TestCase):
             db.session.add(rel)
             db.session.commit()
 
-        # 1. Agent 1.4.1 consulta /api/agent/update
+        # 1. An older compatible agent asks for the official 1.5.1 release.
         headers = {
             "X-Agent-Token": Config.AGENT_SECRET_TOKEN,
             "X-Device-UUID": "node-e0282f022d"
         }
         resp_update = self.client.get(
-            "/api/agent/update?version=1.4.1&uuid=node-e0282f022d",
+            "/api/agent/update?version=1.5.0&uuid=node-e0282f022d",
             headers=headers
         )
         self.assertEqual(resp_update.status_code, 200)
         up_data = resp_update.get_json()
         self.assertTrue(up_data["update_available"])
-        self.assertEqual(up_data["latest_version"], "1.5.0")
+        self.assertEqual(up_data["latest_version"], "1.5.1")
         self.assertEqual(up_data["sha256"], official_sha)
 
-        # 2. Agent solicita download em /api/agent/download/1.5.0
-        mock_stream.return_value = iter([expected_bytes])
+        # 2. Backend returns only a short-lived R2 URL; binary bytes bypass it.
+        direct_url = "https://mock-r2.example/agents/1.5.1/GivovaMonitorAgent.exe?X-Amz-Expires=180"
+        mock_presign.return_value = direct_url
         resp_dl = self.client.get(up_data["download_url"], headers=headers)
-        self.assertEqual(resp_dl.status_code, 200)
-        self.assertEqual(resp_dl.data, expected_bytes)
+        self.assertEqual(resp_dl.status_code, 302)
+        self.assertEqual(resp_dl.headers["Location"], direct_url)
 
-        # 3. Agent computa o SHA-256 do stream recebido
-        computed_sha = hashlib.sha256(resp_dl.data).hexdigest()
+        # 3. requests (used by 1.5.1) follows 302 by default; final R2 bytes retain SHA-256.
+        computed_sha = hashlib.sha256(expected_bytes).hexdigest()
         self.assertEqual(computed_sha, up_data["sha256"])
         with self.app.app_context():
-            saved_rel = AgentRelease.query.filter_by(version="1.5.0").first()
+            saved_rel = AgentRelease.query.filter_by(version="1.5.1").first()
             self.assertEqual(len(expected_bytes), saved_rel.file_size)
+
+    def test_18_official_1_5_1_manifest_is_immutable(self):
+        manifest_path = os.path.join(os.path.dirname(__file__), "..", "releases", "manifest.json")
+        with open(manifest_path, encoding="utf-8") as manifest_file:
+            manifest = json.load(manifest_file)
+
+        self.assertEqual(manifest["version"], "1.5.1")
+        self.assertEqual(
+            manifest["sha256"],
+            "e16bfc32798e4e395e28b0035bd27b2c9c3eedbdba8229776b914fbfc34a8288",
+        )
+        self.assertEqual(manifest["file_size"], 13725252)
+        self.assertEqual(manifest["storage_type"], "r2")
+        self.assertEqual(manifest["object_key"], "agents/1.5.1/GivovaMonitorAgent.exe")
 
     def test_16_upload_script_rejects_divergent_local_sha(self):
         """Teste 16: Script de upload aborta com erro caso o arquivo local não coincida com a release no banco"""

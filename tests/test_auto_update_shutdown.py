@@ -120,6 +120,31 @@ class AutoUpdateShutdownTestCase(unittest.TestCase):
 
         self.assertFalse(agente._shutdown_event.is_set())
 
+    def test_expired_or_missing_direct_download_keeps_current_agent(self):
+        for status_code in (403, 404):
+            with self.subTest(status_code=status_code):
+                responses = self._valid_update_responses()
+                responses[1] = FakeResponse(status_code=status_code)
+                with patch.object(agente.requests, "get", side_effect=responses), \
+                     patch.object(agente, "get_machine_uuid", return_value="device-1"), \
+                     patch.object(agente.subprocess, "Popen") as popen:
+                    self.assertIsNone(agente._check_and_apply_update(self._update_config()))
+                popen.assert_not_called()
+                self.assertFalse(agente._shutdown_event.is_set())
+
+    def test_direct_download_timeout_keeps_current_agent(self):
+        update_response = self._valid_update_responses()[0]
+        with patch.object(
+            agente.requests,
+            "get",
+            side_effect=[update_response, agente.requests.Timeout("R2 timeout")],
+        ), patch.object(agente, "get_machine_uuid", return_value="device-1"), \
+             patch.object(agente.subprocess, "Popen") as popen:
+            self.assertIsNone(agente._check_and_apply_update(self._update_config()))
+
+        popen.assert_not_called()
+        self.assertFalse(agente._shutdown_event.is_set())
+
     def test_failed_version_does_not_spawn_updater(self):
         with open(os.path.join(self.app_dir, "failed_updates.json"), "w", encoding="utf-8") as f:
             json.dump([{"version": "2.0.0"}], f)

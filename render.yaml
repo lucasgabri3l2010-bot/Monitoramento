@@ -52,7 +52,7 @@ services:
       - key: R2_REGION
         value: auto
       - key: R2_DOWNLOAD_STRATEGY
-        value: stream
+        value: redirect
       - key: R2_FALLBACK_TO_DATABASE
         value: "true"
 
