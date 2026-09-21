@@ -12,24 +12,6 @@ import sys
 import logging
 import threading
 
-# TEMPORARY Railway database diagnostics. This intentionally runs before
-# importing config.py, whose load_dotenv() call can populate missing variables.
-_database_environment_snapshot = None
-if __name__ == "__main__":
-    from temporary_database_diagnostics import (
-        capture_and_log_raw_environment,
-        log_direct_connection_results,
-    )
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    _temporary_diagnostic_logger = logging.getLogger("TemporaryDatabaseDiagnostic")
-    _database_environment_snapshot = capture_and_log_raw_environment(_temporary_diagnostic_logger)
-    log_direct_connection_results(_temporary_diagnostic_logger, _database_environment_snapshot)
-
 from config import Config
 from models import (
     db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent,
@@ -38,11 +20,6 @@ from models import (
 )
 from corporate_rules_data import CORPORATE_DEFAULT_RULES
 from servidor import app
-
-if __name__ == "__main__":
-    from temporary_database_diagnostics import log_flask_sqlalchemy_selection
-
-    log_flask_sqlalchemy_selection(_temporary_diagnostic_logger, app, _database_environment_snapshot)
 
 logging.basicConfig(
     level=logging.INFO,
