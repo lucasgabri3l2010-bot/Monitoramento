@@ -4,9 +4,9 @@
 
 .DESCRIPTION
     This script is rendered into the USB recovery package by Build-GivovaMonitor.ps1.
-    Its SHA-256 placeholders are replaced at build time. It never reads the contents
-    of agent_config.json (only its hash, to prove it was preserved), never touches
-    logs or extension, and needs no network connection to install the binaries.
+    Its SHA-256 placeholders are replaced at build time. It changes only server_url
+    when it still targets the legacy Render backend, preserves every other config
+    field, and never touches existing logs or the browser extension.
 
     Exit codes:
       0 = 1.5.1 installed (or already installed) and first report confirmed
@@ -31,11 +31,14 @@ if (-not $SourceAgentExe) { $SourceAgentExe = Join-Path $packageDir "GivovaMonit
 if (-not $SourceUpdaterExe) { $SourceUpdaterExe = Join-Path $packageDir "GivovaMonitorUpdater.exe" }
 $targetVersion = "1.5.1"
 $taskName = "Givova Monitor Agent"
+$oldBackend = "https://monitoramento-gb9g.onrender.com"
+$newBackend = "https://monitoramento-production.up.railway.app"
+$requiredInstallDir = "C:\ProgramData\GivovaMonitor"
 $targetAgent = Join-Path $InstallDir "GivovaMonitorAgent.exe"
 $targetUpdater = Join-Path $InstallDir "GivovaMonitorUpdater.exe"
 $previousAgent = Join-Path $InstallDir "GivovaMonitorAgent.previous.exe"
 $previousUpdater = Join-Path $InstallDir "GivovaMonitorUpdater.previous.exe"
-$configFile = Join-Path $InstallDir "agent_config.json"
+$configFile = $null
 $pendingFile = Join-Path $InstallDir "pending_update.json"
 $confirmedFile = Join-Path $InstallDir "update_confirmed.json"
 $logDir = Join-Path $InstallDir "logs"
@@ -62,6 +65,103 @@ function Get-OptionalSha256([string]$Path) {
         return Get-Sha256 $Path
     }
     return $null
+}
+
+function Resolve-AgentConfigPath(
+    [string]$ApplicationDirectory,
+    [string]$ProgramDataConfig = "C:\ProgramData\GivovaMonitor\agent_config.json"
+) {
+    if (-not [string]::IsNullOrWhiteSpace($env:GIVOVA_CONFIG_PATH)) {
+        return [Environment]::ExpandEnvironmentVariables($env:GIVOVA_CONFIG_PATH.Trim())
+    }
+    if (Test-Path -LiteralPath $ProgramDataConfig -PathType Leaf) {
+        return $ProgramDataConfig
+    }
+    $applicationConfig = Join-Path $ApplicationDirectory "agent_config.json"
+    if (Test-Path -LiteralPath $applicationConfig -PathType Leaf) {
+        return $applicationConfig
+    }
+    return $ProgramDataConfig
+}
+
+function Read-AgentConfig([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "agent_config.json nao encontrado no caminho efetivo."
+    }
+    try {
+        $config = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        throw "agent_config.json efetivo nao contem JSON valido."
+    }
+    if ($null -eq $config -or $config -is [System.Array]) {
+        throw "agent_config.json efetivo deve conter um objeto JSON."
+    }
+    return $config
+}
+
+function Get-PreservedConfigState($Config) {
+    $copy = $Config | ConvertTo-Json -Depth 100 | ConvertFrom-Json
+    $copy.PSObject.Properties.Remove("server_url")
+    return ($copy | ConvertTo-Json -Depth 100 -Compress)
+}
+
+function Get-AgentConfigSnapshot([string]$Path) {
+    $config = Read-AgentConfig $Path
+    $serverProperty = $config.PSObject.Properties["server_url"]
+    $serverUrl = if ($null -ne $serverProperty) { [string]$serverProperty.Value } else { "" }
+    $normalizedUrl = $serverUrl.Trim().TrimEnd("/")
+    $state = "Custom"
+    if ($normalizedUrl -ieq $oldBackend -or
+        $normalizedUrl.StartsWith($oldBackend + "/", [StringComparison]::OrdinalIgnoreCase)) {
+        $state = "Render"
+    } elseif ($normalizedUrl -ieq $newBackend -or
+              $normalizedUrl.StartsWith($newBackend + "/", [StringComparison]::OrdinalIgnoreCase)) {
+        $state = "Railway"
+    }
+    return [pscustomobject]@{
+        Config = $config
+        EndpointState = $state
+        NormalizedServerUrl = $normalizedUrl
+        PreservedState = Get-PreservedConfigState $config
+    }
+}
+
+function Set-RailwayEndpoint([string]$Path, $Snapshot) {
+    if ($Snapshot.EndpointState -ne "Render") {
+        return
+    }
+    $migratedUrl = $newBackend + $Snapshot.NormalizedServerUrl.Substring($oldBackend.Length)
+    $Snapshot.Config.PSObject.Properties["server_url"].Value = $migratedUrl
+    $temporaryConfig = "$Path.recovery-$([guid]::NewGuid().ToString('N')).tmp"
+    try {
+        $Snapshot.Config | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $temporaryConfig -Encoding UTF8
+        Move-Item -LiteralPath $temporaryConfig -Destination $Path -Force
+    } finally {
+        Remove-Item -LiteralPath $temporaryConfig -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Assert-AgentConfigState([string]$Path, $BeforeSnapshot) {
+    $after = Get-AgentConfigSnapshot $Path
+    if ($after.PreservedState -cne $BeforeSnapshot.PreservedState) {
+        throw "Campos de identidade/configuracao foram alterados durante a recuperacao."
+    }
+    if ($BeforeSnapshot.EndpointState -eq "Render" -and $after.EndpointState -ne "Railway") {
+        throw "O endpoint efetivo nao foi migrado para Railway."
+    }
+    if ($BeforeSnapshot.EndpointState -eq "Railway" -and $after.EndpointState -ne "Railway") {
+        throw "O endpoint Railway existente foi alterado."
+    }
+    if ($BeforeSnapshot.EndpointState -eq "Custom" -and $after.EndpointState -ne "Custom") {
+        throw "O endpoint customizado foi alterado."
+    }
+}
+
+function Assert-ScheduledTaskEnabled {
+    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($null -eq $task -or [string]$task.State -eq "Disabled") {
+        throw "A tarefa agendada '$taskName' nao esta habilitada."
+    }
 }
 
 function Test-ExpectedHash([string]$Path, [string]$ExpectedHash, [string]$Label) {
@@ -147,6 +247,14 @@ function Wait-ReportConfirmation([string]$UpdateId, [int]$Seconds) {
     return $false
 }
 
+function Restore-ConfigBackup([string]$BackupPath) {
+    if (-not (Test-Path -LiteralPath $BackupPath -PathType Leaf)) {
+        throw "Rollback da configuracao impossivel: backup ausente."
+    }
+    Copy-Item -LiteralPath $BackupPath -Destination $configFile -Force
+    Write-RecoveryMessage "Configuracao anterior restaurada." Yellow
+}
+
 function Restore-Backups([bool]$TaskExists) {
     Write-RecoveryMessage "Falha detectada. Restaurando Agent e Updater anteriores..." Yellow
     Stop-GivovaProcesses
@@ -168,12 +276,21 @@ if (-not (Test-Administrator)) {
     throw "Esta recuperacao exige permissao de Administrador."
 }
 
+$normalizedInstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
+$normalizedRequiredDir = [IO.Path]::GetFullPath($requiredInstallDir).TrimEnd('\')
+if ($normalizedInstallDir -ine $normalizedRequiredDir) {
+    throw "A recuperacao deve permanecer instalada em $requiredInstallDir."
+}
+$configFile = Resolve-AgentConfigPath $InstallDir
+
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 Write-RecoveryMessage "Inicio da recuperacao local $targetVersion (origem: $packageDir)." Cyan
 
 $taskExists = $false
 $processesStopped = $false
 $backupsCreated = $false
+$configChanged = $false
+$configBackup = $null
 $stagingDir = $null
 $exitCode = 0
 
@@ -184,18 +301,44 @@ try {
         throw "Instalacao existente incompleta em $InstallDir."
     }
     $taskExists = $null -ne (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)
+    if (-not $taskExists) {
+        throw "A tarefa agendada '$taskName' nao foi encontrada."
+    }
+    $configSnapshot = Get-AgentConfigSnapshot $configFile
+    $configHashBefore = Get-OptionalSha256 $configFile
+    if ($configSnapshot.EndpointState -eq "Custom") {
+        Write-RecoveryMessage "Endpoint customizado detectado; migracao de URL ignorada."
+    } elseif ($configSnapshot.EndpointState -eq "Railway") {
+        Write-RecoveryMessage "Endpoint Railway ja configurado; nenhuma alteracao necessaria."
+    }
 
     if ((Get-Sha256 $targetAgent) -eq $ExpectedAgentSha256.ToLowerInvariant() -and
         (Get-Sha256 $targetUpdater) -eq $ExpectedUpdaterSha256.ToLowerInvariant()) {
-        # Idempotent path: nothing to replace, only make sure the Agent is enabled and running.
-        if ($taskExists) {
-            Enable-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
+        # Idempotent path: binaries are not replaced. A legacy Render endpoint is
+        # still migrated and requires one controlled Agent restart.
+        if ($configSnapshot.EndpointState -eq "Render") {
+            $configBackup = Join-Path ([IO.Path]::GetTempPath()) ("GivovaConfigBackup-" + [guid]::NewGuid().ToString("N") + ".json")
+            Copy-Item -LiteralPath $configFile -Destination $configBackup -Force
+            Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+            Write-RecoveryMessage "Tarefa temporariamente desabilitada."
+            $processesStopped = $true
+            Stop-GivovaProcesses
+            Set-RailwayEndpoint $configFile $configSnapshot
+            $configChanged = $true
+            Write-RecoveryMessage "Endpoint migrado de Render para Railway; identidade e token preservados."
         }
+
+        Enable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
         if (-not (Test-AgentRunning)) {
             Start-GivovaAgent $taskExists
             if (-not (Wait-AgentRunning 30)) {
                 throw "Agent $targetVersion ja instalado, mas nao iniciou."
             }
+        }
+        Assert-ScheduledTaskEnabled
+        Assert-AgentConfigState $configFile $configSnapshot
+        if ($configSnapshot.EndpointState -ne "Render" -and (Get-OptionalSha256 $configFile) -ne $configHashBefore) {
+            throw "agent_config.json foi alterado sem necessidade."
         }
         Write-RecoveryMessage "Computador ja atualizado para $targetVersion. Nenhuma substituicao necessaria." Green
         exit 0
@@ -213,12 +356,8 @@ try {
     Test-ExpectedHash $stagedUpdater $ExpectedUpdaterSha256 "GivovaMonitorUpdater.exe copiado localmente"
     Write-RecoveryMessage "Binarios verificados e copiados para staging local."
 
-    $configHashBefore = Get-OptionalSha256 $configFile
-
-    if ($taskExists) {
-        Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
-        Write-RecoveryMessage "Tarefa temporariamente desabilitada."
-    }
+    Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+    Write-RecoveryMessage "Tarefa temporariamente desabilitada."
 
     $processesStopped = $true
     Stop-GivovaProcesses
@@ -227,19 +366,27 @@ try {
     $backupsCreated = $true
     Write-RecoveryMessage "Backups dos dois executaveis criados."
 
+    if ($configSnapshot.EndpointState -eq "Render") {
+        $configBackup = Join-Path $stagingDir "agent_config.previous.json"
+        Copy-Item -LiteralPath $configFile -Destination $configBackup -Force
+        Set-RailwayEndpoint $configFile $configSnapshot
+        $configChanged = $true
+        Write-RecoveryMessage "Endpoint migrado de Render para Railway; identidade e token preservados."
+    }
+
     Copy-Item -LiteralPath $stagedAgent -Destination $targetAgent -Force
     Copy-Item -LiteralPath $stagedUpdater -Destination $targetUpdater -Force
     Test-ExpectedHash $targetAgent $ExpectedAgentSha256 "GivovaMonitorAgent.exe instalado"
     Test-ExpectedHash $targetUpdater $ExpectedUpdaterSha256 "GivovaMonitorUpdater.exe instalado"
-    if ((Get-OptionalSha256 $configFile) -ne $configHashBefore) {
-        throw "agent_config.json foi alterado durante a recuperacao."
+    Assert-AgentConfigState $configFile $configSnapshot
+    if ($configSnapshot.EndpointState -ne "Render" -and (Get-OptionalSha256 $configFile) -ne $configHashBefore) {
+        throw "agent_config.json foi alterado sem necessidade."
     }
     Write-RecoveryMessage "Agent e Updater substituidos; configuracao local preservada."
 
     $updateId = Request-ReportConfirmation
-    if ($taskExists) {
-        Enable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
-    }
+    Enable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+    Assert-ScheduledTaskEnabled
     Start-GivovaAgent $taskExists
     if (-not (Wait-AgentRunning 30)) {
         throw "O Agent $targetVersion nao iniciou apos a substituicao."
@@ -258,13 +405,15 @@ try {
 catch {
     $failure = $_
     Write-RecoveryMessage ("ERRO: " + $failure.Exception.Message) Red
+    if ($configChanged) {
+        try { Restore-ConfigBackup $configBackup } catch { Write-RecoveryMessage ("ERRO NO ROLLBACK DA CONFIGURACAO: " + $_.Exception.Message) Red }
+    }
     if ($backupsCreated) {
         try { Restore-Backups $taskExists } catch { Write-RecoveryMessage ("ERRO NO ROLLBACK: " + $_.Exception.Message) Red }
-    } elseif ($processesStopped -and -not (Test-AgentRunning)) {
-        # Nothing was replaced yet; bring the original Agent back.
-        if ($taskExists) {
-            Enable-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
-        }
+    } elseif ($processesStopped) {
+        # Nothing was replaced yet; restart the original Agent with the restored config.
+        try { Stop-GivovaProcesses } catch {}
+        Enable-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
         try { Start-GivovaAgent $taskExists } catch { Write-RecoveryMessage ("ERRO AO REINICIAR AGENT: " + $_.Exception.Message) Red }
     }
     throw $failure
@@ -275,6 +424,9 @@ finally {
     }
     if ($stagingDir -and (Test-Path -LiteralPath $stagingDir)) {
         Remove-Item -LiteralPath $stagingDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if ($configBackup -and (Test-Path -LiteralPath $configBackup -PathType Leaf)) {
+        Remove-Item -LiteralPath $configBackup -Force -ErrorAction SilentlyContinue
     }
 }
 

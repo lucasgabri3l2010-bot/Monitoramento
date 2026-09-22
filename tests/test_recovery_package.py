@@ -17,9 +17,10 @@ class RecoveryPackageTestCase(unittest.TestCase):
         self.assertIn('"__UPDATER_SHA256__"', self.recovery)
         self.assertIn('Copy-Item -LiteralPath $SourceAgentExe -Destination $stagedAgent -Force', self.recovery)
         self.assertIn('Copy-Item -LiteralPath $SourceUpdaterExe -Destination $stagedUpdater -Force', self.recovery)
+        replacement_path = self.recovery[self.recovery.index('# Stage from removable media'):]
         self.assertLess(
-            self.recovery.index('Test-ExpectedHash $stagedUpdater'),
-            self.recovery.index('Disable-ScheduledTask'),
+            replacement_path.index('Test-ExpectedHash $stagedUpdater'),
+            replacement_path.index('Disable-ScheduledTask'),
         )
 
     def test_rollback_restores_agent_and_updater_and_finally_reenables_task(self):
@@ -72,17 +73,64 @@ class RecoveryPackageTestCase(unittest.TestCase):
             self.recovery.index('Start-GivovaAgent $taskExists\n    if (-not (Wait-AgentRunning 30))'),
         )
 
-    def test_idempotent_path_keeps_agent_running_without_replacing(self):
+    def test_railway_to_railway_is_idempotent_without_replacing_binaries(self):
         start = self.recovery.index('# Idempotent path')
         end = self.recovery.index('exit 0', start)
         block = self.recovery[start:end]
         self.assertIn('Start-GivovaAgent $taskExists', block)
-        self.assertNotIn('Copy-Item', block)
-        self.assertNotIn('Disable-ScheduledTask', block)
+        self.assertIn('$configSnapshot.EndpointState -eq "Render"', block)
+        self.assertNotIn('Copy-Item -LiteralPath $stagedAgent', block)
+        self.assertNotIn('Copy-Item -LiteralPath $stagedUpdater', block)
+
+    def test_render_endpoint_is_replaced_with_railway_only(self):
+        self.assertIn('$oldBackend = "https://monitoramento-gb9g.onrender.com"', self.recovery)
+        self.assertIn('$newBackend = "https://monitoramento-production.up.railway.app"', self.recovery)
+        self.assertIn('if ($Snapshot.EndpointState -ne "Render")', self.recovery)
+        self.assertIn('$newBackend + $Snapshot.NormalizedServerUrl.Substring($oldBackend.Length)', self.recovery)
+        self.assertIn('$Snapshot.Config.PSObject.Properties["server_url"].Value = $migratedUrl', self.recovery)
+
+    def test_custom_endpoint_is_preserved_and_logged_as_skipped(self):
+        self.assertIn('$state = "Custom"', self.recovery)
+        self.assertIn('Endpoint customizado detectado; migracao de URL ignorada.', self.recovery)
+        self.assertIn('$BeforeSnapshot.EndpointState -eq "Custom"', self.recovery)
+        self.assertIn('agent_config.json foi alterado sem necessidade.', self.recovery)
+
+    def test_config_path_priority_is_override_then_programdata_then_app_directory(self):
+        resolver = self.recovery[
+            self.recovery.index('function Resolve-AgentConfigPath'):
+            self.recovery.index('function Read-AgentConfig')
+        ]
+        override = resolver.index('$env:GIVOVA_CONFIG_PATH')
+        programdata = resolver.index('Test-Path -LiteralPath $ProgramDataConfig')
+        app_directory = resolver.index('Join-Path $ApplicationDirectory "agent_config.json"')
+        self.assertLess(override, programdata)
+        self.assertLess(programdata, app_directory)
+        self.assertIn('C:\\ProgramData\\GivovaMonitor\\agent_config.json', resolver)
+
+    def test_uuid_token_and_all_non_endpoint_config_are_preserved(self):
+        preserve = self.recovery[
+            self.recovery.index('function Get-PreservedConfigState'):
+            self.recovery.index('function Get-AgentConfigSnapshot')
+        ]
+        self.assertEqual(preserve.count('Properties.Remove("server_url")'), 1)
+        self.assertIn('$after.PreservedState -cne $BeforeSnapshot.PreservedState', self.recovery)
+        self.assertNotIn('[guid]::NewGuid()', preserve)
+
+    def test_config_and_binaries_are_rolled_back_on_failure(self):
+        catch_start = self.recovery.rindex('catch {\n    $failure')
+        catch_block = self.recovery[catch_start:self.recovery.index('finally {', catch_start)]
+        self.assertIn('Restore-ConfigBackup $configBackup', catch_block)
+        self.assertIn('Restore-Backups $taskExists', catch_block)
+        self.assertLess(
+            catch_block.index('Restore-ConfigBackup $configBackup'),
+            catch_block.index('Restore-Backups $taskExists'),
+        )
 
     def test_failure_before_backup_restarts_original_agent(self):
-        catch_block = self.recovery[self.recovery.index('catch {\n    $failure'):self.recovery.index('finally {')]
-        self.assertIn('$processesStopped -and -not (Test-AgentRunning)', catch_block)
+        catch_start = self.recovery.rindex('catch {\n    $failure')
+        catch_block = self.recovery[catch_start:self.recovery.index('finally {', catch_start)]
+        self.assertIn('elseif ($processesStopped)', catch_block)
+        self.assertIn('Start-GivovaAgent $taskExists', catch_block)
         self.assertLess(self.recovery.index('$processesStopped = $true'), self.recovery.index('Stop-GivovaProcesses\n    Copy-Item'))
 
     def test_recovery_has_no_secrets_and_does_not_touch_defender(self):
