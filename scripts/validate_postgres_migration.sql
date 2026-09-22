@@ -67,6 +67,7 @@ SELECT format(
     cols.column_name,
     cols.table_schema,
     cols.table_name,
+    cols.column_name,
     cols.table_schema,
     cols.column_name
 )
