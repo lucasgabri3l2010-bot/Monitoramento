@@ -26,6 +26,7 @@ from models import (
     db, Device, User, UsageSession, DailyUsageSummary, SystemMetadata
 )
 from usage_service import (
+    classify_work_activity_state,
     process_device_usage_telemetry,
     reconcile_daily_usage_for_date,
     close_stale_device_sessions,
@@ -220,8 +221,8 @@ class TestUsageActivityService(unittest.TestCase):
         self.assertEqual(s.ended_at, t0.replace(tzinfo=None))
         self.assertEqual(s.duration_seconds, 0)
 
-    def test_05_transition_to_locked(self):
-        """Sessão bloqueada (locked) tem precedência operacional."""
+    def test_05_locked_session_is_idle_during_work_hours(self):
+        """A locked workstation is work-hours inactivity, not a fifth logical state."""
         t0 = datetime(2026, 9, 15, 15, 0, 0, tzinfo=timezone.utc)
         t1 = datetime(2026, 9, 15, 15, 2, 0, tzinfo=timezone.utc)
 
@@ -250,8 +251,8 @@ class TestUsageActivityService(unittest.TestCase):
         self.assertEqual(len(sessions), 2)
         self.assertEqual(sessions[0].state, "active")
         self.assertFalse(sessions[0].is_open)
-        self.assertEqual(sessions[1].state, "locked")
-        self.assertEqual(self.device.current_session_state, "locked")
+        self.assertEqual(sessions[1].state, "idle")
+        self.assertEqual(self.device.current_session_state, "idle")
         self.assertFalse(self.device.user_active)
 
     def test_06_idempotency_duplicate_reports(self):
@@ -499,6 +500,100 @@ class TestUsageActivityService(unittest.TestCase):
             "idle_threshold_seconds": 10
         })
         self.assertEqual(resp_bad.status_code, 400)
+
+    def test_14_work_hours_state_matrix_uses_sao_paulo_time(self):
+        cases = [
+            # UTC timestamps below map to America/Sao_Paulo local wall time.
+            (datetime(2026, 9, 15, 13, 0, tzinfo=timezone.utc), "active", 0, True, "active"),       # Tue 10:00
+            (datetime(2026, 9, 15, 13, 0, tzinfo=timezone.utc), "active", 300, False, "idle"),     # Tue 10:00
+            (datetime(2026, 9, 15, 20, 59, tzinfo=timezone.utc), "active", 300, False, "idle"),    # Tue 17:59
+            (datetime(2026, 9, 15, 21, 0, tzinfo=timezone.utc), "idle", 300, False, "off_hours"),  # Tue 18:00
+            (datetime(2026, 9, 15, 21, 30, tzinfo=timezone.utc), "active", 5, True, "overtime"),   # Tue 18:30
+            (datetime(2026, 9, 15, 21, 30, tzinfo=timezone.utc), "active", 600, True, "off_hours"),# Tue 18:30
+            (datetime(2026, 9, 15, 10, 0, tzinfo=timezone.utc), "active", 600, False, "off_hours"),# Tue 07:00
+            (datetime(2026, 9, 15, 10, 0, tzinfo=timezone.utc), "active", 5, True, "overtime"),    # Tue 07:00
+            (datetime(2026, 9, 19, 13, 0, tzinfo=timezone.utc), "active", 600, False, "off_hours"),# Sat 10:00
+            (datetime(2026, 9, 19, 13, 0, tzinfo=timezone.utc), "active", 5, True, "overtime"),    # Sat 10:00
+        ]
+        for moment, reported, idle_seconds, user_active, expected in cases:
+            with self.subTest(moment=moment, expected=expected):
+                self.assertEqual(
+                    classify_work_activity_state(moment, reported, idle_seconds, user_active),
+                    expected,
+                )
+
+    def test_15_after_hours_activity_resumes_overtime(self):
+        stale = datetime(2026, 9, 15, 21, 30, tzinfo=timezone.utc)  # 18:30 local
+        resumed = stale + timedelta(minutes=1)
+        process_device_usage_telemetry(self.device, {
+            "session_state": "idle", "idle_seconds": 600,
+            "user_active": False, "windows_session_id": 1,
+        }, stale)
+        self.device.updated_at = stale
+        db.session.commit()
+        self.assertEqual(self.device.current_session_state, "off_hours")
+
+        process_device_usage_telemetry(self.device, {
+            "session_state": "active", "idle_seconds": 0,
+            "user_active": True, "windows_session_id": 1,
+        }, resumed)
+        db.session.commit()
+        self.assertEqual(self.device.current_session_state, "overtime")
+
+    def test_16_off_hours_do_not_increase_idle_or_productivity_totals(self):
+        target_d = date(2026, 9, 15)
+        off_start = datetime(2026, 9, 15, 21, 0)  # 18:00 America/Sao_Paulo
+        off_end = off_start + timedelta(minutes=30)
+        db.session.add(UsageSession(
+            device_id=self.device.id,
+            state="off_hours",
+            started_at=off_start,
+            ended_at=off_end,
+            duration_seconds=1800,
+            is_open=False,
+        ))
+        db.session.add(UsageSession(
+            device_id=self.device.id,
+            state="overtime",
+            started_at=off_end,
+            ended_at=off_end + timedelta(minutes=15),
+            duration_seconds=900,
+            is_open=False,
+        ))
+        db.session.commit()
+
+        summary = reconcile_daily_usage_for_date(self.device.id, target_d)
+        self.assertEqual(summary.idle_seconds, 0)
+        self.assertEqual(summary.active_seconds, 0)
+        self.assertEqual(summary.off_hours_seconds, 1800)
+        self.assertEqual(summary.overtime_seconds, 900)
+        self.assertEqual(summary.online_seconds, 2700)
+        self.assertEqual(summary.active_percentage, 0.0)
+        serialized = summary.to_dict()
+        self.assertEqual(serialized["active_work_seconds"], 0)
+        self.assertEqual(serialized["idle_work_seconds"], 0)
+
+    def test_17_idle_session_stops_at_exact_end_of_workday(self):
+        before_end = datetime(2026, 9, 15, 20, 59, 30, tzinfo=timezone.utc)
+        after_end = before_end + timedelta(minutes=1)
+        process_device_usage_telemetry(self.device, {
+            "session_state": "idle", "idle_seconds": 300,
+            "user_active": False, "windows_session_id": 1,
+        }, before_end)
+        self.device.updated_at = before_end
+        db.session.commit()
+
+        process_device_usage_telemetry(self.device, {
+            "session_state": "idle", "idle_seconds": 360,
+            "user_active": False, "windows_session_id": 1,
+        }, after_end)
+        db.session.commit()
+
+        sessions = UsageSession.query.filter_by(device_id=self.device.id).order_by(UsageSession.started_at).all()
+        self.assertEqual([(s.state, s.duration_seconds) for s in sessions], [
+            ("idle", 30),
+            ("off_hours", 30),
+        ])
 
 
 if __name__ == "__main__":

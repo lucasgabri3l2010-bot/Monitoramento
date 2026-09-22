@@ -78,6 +78,15 @@ class Config:
 
     # Rastreamento de Tempo de Uso Real e Ociosidade (v1.5.0)
     IDLE_THRESHOLD_SECONDS = int(os.getenv("IDLE_THRESHOLD_SECONDS", "300"))
+    WORK_HOURS_TIMEZONE = os.getenv("WORK_HOURS_TIMEZONE", "America/Sao_Paulo").strip()
+    WORK_HOURS_WEEKDAYS = tuple(
+        int(day.strip())
+        for day in os.getenv("WORK_HOURS_WEEKDAYS", "0,1,2,3,4").split(",")
+        if day.strip()
+    )
+    WORK_HOURS_START = os.getenv("WORK_HOURS_START", "08:00").strip()
+    WORK_HOURS_END = os.getenv("WORK_HOURS_END", "18:00").strip()
+    OVERTIME_INACTIVITY_SECONDS = int(os.getenv("OVERTIME_INACTIVITY_SECONDS", str(IDLE_THRESHOLD_SECONDS)))
     MAX_USAGE_GAP_SECONDS = int(os.getenv("MAX_USAGE_GAP_SECONDS", "120"))
     USAGE_SESSION_RETENTION_DAYS = int(os.getenv("USAGE_SESSION_RETENTION_DAYS", "90"))
     USAGE_SUMMARY_RETENTION_DAYS = int(os.getenv("USAGE_SUMMARY_RETENTION_DAYS", "365"))

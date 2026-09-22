@@ -168,7 +168,7 @@ class Device(db.Model):
     last_uptime_seconds = db.Column(db.BigInteger, default=0)
     
     # Rastreamento de Sessão e Uso do Usuário (v1.5.0)
-    current_session_state = db.Column(db.String(30), default="unknown", index=True)  # 'active', 'idle', 'locked', 'unknown'
+    current_session_state = db.Column(db.String(30), default="unknown", index=True)  # active, idle, overtime, off_hours, unknown
     last_input_at = db.Column(db.DateTime, nullable=True)
     last_idle_seconds = db.Column(db.Float, default=0.0)
     user_active = db.Column(db.Boolean, default=False)
@@ -365,6 +365,8 @@ class Device(db.Model):
             "session_state_label": {
                 "active": "Ativo",
                 "idle": "Ocioso",
+                "overtime": "Hora extra",
+                "off_hours": "Fora do expediente",
                 "locked": "Bloqueado",
                 "offline": "Offline",
                 "unknown": "Desconhecido"
@@ -870,7 +872,7 @@ class UsageSession(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     device_id = db.Column(db.Integer, db.ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
     windows_session_id = db.Column(db.Integer, nullable=True)
-    state = db.Column(db.String(30), nullable=False, index=True)  # 'active', 'idle', 'locked'
+    state = db.Column(db.String(30), nullable=False, index=True)  # active, idle, overtime, off_hours (locked legacy)
     started_at = db.Column(db.DateTime, nullable=False, index=True)  # UTC
     ended_at = db.Column(db.DateTime, nullable=True, index=True)  # UTC
     duration_seconds = db.Column(db.Integer, default=0)
@@ -913,6 +915,8 @@ class DailyUsageSummary(db.Model):
     active_seconds = db.Column(db.Integer, default=0)
     idle_seconds = db.Column(db.Integer, default=0)
     locked_seconds = db.Column(db.Integer, default=0)
+    overtime_seconds = db.Column(db.Integer, default=0)
+    off_hours_seconds = db.Column(db.Integer, default=0)
     offline_seconds = db.Column(db.Integer, default=0)
     first_seen = db.Column(db.DateTime, nullable=True)  # UTC
     last_seen = db.Column(db.DateTime, nullable=True)  # UTC
@@ -932,8 +936,12 @@ class DailyUsageSummary(db.Model):
             "date": str(self.date),
             "online_seconds": self.online_seconds or 0,
             "active_seconds": self.active_seconds or 0,
+            "active_work_seconds": self.active_seconds or 0,
             "idle_seconds": self.idle_seconds or 0,
+            "idle_work_seconds": self.idle_seconds or 0,
             "locked_seconds": self.locked_seconds or 0,
+            "overtime_seconds": self.overtime_seconds or 0,
+            "off_hours_seconds": self.off_hours_seconds or 0,
             "offline_seconds": self.offline_seconds or 0,
             "active_percentage": round(self.active_percentage or 0.0, 1),
             "first_seen_iso": format_iso_utc(self.first_seen),

@@ -18,7 +18,7 @@ import time
 from config import Config
 from models import db, Device, UsageSession, DailyUsageSummary
 from datetime_utils import (
-    utc_now, ensure_utc, to_app_timezone, get_local_date,
+    utc_now, ensure_utc, to_app_timezone, get_app_timezone, get_local_date,
     get_local_day_range_utc, get_local_midnight_utc, format_iso_utc,
     format_local_datetime
 )
@@ -27,6 +27,74 @@ from datetime_utils import (
 USAGE_SUMMARY_RECONCILE_INTERVAL_SECONDS = 30.0
 _summary_reconcile_lock = threading.Lock()
 _last_summary_reconcile = {}
+
+
+def _configured_work_time(value: str):
+    """Parse centralized HH:MM work schedule values."""
+    try:
+        return datetime.strptime(value, "%H:%M").time()
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid work-hours time: {value!r}; expected HH:MM")
+
+
+def is_within_work_hours(moment: datetime) -> bool:
+    """Return whether a UTC/aware instant falls inside the configured local schedule."""
+    local_moment = to_app_timezone(moment, Config.WORK_HOURS_TIMEZONE)
+    start = _configured_work_time(Config.WORK_HOURS_START)
+    end = _configured_work_time(Config.WORK_HOURS_END)
+    return (
+        local_moment.weekday() in Config.WORK_HOURS_WEEKDAYS
+        and start <= local_moment.time().replace(tzinfo=None) < end
+    )
+
+
+def classify_work_activity_state(
+    moment: datetime,
+    reported_state: str,
+    idle_seconds: float,
+    user_active: bool,
+) -> str:
+    """Map Agent 1.5.1 activity signals to work-hours-aware logical states."""
+    raw_state = str(reported_state or "unknown").strip().lower()
+    if raw_state not in ("active", "idle", "locked"):
+        return "unknown"
+
+    if is_within_work_hours(moment):
+        return "active" if raw_state == "active" and user_active else "idle"
+
+    recent_real_input = (
+        raw_state == "active"
+        and user_active
+        and idle_seconds < Config.OVERTIME_INACTIVITY_SECONDS
+    )
+    return "overtime" if recent_real_input else "off_hours"
+
+
+def _work_schedule_boundary_between(
+    start_utc: datetime,
+    end_utc: datetime,
+    entering_work_hours: bool,
+) -> Optional[datetime]:
+    """Return the latest configured schedule boundary crossed, as naive UTC."""
+    if end_utc <= start_utc:
+        return None
+
+    tz = get_app_timezone(Config.WORK_HOURS_TIMEZONE)
+    start_local = to_app_timezone(start_utc, Config.WORK_HOURS_TIMEZONE)
+    end_local = to_app_timezone(end_utc, Config.WORK_HOURS_TIMEZONE)
+    boundary_time = _configured_work_time(
+        Config.WORK_HOURS_START if entering_work_hours else Config.WORK_HOURS_END
+    )
+    boundaries = []
+    current_date = start_local.date()
+    while current_date <= end_local.date():
+        if current_date.weekday() in Config.WORK_HOURS_WEEKDAYS:
+            local_boundary = datetime.combine(current_date, boundary_time, tzinfo=tz)
+            boundary_utc = local_boundary.astimezone(timezone.utc).replace(tzinfo=None)
+            if start_utc < boundary_utc <= end_utc:
+                boundaries.append(boundary_utc)
+        current_date += timedelta(days=1)
+    return boundaries[-1] if boundaries else None
 
 
 def _mark_summary_reconciled(device_id: int, target_date: date) -> None:
@@ -81,6 +149,8 @@ def reconcile_daily_usage_for_date(device_id: int, target_date: date) -> DailyUs
     active_seconds = 0
     idle_seconds = 0
     locked_seconds = 0
+    overtime_seconds = 0
+    off_hours_seconds = 0
     first_seen: Optional[datetime] = None
     last_seen: Optional[datetime] = None
 
@@ -105,14 +175,19 @@ def reconcile_daily_usage_for_date(device_id: int, target_date: date) -> DailyUs
                 idle_seconds += dur
             elif sess.state == "locked":
                 locked_seconds += dur
+            elif sess.state == "overtime":
+                overtime_seconds += dur
+            elif sess.state == "off_hours":
+                off_hours_seconds += dur
 
             if first_seen is None or slice_start < first_seen:
                 first_seen = slice_start
             if last_seen is None or slice_end > last_seen:
                 last_seen = slice_end
 
-    online_seconds = active_seconds + idle_seconds + locked_seconds
-    active_percentage = round((active_seconds / online_seconds * 100.0), 1) if online_seconds > 0 else 0.0
+    work_seconds = active_seconds + idle_seconds + locked_seconds
+    online_seconds = work_seconds + overtime_seconds + off_hours_seconds
+    active_percentage = round((active_seconds / work_seconds * 100.0), 1) if work_seconds > 0 else 0.0
 
     summary = DailyUsageSummary.query.filter_by(
         device_id=device_id,
@@ -129,6 +204,8 @@ def reconcile_daily_usage_for_date(device_id: int, target_date: date) -> DailyUs
             active_seconds=active_seconds,
             idle_seconds=idle_seconds,
             locked_seconds=locked_seconds,
+            overtime_seconds=overtime_seconds,
+            off_hours_seconds=off_hours_seconds,
             offline_seconds=0,
             first_seen=first_seen,
             last_seen=last_seen,
@@ -142,6 +219,8 @@ def reconcile_daily_usage_for_date(device_id: int, target_date: date) -> DailyUs
         summary.active_seconds = active_seconds
         summary.idle_seconds = idle_seconds
         summary.locked_seconds = locked_seconds
+        summary.overtime_seconds = overtime_seconds
+        summary.off_hours_seconds = off_hours_seconds
         summary.first_seen = first_seen
         summary.last_seen = last_seen
         summary.active_percentage = active_percentage
@@ -188,11 +267,18 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
         raw_state = "unknown"
 
     # 3. Determinação sanitizada do session_state
-    session_state = str(raw_state or "unknown").strip().lower()
-    if session_state not in ("active", "idle", "locked"):
-        session_state = "unknown"
+    reported_state = str(raw_state or "unknown").strip().lower()
+    if reported_state not in ("active", "idle", "locked"):
+        reported_state = "unknown"
 
-    user_active = bool(raw_user_active) if session_state == "active" else False
+    has_real_user_activity = bool(raw_user_active) if reported_state == "active" else False
+    session_state = classify_work_activity_state(
+        now_dt,
+        reported_state,
+        idle_seconds,
+        has_real_user_activity,
+    )
+    user_active = session_state in ("active", "overtime")
 
     # 4. Atualização do estado instantâneo do dispositivo
     device.current_session_state = session_state
@@ -204,7 +290,7 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
         except (TypeError, ValueError):
             pass
 
-    if session_state in ("active", "idle", "locked"):
+    if session_state in ("active", "idle", "overtime", "off_hours"):
         last_input_calc = now_naive - timedelta(seconds=idle_seconds)
         device.last_input_at = last_input_calc
 
@@ -309,12 +395,33 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
 
     # 10. Transição de Estado (ex: active -> idle, idle -> active, active -> locked)
     if open_session.state != session_state:
-        # Cálculo de transição com clamp seguro
-        calculated_last_input = now_naive - timedelta(seconds=idle_seconds)
+        work_states = {"active", "idle"}
+        off_hours_states = {"overtime", "off_hours"}
+        crosses_schedule = (
+            open_session.state in work_states and session_state in off_hours_states
+        ) or (
+            open_session.state in off_hours_states and session_state in work_states
+        )
+        schedule_boundary = _work_schedule_boundary_between(
+            s_started,
+            now_naive,
+            entering_work_hours=session_state in work_states,
+        ) if crosses_schedule and s_started else None
+
+        if schedule_boundary is not None:
+            calculated_transition = schedule_boundary
+        elif session_state == "idle":
+            calculated_transition = now_naive - timedelta(seconds=idle_seconds)
+        elif session_state == "off_hours" and open_session.state == "overtime":
+            calculated_transition = now_naive - timedelta(
+                seconds=max(0.0, idle_seconds - Config.OVERTIME_INACTIVITY_SECONDS)
+            )
+        else:
+            calculated_transition = now_naive
 
         # CLAMP: a transição nunca pode ocorrer antes do início da sessão anterior,
         # e nunca pode estar no futuro.
-        transition_point = max(s_started, min(now_naive, calculated_last_input)) if s_started else now_naive
+        transition_point = max(s_started, min(now_naive, calculated_transition)) if s_started else now_naive
 
         # Fecha a sessão anterior no ponto exato da transição
         open_session.ended_at = transition_point

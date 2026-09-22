@@ -234,6 +234,13 @@ def run_migrations() -> bool:
                             ]
                         ),
                         (
+                            "daily_usage_summaries",
+                            [
+                                ("overtime_seconds", "INTEGER DEFAULT 0", "INTEGER DEFAULT 0"),
+                                ("off_hours_seconds", "INTEGER DEFAULT 0", "INTEGER DEFAULT 0")
+                            ]
+                        ),
+                        (
                             "policy_events",
                             [
                                 ("source", "VARCHAR(50) DEFAULT 'manual_rule'", "VARCHAR(50) DEFAULT 'manual_rule'"),

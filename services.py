@@ -1074,12 +1074,17 @@ def get_dashboard_stats():
     today_summaries = DailyUsageSummary.query.filter_by(date=today_local).all()
     active_seconds_today = sum(s.active_seconds or 0 for s in today_summaries)
     idle_seconds_today = sum(s.idle_seconds or 0 for s in today_summaries)
+    overtime_seconds_today = sum(s.overtime_seconds or 0 for s in today_summaries)
+    off_hours_seconds_today = sum(s.off_hours_seconds or 0 for s in today_summaries)
     locked_seconds_today = sum(s.locked_seconds or 0 for s in today_summaries)
     online_seconds_today = sum(s.online_seconds or 0 for s in today_summaries)
-    avg_active_pct_today = round((active_seconds_today / online_seconds_today * 100.0), 1) if online_seconds_today > 0 else 0.0
+    work_seconds_today = active_seconds_today + idle_seconds_today + locked_seconds_today
+    avg_active_pct_today = round((active_seconds_today / work_seconds_today * 100.0), 1) if work_seconds_today > 0 else 0.0
 
     active_now_count = sum(1 for d in all_devices if d.get("status") != "offline" and d.get("session_state") == "active")
     idle_now_count = sum(1 for d in all_devices if d.get("status") != "offline" and d.get("session_state") == "idle")
+    overtime_now_count = sum(1 for d in all_devices if d.get("status") != "offline" and d.get("session_state") == "overtime")
+    off_hours_now_count = sum(1 for d in all_devices if d.get("status") != "offline" and d.get("session_state") == "off_hours")
     locked_now_count = sum(1 for d in all_devices if d.get("status") != "offline" and d.get("session_state") == "locked")
 
     return {
@@ -1090,9 +1095,13 @@ def get_dashboard_stats():
         "critical_count": critical_count,
         "active_now": active_now_count,
         "idle_now": idle_now_count,
+        "overtime_now": overtime_now_count,
+        "off_hours_now": off_hours_now_count,
         "locked_now": locked_now_count,
         "active_seconds_today": active_seconds_today,
         "idle_seconds_today": idle_seconds_today,
+        "overtime_seconds_today": overtime_seconds_today,
+        "off_hours_seconds_today": off_hours_seconds_today,
         "locked_seconds_today": locked_seconds_today,
         "online_seconds_today": online_seconds_today,
         "average_active_percentage_today": avg_active_pct_today,
