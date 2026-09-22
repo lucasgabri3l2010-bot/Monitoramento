@@ -12,7 +12,7 @@ os.environ["ADMIN_PASSWORD"] = "TestAdminPass123!"
 from config import Config
 from servidor import app, db
 from models import (
-    User, Device, PolicyRule, PolicyEvent, PolicyAllowlist,
+    User, Device, PolicyRule, PolicyEvent, PolicyAllowlist, DomainClassification,
     SystemMetadata, normalize_domain, match_domain_secure
 )
 from corporate_rules_data import CORPORATE_DEFAULT_RULES
@@ -45,6 +45,7 @@ class CorporatePolicyRulesTestCase(unittest.TestCase):
             PolicyEvent.query.delete()
             PolicyAllowlist.query.delete()
             PolicyRule.query.delete()
+            DomainClassification.query.delete()
             SystemMetadata.query.filter_by(key="corporate_rules_seed_version").delete()
             db.session.commit()
             invalidate_policy_rules_cache()
@@ -460,6 +461,140 @@ class CorporatePolicyRulesTestCase(unittest.TestCase):
         with self.app.app_context():
             # Regra demo continua intacta
             self.assertIsNotNone(db.session.get(PolicyRule, 9099))
+
+    def test_19_roblox_classification_without_active_rule_creates_no_event(self):
+        with self.app.app_context():
+            db.session.add(DomainClassification(
+                domain="roblox.com",
+                category="games",
+                risk_level="warning",
+                confidence=1.0,
+                source="internal",
+                status="classified",
+            ))
+            db.session.add(PolicyRule(
+                name="Roblox disabled",
+                rule_type="domain",
+                pattern="create.roblox.com",
+                category="games",
+                severity="warning",
+                scope_type="global",
+                action="alert",
+                enabled=False,
+            ))
+            db.session.commit()
+            invalidate_policy_rules_cache()
+
+            for uuid, domain in (("roblox-absent", "roblox.com"), ("roblox-disabled", "create.roblox.com")):
+                process_agent_payload({
+                    "uuid": uuid,
+                    "hostname": uuid,
+                    "computador": uuid,
+                    "active_domain": domain,
+                    "active_app": "chrome.exe",
+                })
+
+            self.assertEqual(PolicyEvent.query.filter(PolicyEvent.domain.like("%roblox.com")).count(), 0)
+
+    def test_20_active_roblox_rule_creates_event(self):
+        with self.app.app_context():
+            rule = PolicyRule(
+                name="Roblox active",
+                rule_type="domain",
+                pattern="roblox.com",
+                category="games",
+                severity="warning",
+                scope_type="global",
+                action="alert",
+                enabled=True,
+            )
+            db.session.add(rule)
+            db.session.commit()
+            invalidate_policy_rules_cache()
+
+            process_agent_payload({
+                "uuid": "roblox-active",
+                "hostname": "roblox-active",
+                "computador": "roblox-active",
+                "active_domain": "create.roblox.com",
+                "active_app": "chrome.exe",
+            })
+
+            event = PolicyEvent.query.filter_by(domain="create.roblox.com").one()
+            self.assertEqual(event.policy_rule_id, rule.id)
+            self.assertEqual(event.source, "manual_rule")
+
+    def test_21_deleting_roblox_rule_preserves_historical_event(self):
+        with self.app.app_context():
+            device = Device(uuid="roblox-history", hostname="roblox-history")
+            rule = PolicyRule(
+                name="Legacy Roblox",
+                rule_type="domain",
+                pattern="roblox.com",
+                category="games",
+                severity="warning",
+                scope_type="global",
+                action="alert",
+                enabled=True,
+            )
+            db.session.add_all([device, rule])
+            db.session.flush()
+            event = PolicyEvent(
+                device_id=device.id,
+                policy_rule_id=rule.id,
+                event_type="domain",
+                category="games",
+                severity="warning",
+                domain="roblox.com",
+                status="active",
+            )
+            db.session.add(event)
+            db.session.commit()
+            event_id = event.id
+
+            db.session.delete(rule)
+            db.session.commit()
+            invalidate_policy_rules_cache()
+
+            process_agent_payload({
+                "uuid": device.uuid,
+                "hostname": device.hostname,
+                "computador": device.hostname,
+                "active_domain": "roblox.com",
+                "active_app": "chrome.exe",
+            })
+
+            preserved = db.session.get(PolicyEvent, event_id)
+            self.assertIsNotNone(preserved)
+            self.assertEqual(preserved.status, "closed")
+            self.assertIsNone(preserved.policy_rule_id)
+            self.assertEqual(PolicyEvent.query.filter_by(device_id=device.id).count(), 1)
+
+    def test_22_seed_does_not_restore_removed_roblox_rule(self):
+        with self.app.app_context():
+            self.assertFalse(any(r["pattern"] == "roblox.com" for r in CORPORATE_DEFAULT_RULES))
+            seed_default_policy_rules(force=True)
+            self.assertIsNone(PolicyRule.query.filter_by(pattern="roblox.com").first())
+            self.assertIsNone(PolicyRule.query.filter_by(pattern="robloxplayerbeta.exe").first())
+
+            legacy_rule = PolicyRule(
+                name="Legacy Roblox seed",
+                rule_type="domain",
+                pattern="roblox.com",
+                category="games",
+                severity="warning",
+                scope_type="global",
+                action="alert",
+                enabled=True,
+                source_provider="seed",
+            )
+            db.session.add(legacy_rule)
+            db.session.commit()
+            db.session.delete(legacy_rule)
+            db.session.commit()
+
+            seed_default_policy_rules(force=True)
+            self.assertIsNone(PolicyRule.query.filter_by(pattern="roblox.com").first())
 
 
 if __name__ == "__main__":

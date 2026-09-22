@@ -47,12 +47,11 @@ CORPORATE_DEFAULT_RULES = [
     {"pattern": "literotica.com", "name": "[Adulto / +18] Literotica", "category": "adult", "severity": "critical"},
 
     # -------------------------------------------------------------------------
-    # 2. JOGOS (games) - Severidade: warning (34 domínios)
+    # 2. JOGOS (games) - Severidade: warning (33 domínios)
     # -------------------------------------------------------------------------
     {"pattern": "steampowered.com", "name": "[Jogos] Steam Store", "category": "games", "severity": "warning"},
     {"pattern": "steamcommunity.com", "name": "[Jogos] Steam Community", "category": "games", "severity": "warning"},
     {"pattern": "epicgames.com", "name": "[Jogos] Epic Games", "category": "games", "severity": "warning"},
-    {"pattern": "roblox.com", "name": "[Jogos] Roblox", "category": "games", "severity": "warning"},
     {"pattern": "minecraft.net", "name": "[Jogos] Minecraft", "category": "games", "severity": "warning"},
     {"pattern": "xbox.com", "name": "[Jogos] Xbox", "category": "games", "severity": "warning"},
     {"pattern": "playstation.com", "name": "[Jogos] PlayStation", "category": "games", "severity": "warning"},

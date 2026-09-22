@@ -687,8 +687,8 @@ def _evaluate_policies(device: Device, now: datetime):
     3. Global Allowlist
     4. Manual PolicyRule (regras soberanas criadas pela TI)
     5. Corporate Seed PolicyRule (base corporativa pré-carregada)
-    6. Cached Automatic Classification
-    7. External/Internal Provider (Async)
+    6. Active Automatic PolicyRule
+    7. Domain classification metadata refresh (never an event by itself)
     8. Unknown
     """
     if not Config.POLICY_MONITORING_ENABLED:
@@ -710,15 +710,17 @@ def _evaluate_policies(device: Device, now: datetime):
     active_rules = get_active_policy_rules()
     matching_manual_rules = []
     matching_seed_rules = []
+    matching_automatic_rules = []
 
     for r in active_rules:
-        if not r.is_automatic:
-            if r.source_provider in ("seed", "corporate_base"):
-                if r.matches(app_name, domain, device.department, device.hostname, device.uuid):
-                    matching_seed_rules.append(r)
-            else:
-                if r.matches(app_name, domain, device.department, device.hostname, device.uuid):
-                    matching_manual_rules.append(r)
+        if not r.matches(app_name, domain, device.department, device.hostname, device.uuid):
+            continue
+        if r.is_automatic:
+            matching_automatic_rules.append(r)
+        elif r.source_provider in ("seed", "corporate_base"):
+            matching_seed_rules.append(r)
+        else:
+            matching_manual_rules.append(r)
 
     sev_weight = {"critical": 3, "warning": 2, "info": 1}
 
@@ -763,6 +765,27 @@ def _evaluate_policies(device: Device, now: datetime):
         return
 
     # 3. Precedência 6..7: Classificação Automática de Domínio
+    # Automatic classifications only enforce policy when backed by an active rule.
+    if matching_automatic_rules:
+        matching_automatic_rules.sort(key=lambda r: sev_weight.get(r.severity, 0), reverse=True)
+        primary_automatic_rule = matching_automatic_rules[0]
+
+        if primary_automatic_rule.action == "allow":
+            _close_open_policy_events(device, now)
+            return
+
+        _create_or_update_policy_event(
+            device=device,
+            rule_id=primary_automatic_rule.id,
+            event_type=primary_automatic_rule.rule_type,
+            category=primary_automatic_rule.category,
+            severity=primary_automatic_rule.severity,
+            source="automatic_classification",
+            now=now
+        )
+        return
+
+    # Domain classification is metadata only; without an active rule it cannot create an event.
     if domain and Config.DOMAIN_CLASSIFICATION_ENABLED:
         clean_domain = domain.strip().lower()
         if clean_domain.startswith("www."):
@@ -770,7 +793,7 @@ def _evaluate_policies(device: Device, now: datetime):
 
         cls = DomainClassification.query.filter_by(domain=clean_domain).first()
 
-        if not cls:
+        if not cls or cls.is_expired():
             # Cache MISS -> Enfileira classificação assíncrona sem travar /api/agent/report
             from flask import current_app
             try:
@@ -778,19 +801,6 @@ def _evaluate_policies(device: Device, now: datetime):
                 enqueue_domain_classification(app_ctx, clean_domain)
             except Exception:
                 pass
-        elif cls.status == "classified" and not cls.is_expired():
-            if cls.confidence >= Config.DOMAIN_CLASSIFICATION_MIN_CONFIDENCE and cls.category in ("adult", "gambling", "malware", "phishing", "scam", "games", "torrent", "streaming", "social_media", "vpn_proxy", "crypto_mining"):
-                sev = cls.risk_level or DEFAULT_CATEGORY_SEVERITY.get(cls.category, "warning")
-                _create_or_update_policy_event(
-                    device=device,
-                    rule_id=None,
-                    event_type="domain",
-                    category=cls.category,
-                    severity=sev,
-                    source="automatic_classification",
-                    now=now
-                )
-                return
 
     # Se nada violou: fecha eventos abertos anteriores
     _close_open_policy_events(device, now)

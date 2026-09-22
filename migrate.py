@@ -61,7 +61,6 @@ def seed_default_policy_rules(force: bool = False) -> int:
     default_apps = [
         {"name": "Jogos Steam", "pattern": "steam.exe", "category": "games", "severity": "warning"},
         {"name": "Jogos Valorant", "pattern": "valorant.exe", "category": "games", "severity": "critical"},
-        {"name": "Jogos Roblox", "pattern": "robloxplayerbeta.exe", "category": "games", "severity": "warning"},
     ]
     for app_item in default_apps:
         if app_item["pattern"].lower() not in existing_apps:

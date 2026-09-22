@@ -466,7 +466,7 @@ class PolicyRule(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-    events = db.relationship("PolicyEvent", backref="rule", cascade="all, delete-orphan", lazy="dynamic")
+    events = db.relationship("PolicyEvent", backref="rule", lazy="dynamic")
 
     def matches(self, app_name: str | None, domain: str | None, device_dept: str | None, device_host: str | None, device_uuid: str | None) -> bool:
         if not self.enabled:
