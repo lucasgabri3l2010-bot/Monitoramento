@@ -40,3 +40,15 @@ temp/
 # OS files
 .DS_Store
 Thumbs.db
+backups/aiven-20260921-175158.dump
+backups/aiven-FINAL-20260922-100359.dump
+backups/validation-aiven-final.txt
+backups/validation-aiven-v2.txt
+backups/validation-aiven-v3.txt
+backups/validation-aiven.txt
+backups/validation-railway-final.txt
+backups/validation-railway-v2.txt
+backups/validation-railway-v3.txt
+backups/validation-railway.txt
+Microsoft/Windows/PowerShell/ModuleAnalysisCache
+releases/manifest.json
