@@ -86,6 +86,14 @@ class Config:
     )
     WORK_HOURS_START = os.getenv("WORK_HOURS_START", "08:00").strip()
     WORK_HOURS_END = os.getenv("WORK_HOURS_END", "18:00").strip()
+    WORK_WINDOWS = tuple(
+        window.strip()
+        for window in os.getenv(
+            "WORK_WINDOWS",
+            f"{WORK_HOURS_START}-12:00,14:00-{WORK_HOURS_END}",
+        ).split(",")
+        if window.strip()
+    )
     OVERTIME_INACTIVITY_SECONDS = int(os.getenv("OVERTIME_INACTIVITY_SECONDS", str(IDLE_THRESHOLD_SECONDS)))
     MAX_USAGE_GAP_SECONDS = int(os.getenv("MAX_USAGE_GAP_SECONDS", "120"))
     USAGE_SESSION_RETENTION_DAYS = int(os.getenv("USAGE_SESSION_RETENTION_DAYS", "90"))

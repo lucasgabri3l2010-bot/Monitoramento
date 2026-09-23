@@ -37,15 +37,29 @@ def _configured_work_time(value: str):
         raise ValueError(f"Invalid work-hours time: {value!r}; expected HH:MM")
 
 
+def _configured_work_windows():
+    """Parse centralized work windows such as 08:00-12:00,14:00-18:00."""
+    windows = []
+    for raw_window in Config.WORK_WINDOWS:
+        try:
+            raw_start, raw_end = raw_window.split("-", 1)
+        except ValueError:
+            raise ValueError(f"Invalid work window: {raw_window!r}; expected HH:MM-HH:MM")
+        start = _configured_work_time(raw_start.strip())
+        end = _configured_work_time(raw_end.strip())
+        if start >= end:
+            raise ValueError(f"Invalid work window: {raw_window!r}; start must precede end")
+        windows.append((start, end))
+    return tuple(windows)
+
+
 def is_within_work_hours(moment: datetime) -> bool:
     """Return whether a UTC/aware instant falls inside the configured local schedule."""
     local_moment = to_app_timezone(moment, Config.WORK_HOURS_TIMEZONE)
-    start = _configured_work_time(Config.WORK_HOURS_START)
-    end = _configured_work_time(Config.WORK_HOURS_END)
-    return (
-        local_moment.weekday() in Config.WORK_HOURS_WEEKDAYS
-        and start <= local_moment.time().replace(tzinfo=None) < end
-    )
+    if local_moment.weekday() not in Config.WORK_HOURS_WEEKDAYS:
+        return False
+    local_time = local_moment.time().replace(tzinfo=None)
+    return any(start <= local_time < end for start, end in _configured_work_windows())
 
 
 def classify_work_activity_state(
@@ -82,17 +96,19 @@ def _work_schedule_boundary_between(
     tz = get_app_timezone(Config.WORK_HOURS_TIMEZONE)
     start_local = to_app_timezone(start_utc, Config.WORK_HOURS_TIMEZONE)
     end_local = to_app_timezone(end_utc, Config.WORK_HOURS_TIMEZONE)
-    boundary_time = _configured_work_time(
-        Config.WORK_HOURS_START if entering_work_hours else Config.WORK_HOURS_END
-    )
+    boundary_times = [
+        start if entering_work_hours else end
+        for start, end in _configured_work_windows()
+    ]
     boundaries = []
     current_date = start_local.date()
     while current_date <= end_local.date():
         if current_date.weekday() in Config.WORK_HOURS_WEEKDAYS:
-            local_boundary = datetime.combine(current_date, boundary_time, tzinfo=tz)
-            boundary_utc = local_boundary.astimezone(timezone.utc).replace(tzinfo=None)
-            if start_utc < boundary_utc <= end_utc:
-                boundaries.append(boundary_utc)
+            for boundary_time in boundary_times:
+                local_boundary = datetime.combine(current_date, boundary_time, tzinfo=tz)
+                boundary_utc = local_boundary.astimezone(timezone.utc).replace(tzinfo=None)
+                if start_utc < boundary_utc <= end_utc:
+                    boundaries.append(boundary_utc)
         current_date += timedelta(days=1)
     return boundaries[-1] if boundaries else None
 
@@ -185,9 +201,10 @@ def reconcile_daily_usage_for_date(device_id: int, target_date: date) -> DailyUs
             if last_seen is None or slice_end > last_seen:
                 last_seen = slice_end
 
-    work_seconds = active_seconds + idle_seconds + locked_seconds
-    online_seconds = work_seconds + overtime_seconds + off_hours_seconds
-    active_percentage = round((active_seconds / work_seconds * 100.0), 1) if work_seconds > 0 else 0.0
+    total_active_seconds = active_seconds + overtime_seconds
+    work_seconds = total_active_seconds + idle_seconds + locked_seconds
+    online_seconds = work_seconds + off_hours_seconds
+    active_percentage = round((total_active_seconds / work_seconds * 100.0), 1) if work_seconds > 0 else 0.0
 
     summary = DailyUsageSummary.query.filter_by(
         device_id=device_id,

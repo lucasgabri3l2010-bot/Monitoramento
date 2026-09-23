@@ -1081,15 +1081,23 @@ def get_dashboard_stats():
 
     # Métricas Operacionais de Uso Real (v1.5.0)
     today_local = get_local_date(utc_now())
-    today_summaries = DailyUsageSummary.query.filter_by(date=today_local).all()
-    active_seconds_today = sum(s.active_seconds or 0 for s in today_summaries)
+    fleet_device_ids = [device.id for device in real_devices]
+    today_summaries = DailyUsageSummary.query.filter(
+        DailyUsageSummary.date == today_local,
+        DailyUsageSummary.device_id.in_(fleet_device_ids),
+    ).all() if fleet_device_ids else []
+    active_work_seconds_today = sum(s.active_seconds or 0 for s in today_summaries)
     idle_seconds_today = sum(s.idle_seconds or 0 for s in today_summaries)
     overtime_seconds_today = sum(s.overtime_seconds or 0 for s in today_summaries)
+    active_seconds_today = active_work_seconds_today + overtime_seconds_today
     off_hours_seconds_today = sum(s.off_hours_seconds or 0 for s in today_summaries)
     locked_seconds_today = sum(s.locked_seconds or 0 for s in today_summaries)
     online_seconds_today = sum(s.online_seconds or 0 for s in today_summaries)
     work_seconds_today = active_seconds_today + idle_seconds_today + locked_seconds_today
     avg_active_pct_today = round((active_seconds_today / work_seconds_today * 100.0), 1) if work_seconds_today > 0 else 0.0
+    fleet_device_count = len(real_devices)
+    average_active_seconds_today = active_seconds_today / fleet_device_count if fleet_device_count else 0.0
+    average_idle_seconds_today = idle_seconds_today / fleet_device_count if fleet_device_count else 0.0
 
     active_now_count = sum(1 for d in all_devices if d.get("status") != "offline" and d.get("session_state") == "active")
     idle_now_count = sum(1 for d in all_devices if d.get("status") != "offline" and d.get("session_state") == "idle")
@@ -1109,7 +1117,11 @@ def get_dashboard_stats():
         "off_hours_now": off_hours_now_count,
         "locked_now": locked_now_count,
         "active_seconds_today": active_seconds_today,
+        "active_work_seconds_today": active_work_seconds_today,
         "idle_seconds_today": idle_seconds_today,
+        "average_active_seconds_today": average_active_seconds_today,
+        "average_idle_seconds_today": average_idle_seconds_today,
+        "fleet_average_device_count": fleet_device_count,
         "overtime_seconds_today": overtime_seconds_today,
         "off_hours_seconds_today": off_hours_seconds_today,
         "locked_seconds_today": locked_seconds_today,

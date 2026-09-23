@@ -930,17 +930,19 @@ class DailyUsageSummary(db.Model):
     )
 
     def to_dict(self) -> dict:
+        active_work_seconds = self.active_seconds or 0
+        overtime_seconds = self.overtime_seconds or 0
         return {
             "id": self.id,
             "device_id": self.device_id,
             "date": str(self.date),
             "online_seconds": self.online_seconds or 0,
-            "active_seconds": self.active_seconds or 0,
-            "active_work_seconds": self.active_seconds or 0,
+            "active_seconds": active_work_seconds + overtime_seconds,
+            "active_work_seconds": active_work_seconds,
             "idle_seconds": self.idle_seconds or 0,
             "idle_work_seconds": self.idle_seconds or 0,
             "locked_seconds": self.locked_seconds or 0,
-            "overtime_seconds": self.overtime_seconds or 0,
+            "overtime_seconds": overtime_seconds,
             "off_hours_seconds": self.off_hours_seconds or 0,
             "offline_seconds": self.offline_seconds or 0,
             "active_percentage": round(self.active_percentage or 0.0, 1),

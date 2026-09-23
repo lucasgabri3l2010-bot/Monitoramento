@@ -319,10 +319,10 @@
                     <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
                         <div>
                             <div class="text-[11px] font-semibold uppercase tracking-wider text-blue-600 flex items-center gap-1.5">
-                                <span class="w-2 h-2 rounded-full bg-blue-500"></span> Tempo Ativo Hoje
+                                <span class="w-2 h-2 rounded-full bg-blue-500"></span> Média Ativa Hoje
                             </div>
                             <div class="text-2xl font-bold text-slate-900 mt-1" id="kpi-active-today">0h 00m</div>
-                            <div class="text-[11px] text-slate-400 mt-0.5">Interação teclado/mouse</div>
+                            <div class="text-[11px] text-slate-400 mt-0.5">Por PC • teclado/mouse</div>
                         </div>
                         <div class="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200/70 flex items-center justify-center text-blue-600">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -335,10 +335,10 @@
                     <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
                         <div>
                             <div class="text-[11px] font-semibold uppercase tracking-wider text-amber-600 flex items-center gap-1.5">
-                                <span class="w-2 h-2 rounded-full bg-amber-500"></span> Tempo Ocioso Hoje
+                                <span class="w-2 h-2 rounded-full bg-amber-500"></span> Média Ociosa Hoje
                             </div>
                             <div class="text-2xl font-bold text-slate-900 mt-1" id="kpi-idle-today">0h 00m</div>
-                            <div class="text-[11px] text-slate-400 mt-0.5">Sem interação recente</div>
+                            <div class="text-[11px] text-slate-400 mt-0.5">Por PC • durante expediente</div>
                         </div>
                         <div class="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200/70 flex items-center justify-center text-amber-600">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2792,11 +2792,11 @@ streamdemo.tv,streaming,warning,alert,global
             }
             const kpiActiveToday = document.getElementById("kpi-active-today");
             if (kpiActiveToday) {
-                kpiActiveToday.innerText = formatDurationHours(stats.active_seconds_today || 0);
+                kpiActiveToday.innerText = formatDurationHours(stats.average_active_seconds_today || 0);
             }
             const kpiIdleToday = document.getElementById("kpi-idle-today");
             if (kpiIdleToday) {
-                kpiIdleToday.innerText = formatDurationHours(stats.idle_seconds_today || 0);
+                kpiIdleToday.innerText = formatDurationHours(stats.average_idle_seconds_today || 0);
             }
             const kpiActivePct = document.getElementById("kpi-active-pct-today");
             if (kpiActivePct) {

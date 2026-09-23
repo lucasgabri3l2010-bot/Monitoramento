@@ -34,6 +34,7 @@ from usage_service import (
     cleanup_old_usage_data
 )
 from servidor import app
+from services import get_dashboard_stats
 
 
 class TestUsageActivityService(unittest.TestCase):
@@ -223,8 +224,8 @@ class TestUsageActivityService(unittest.TestCase):
 
     def test_05_locked_session_is_idle_during_work_hours(self):
         """A locked workstation is work-hours inactivity, not a fifth logical state."""
-        t0 = datetime(2026, 9, 15, 15, 0, 0, tzinfo=timezone.utc)
-        t1 = datetime(2026, 9, 15, 15, 2, 0, tzinfo=timezone.utc)
+        t0 = datetime(2026, 9, 15, 14, 0, 0, tzinfo=timezone.utc)
+        t1 = datetime(2026, 9, 15, 14, 2, 0, tzinfo=timezone.utc)
 
         process_device_usage_telemetry(self.device, {
             "session_state": "active",
@@ -507,6 +508,8 @@ class TestUsageActivityService(unittest.TestCase):
             (datetime(2026, 9, 15, 13, 0, tzinfo=timezone.utc), "active", 0, True, "active"),       # Tue 10:00
             (datetime(2026, 9, 15, 13, 0, tzinfo=timezone.utc), "active", 300, False, "idle"),     # Tue 10:00
             (datetime(2026, 9, 15, 20, 59, tzinfo=timezone.utc), "active", 300, False, "idle"),    # Tue 17:59
+            (datetime(2026, 9, 15, 15, 30, tzinfo=timezone.utc), "idle", 300, False, "off_hours"), # Tue 12:30
+            (datetime(2026, 9, 15, 16, 0, tzinfo=timezone.utc), "active", 5, True, "overtime"),    # Tue 13:00
             (datetime(2026, 9, 15, 21, 0, tzinfo=timezone.utc), "idle", 300, False, "off_hours"),  # Tue 18:00
             (datetime(2026, 9, 15, 21, 30, tzinfo=timezone.utc), "active", 5, True, "overtime"),   # Tue 18:30
             (datetime(2026, 9, 15, 21, 30, tzinfo=timezone.utc), "active", 600, True, "off_hours"),# Tue 18:30
@@ -568,8 +571,9 @@ class TestUsageActivityService(unittest.TestCase):
         self.assertEqual(summary.off_hours_seconds, 1800)
         self.assertEqual(summary.overtime_seconds, 900)
         self.assertEqual(summary.online_seconds, 2700)
-        self.assertEqual(summary.active_percentage, 0.0)
+        self.assertEqual(summary.active_percentage, 100.0)
         serialized = summary.to_dict()
+        self.assertEqual(serialized["active_seconds"], 900)
         self.assertEqual(serialized["active_work_seconds"], 0)
         self.assertEqual(serialized["idle_work_seconds"], 0)
 
@@ -594,6 +598,107 @@ class TestUsageActivityService(unittest.TestCase):
             ("idle", 30),
             ("off_hours", 30),
         ])
+
+    def test_18_lunch_boundary_stops_idle_at_noon(self):
+        before_lunch = datetime(2026, 9, 15, 14, 59, 30, tzinfo=timezone.utc)
+        during_lunch = before_lunch + timedelta(minutes=1)
+        process_device_usage_telemetry(self.device, {
+            "session_state": "idle", "idle_seconds": 300,
+            "user_active": False, "windows_session_id": 1,
+        }, before_lunch)
+        self.device.updated_at = before_lunch
+        db.session.commit()
+
+        process_device_usage_telemetry(self.device, {
+            "session_state": "idle", "idle_seconds": 360,
+            "user_active": False, "windows_session_id": 1,
+        }, during_lunch)
+        db.session.commit()
+
+        sessions = UsageSession.query.filter_by(device_id=self.device.id).order_by(UsageSession.started_at).all()
+        self.assertEqual([(s.state, s.duration_seconds) for s in sessions], [
+            ("idle", 30),
+            ("off_hours", 30),
+        ])
+
+    def test_19_work_break_after_hours_and_weekend_accounting(self):
+        target_d = date(2026, 9, 15)
+        slices = [
+            ("active", datetime(2026, 9, 15, 13, 0), 600),       # 10:00 work window
+            ("idle", datetime(2026, 9, 15, 13, 10), 600),        # 10:10 work window
+            ("off_hours", datetime(2026, 9, 15, 15, 0), 600),   # 12:00 lunch
+            ("overtime", datetime(2026, 9, 15, 16, 0), 600),    # 13:00 lunch activity
+            ("off_hours", datetime(2026, 9, 15, 21, 0), 600),   # 18:00 inactive
+            ("overtime", datetime(2026, 9, 15, 21, 10), 600),   # after-hours activity
+        ]
+        for state, started_at, duration in slices:
+            db.session.add(UsageSession(
+                device_id=self.device.id,
+                state=state,
+                started_at=started_at,
+                ended_at=started_at + timedelta(seconds=duration),
+                duration_seconds=duration,
+                is_open=False,
+            ))
+        db.session.commit()
+
+        summary = reconcile_daily_usage_for_date(self.device.id, target_d)
+        self.assertEqual(summary.active_seconds, 600)
+        self.assertEqual(summary.idle_seconds, 600)
+        self.assertEqual(summary.overtime_seconds, 1200)
+        self.assertEqual(summary.off_hours_seconds, 1200)
+        self.assertEqual(summary.to_dict()["active_seconds"], 1800)
+
+        weekend_d = date(2026, 9, 19)
+        weekend_start = datetime(2026, 9, 19, 13, 0)
+        db.session.add_all([
+            UsageSession(
+                device_id=self.device.id, state="off_hours",
+                started_at=weekend_start, ended_at=weekend_start + timedelta(minutes=10),
+                duration_seconds=600, is_open=False,
+            ),
+            UsageSession(
+                device_id=self.device.id, state="overtime",
+                started_at=weekend_start + timedelta(minutes=10),
+                ended_at=weekend_start + timedelta(minutes=20),
+                duration_seconds=600, is_open=False,
+            ),
+        ])
+        db.session.commit()
+        weekend = reconcile_daily_usage_for_date(self.device.id, weekend_d)
+        self.assertEqual(weekend.idle_seconds, 0)
+        self.assertEqual(weekend.to_dict()["active_seconds"], 600)
+
+    def test_20_dashboard_time_cards_are_per_fleet_device_averages(self):
+        second = Device(uuid="test-uuid-002", hostname="WS-TEST-02", updated_at=utc_now())
+        third = Device(uuid="test-uuid-003", hostname="WS-TEST-03", updated_at=utc_now())
+        db.session.add_all([second, third])
+        db.session.flush()
+        today = get_local_date(utc_now())
+        db.session.add_all([
+            DailyUsageSummary(
+                device_id=self.device.id, date=today, active_seconds=600,
+                overtime_seconds=300, idle_seconds=300, online_seconds=1200,
+            ),
+            DailyUsageSummary(
+                device_id=second.id, date=today, active_seconds=300,
+                overtime_seconds=0, idle_seconds=600, online_seconds=900,
+            ),
+        ])
+        db.session.commit()
+
+        original_demo_mode = Config.DEMO_MODE
+        Config.DEMO_MODE = False
+        try:
+            stats = get_dashboard_stats()
+        finally:
+            Config.DEMO_MODE = original_demo_mode
+
+        self.assertEqual(stats["fleet_average_device_count"], 3)
+        self.assertEqual(stats["active_seconds_today"], 1200)
+        self.assertEqual(stats["idle_seconds_today"], 900)
+        self.assertEqual(stats["average_active_seconds_today"], 400)
+        self.assertEqual(stats["average_idle_seconds_today"], 300)
 
 
 if __name__ == "__main__":
