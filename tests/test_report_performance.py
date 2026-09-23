@@ -126,11 +126,21 @@ class AgentReportPerformanceTestCase(unittest.TestCase):
             sql for sql in statements
             if sql.upper().startswith("UPDATE devices")
         ]
+        classification_selects = [
+            sql for sql in statements
+            if sql.upper().startswith("SELECT") and "FROM domain_classifications" in sql
+        ]
+        classification_updates = [
+            sql for sql in statements
+            if sql.upper().startswith("UPDATE DOMAIN_CLASSIFICATIONS")
+        ]
         self.assertEqual(len(device_selects), 1, statements)
         self.assertLessEqual(len(device_updates), 1, statements)
+        self.assertEqual(len(classification_selects), 1, statements)
+        self.assertEqual(len(classification_updates), 1, statements)
         self.assertFalse(any("policy_allowlists" in sql for sql in statements), statements)
         self.assertFalse(any("system_metadata" in sql for sql in statements), statements)
-        self.assertLessEqual(len(statements), 5, statements)
+        self.assertLessEqual(len(statements), 7, statements)
 
 
 if __name__ == "__main__":

@@ -9,10 +9,10 @@ import requests
 from models import (
     db, Device, MetricHistory, Alert, PolicyRule, PolicyEvent, PolicyAuditLog,
     PolicyAllowlist, DomainClassification, SystemMetadata, UsageSession, DailyUsageSummary,
-    match_domain_secure, match_application_secure
+    match_domain_secure, match_application_secure, normalize_domain
 )
 from config import Config
-from datetime_utils import utc_now, get_local_date
+from datetime_utils import utc_now, ensure_utc, get_local_date
 from usage_service import process_device_usage_telemetry, cleanup_old_usage_data
 
 # Categorias canônicas padronizadas
@@ -248,15 +248,47 @@ def get_reputation_provider() -> DomainReputationProvider:
 _classification_executor = ThreadPoolExecutor(max_workers=4)
 _pending_domains_lock = threading.Lock()
 _pending_domains_set = set()
+_pending_domain_access = {}
 
 
-def enqueue_domain_classification(app_context, domain: str):
+def update_domain_access_metadata(device: Device, domain: str, accessed_at: datetime) -> bool:
+    """Keep only the most recent device access for an existing classification row."""
+    clean_domain = normalize_domain(domain)
+    if not clean_domain or not device or not device.id:
+        return False
+
+    classification = DomainClassification.query.filter_by(domain=clean_domain).first()
+    if not classification:
+        return False
+
+    observed_at = ensure_utc(accessed_at)
+    previous_at = ensure_utc(classification.last_accessed_at)
+    if previous_at and observed_at < previous_at:
+        return False
+
+    classification.last_device_id = device.id
+    classification.last_accessed_at = observed_at
+    return True
+
+
+def enqueue_domain_classification(
+    app_context,
+    domain: str,
+    last_device_id: int | None = None,
+    last_accessed_at: datetime | None = None,
+):
     """
     Enfileira a classificação assíncrona de um domínio novo sem bloquear a rota de ingestão.
     Deduplica requisições simultâneas via _pending_domains_set.
     """
-    clean_domain = domain.strip().lower()
+    clean_domain = normalize_domain(domain)
+    observed_at = ensure_utc(last_accessed_at) if last_accessed_at else None
     with _pending_domains_lock:
+        previous_access = _pending_domain_access.get(clean_domain)
+        if last_device_id and observed_at and (
+            previous_access is None or observed_at >= previous_access[1]
+        ):
+            _pending_domain_access[clean_domain] = (last_device_id, observed_at)
         if clean_domain in _pending_domains_set:
             return
         _pending_domains_set.add(clean_domain)
@@ -271,6 +303,9 @@ def enqueue_domain_classification(app_context, domain: str):
                 risk = res.get("risk_level", "info")
                 conf = float(res.get("confidence", 1.0))
                 src = res.get("source", "internal")
+
+                with _pending_domains_lock:
+                    latest_access = _pending_domain_access.get(clean_domain)
 
                 expires_at = datetime.now(timezone.utc) + timedelta(days=Config.DOMAIN_CLASSIFICATION_TTL_DAYS)
 
@@ -296,6 +331,12 @@ def enqueue_domain_classification(app_context, domain: str):
                     db_item.classified_at = datetime.now(timezone.utc)
                     db_item.expires_at = expires_at
 
+                if latest_access:
+                    previous_at = ensure_utc(db_item.last_accessed_at)
+                    if previous_at is None or latest_access[1] >= previous_at:
+                        db_item.last_device_id = latest_access[0]
+                        db_item.last_accessed_at = latest_access[1]
+
                 db.session.commit()
 
                 # Se resultado for uma categoria arriscada com confiança >= MIN_CONFIDENCE, reavalia dispositivos nos últimos 10m
@@ -311,6 +352,7 @@ def enqueue_domain_classification(app_context, domain: str):
         finally:
             with _pending_domains_lock:
                 _pending_domains_set.discard(clean_domain)
+                _pending_domain_access.pop(clean_domain, None)
 
     if getattr(app_context, "app", None) and app_context.app.config.get("TESTING"):
         _async_task()
@@ -613,7 +655,9 @@ def process_agent_payload(data: dict, existing_device: Device | None = None) -> 
     device.updated_at = now
 
     # Atualiza atividade em primeiro plano (caso habilitado na configuração)
-    if Config.ACTIVITY_MONITORING_ENABLED and ("active_application" in data or "active_app" in data):
+    if Config.ACTIVITY_MONITORING_ENABLED and (
+        "active_application" in data or "active_app" in data or "active_domain" in data
+    ):
         device.active_app = data.get("active_application") or data.get("active_app")
         device.active_domain = data.get("active_domain")
         device.activity_updated_at = now
@@ -628,6 +672,9 @@ def process_agent_payload(data: dict, existing_device: Device | None = None) -> 
             else:
                 _close_open_policy_events(device, now)
             _mark_policy_evaluated(device)
+
+        if device.active_domain:
+            update_domain_access_metadata(device, device.active_domain, now)
 
         # Registra no histórico temporal
         metric = MetricHistory(
@@ -798,7 +845,7 @@ def _evaluate_policies(device: Device, now: datetime):
             from flask import current_app
             try:
                 app_ctx = current_app._get_current_object().app_context()
-                enqueue_domain_classification(app_ctx, clean_domain)
+                enqueue_domain_classification(app_ctx, clean_domain, device.id, now)
             except Exception:
                 pass
 

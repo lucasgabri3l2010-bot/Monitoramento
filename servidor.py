@@ -10,7 +10,7 @@ from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import io
-from sqlalchemy.orm import undefer
+from sqlalchemy.orm import joinedload, undefer
 
 import storage_service
 from telemetry import (
@@ -2288,7 +2288,16 @@ def status_classificacao_automatica():
     coverage = "reputação global" if has_api_key else "regras/listas locais"
 
     total_classified = DomainClassification.query.count()
-    recent_classifications = DomainClassification.query.order_by(DomainClassification.classified_at.desc()).limit(20).all()
+    recent_classifications = (
+        DomainClassification.query
+        .options(joinedload(DomainClassification.last_device))
+        .order_by(
+            DomainClassification.last_accessed_at.desc().nullslast(),
+            DomainClassification.classified_at.desc(),
+        )
+        .limit(20)
+        .all()
+    )
 
     return jsonify({
         "enabled": Config.DOMAIN_CLASSIFICATION_ENABLED,

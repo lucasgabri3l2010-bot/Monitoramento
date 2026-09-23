@@ -240,6 +240,13 @@ def run_migrations() -> bool:
                             ]
                         ),
                         (
+                            "domain_classifications",
+                            [
+                                ("last_device_id", "INTEGER", "INTEGER"),
+                                ("last_accessed_at", "TIMESTAMP", "DATETIME")
+                            ]
+                        ),
+                        (
                             "policy_events",
                             [
                                 ("source", "VARCHAR(50) DEFAULT 'manual_rule'", "VARCHAR(50) DEFAULT 'manual_rule'"),

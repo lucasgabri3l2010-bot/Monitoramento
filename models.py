@@ -657,6 +657,10 @@ class DomainClassification(db.Model):
     status = db.Column(db.String(30), default="classified", index=True)  # pending, classified, error
     classified_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     expires_at = db.Column(db.DateTime, nullable=True)
+    last_device_id = db.Column(db.Integer, db.ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, index=True)
+    last_accessed_at = db.Column(db.DateTime, nullable=True, index=True)
+
+    last_device = db.relationship("Device", foreign_keys=[last_device_id])
 
     def is_expired(self) -> bool:
         if not self.expires_at:
@@ -668,6 +672,7 @@ class DomainClassification(db.Model):
         return now > exp
 
     def to_dict(self) -> dict:
+        device = self.last_device
         return {
             "id": self.id,
             "domain": self.domain,
@@ -679,7 +684,13 @@ class DomainClassification(db.Model):
             "classified_at_iso": format_iso_utc(self.classified_at),
             "classified_at": format_local_datetime(self.classified_at),  # LEGACY
             "expires_at_iso": format_iso_utc(self.expires_at),
-            "expires_at": format_local_datetime(self.expires_at) if self.expires_at else "Nunca"  # LEGACY
+            "expires_at": format_local_datetime(self.expires_at) if self.expires_at else "Nunca",  # LEGACY
+            "last_device_id": self.last_device_id,
+            "last_accessed_by": (device.user_name or "-") if device else "-",
+            "last_computer": (device.display_name or device.hostname or "-") if device else "-",
+            "last_department": (device.department or "-") if device else "-",
+            "last_accessed_at_iso": format_iso_utc(self.last_accessed_at),
+            "last_accessed_at": format_local_datetime(self.last_accessed_at) if self.last_accessed_at else "-",
         }
 
 

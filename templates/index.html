@@ -1140,15 +1140,16 @@
                                 <thead class="bg-slate-50/80 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200/80 text-[11px]">
                                     <tr>
                                         <th class="py-3 px-4">Domínio</th>
-                                        <th class="py-3 px-3">Categoria Canônica</th>
-                                        <th class="py-3 px-3 text-center">Score Risco</th>
-                                        <th class="py-3 px-3 text-center">Confiança</th>
-                                        <th class="py-3 px-3">Origem</th>
-                                        <th class="py-3 px-4 text-right">Data/Hora</th>
+                                        <th class="py-3 px-3">Categoria</th>
+                                        <th class="py-3 px-3">Classificação</th>
+                                        <th class="py-3 px-3">Último acesso por</th>
+                                        <th class="py-3 px-3">Computador</th>
+                                        <th class="py-3 px-3">Setor</th>
+                                        <th class="py-3 px-4 text-right">Último acesso</th>
                                     </tr>
                                 </thead>
                                 <tbody id="table-pol-classif-body" class="divide-y divide-slate-100">
-                                    <tr><td colspan="6" class="py-8 text-center text-slate-400">Carregando histórico de classificações...</td></tr>
+                                    <tr><td colspan="7" class="py-8 text-center text-slate-400">Carregando histórico de classificações...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -4028,22 +4029,23 @@ streamdemo.tv,streaming,warning,alert,global
                 const data = await resp.json();
                 const list = data.recent_classifications || [];
                 if (list.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-400">Nenhum domínio classificado em cache.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-400">Nenhum domínio classificado em cache.</td></tr>`;
                     return;
                 }
                 tbody.innerHTML = list.map(item => `
                     <tr class="hover:bg-slate-50/80 transition-colors">
                         <td class="py-3 px-4 font-mono font-semibold text-slate-800">${item.domain}</td>
                         <td class="py-3 px-3"><span class="px-2 py-0.5 rounded-md bg-slate-100 font-semibold text-[11px] text-slate-700">${formatCategory(item.category)}</span></td>
-                        <td class="py-3 px-3 text-center font-mono font-bold ${item.risk_score > 50 ? 'text-rose-600' : 'text-slate-700'}">${item.risk_score}/100</td>
-                        <td class="py-3 px-3 text-center font-mono text-slate-600">${Math.round((item.confidence || 1) * 100)}%</td>
-                        <td class="py-3 px-3 font-mono text-[11px] text-slate-500">${item.source}</td>
-                        <td class="py-3 px-4 text-right text-slate-400 font-mono text-[11px]">${formatDateTime(item.classified_at_iso, item.classified_at)}</td>
+                        <td class="py-3 px-3"><span class="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-semibold text-[11px]">${item.status === 'classified' ? 'Classificado' : (item.status || '-')}</span></td>
+                        <td class="py-3 px-3 text-slate-700">${item.last_accessed_by || '-'}</td>
+                        <td class="py-3 px-3 font-mono text-slate-700">${item.last_computer || '-'}</td>
+                        <td class="py-3 px-3 text-slate-600">${item.last_department || '-'}</td>
+                        <td class="py-3 px-4 text-right text-slate-500 font-mono text-[11px]">${item.last_accessed_at_iso ? formatDateTime(item.last_accessed_at_iso, item.last_accessed_at) : '-'}</td>
                     </tr>
                 `).join("");
             } catch (err) {
                 console.error(err);
-                tbody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-rose-500">Erro ao carregar histórico.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-rose-500">Erro ao carregar histórico.</td></tr>`;
             }
         }
 
