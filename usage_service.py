@@ -73,15 +73,15 @@ def classify_work_activity_state(
     if raw_state not in ("active", "idle", "locked"):
         return "unknown"
 
-    if is_within_work_hours(moment):
-        return "active" if raw_state == "active" and user_active else "idle"
-
-    recent_real_input = (
+    real_input_signal = (
         raw_state == "active"
         and user_active
-        and idle_seconds < Config.OVERTIME_INACTIVITY_SECONDS
+        and idle_seconds >= 0
     )
-    return "overtime" if recent_real_input else "off_hours"
+    if is_within_work_hours(moment):
+        return "active" if real_input_signal and idle_seconds < Config.IDLE_THRESHOLD_SECONDS else "idle"
+
+    return "overtime" if real_input_signal and idle_seconds < Config.OVERTIME_INACTIVITY_SECONDS else "off_hours"
 
 
 def _work_schedule_boundary_between(
@@ -176,25 +176,47 @@ def reconcile_daily_usage_for_date(device_id: int, target_date: date) -> DailyUs
         s_started = to_naive_utc(sess.started_at)
         s_ended = to_naive_utc(sess.ended_at)
         # Ponto de término efetivo da sessão
-        effective_end = s_ended or now_utc_naive
+        # An open row is not evidence that the Agent kept reporting. Legacy rows
+        # without ended_at have no trustworthy interval to charge.
+        effective_end = min(s_ended, now_utc_naive) if s_ended else s_started
 
         # Fatia da sessão pertencente estritamente a este dia civil
         slice_start = max(s_started, start_day_utc) if s_started else start_day_utc
         slice_end = min(effective_end, next_day_utc)
 
         if slice_end > slice_start:
-            dur = max(0, int((slice_end - slice_start).total_seconds()))
-
-            if sess.state == "active":
-                active_seconds += dur
-            elif sess.state == "idle":
-                idle_seconds += dur
-            elif sess.state == "locked":
-                locked_seconds += dur
-            elif sess.state == "overtime":
-                overtime_seconds += dur
-            elif sess.state == "off_hours":
-                off_hours_seconds += dur
+            # Slice at local work-window boundaries even for legacy sessions
+            # that were left open across lunch, midnight, or the workday edge.
+            cursor = slice_start
+            while cursor < slice_end:
+                next_boundary = min(slice_end, cursor + timedelta(days=1))
+                local_day = get_local_date(cursor)
+                for candidate_day in (local_day, local_day + timedelta(days=1)):
+                    if candidate_day.weekday() not in Config.WORK_HOURS_WEEKDAYS:
+                        continue
+                    for window_start, window_end in _configured_work_windows():
+                        for boundary_time in (window_start, window_end):
+                            local_boundary = datetime.combine(
+                                candidate_day, boundary_time,
+                                tzinfo=get_app_timezone(Config.WORK_HOURS_TIMEZONE),
+                            )
+                            boundary = local_boundary.astimezone(timezone.utc).replace(tzinfo=None)
+                            if cursor < boundary < next_boundary:
+                                next_boundary = boundary
+                segment = int((next_boundary - cursor).total_seconds())
+                working = is_within_work_hours(cursor)
+                if sess.state in ("active", "overtime"):
+                    if working:
+                        active_seconds += segment
+                    else:
+                        overtime_seconds += segment
+                elif working and sess.state in ("idle", "off_hours"):
+                    idle_seconds += segment
+                elif working and sess.state == "locked":
+                    locked_seconds += segment
+                else:
+                    off_hours_seconds += segment
+                cursor = next_boundary
 
             if first_seen is None or slice_start < first_seen:
                 first_seen = slice_start
@@ -265,6 +287,17 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
     raw_state = data.get("session_state")
     raw_user_active = data.get("user_active")
     win_session_id = data.get("windows_session_id")
+    sampled_at = data.get("activity_sampled_at")
+
+    # Agent 1.5.1 supplies the sampling instant. A delayed/stale payload must
+    # not turn an old user_active flag into current activity after reboot.
+    if sampled_at:
+        try:
+            sample_age = (now_dt - ensure_utc(datetime.fromisoformat(sampled_at))).total_seconds()
+            if sample_age > Config.MAX_USAGE_GAP_SECONDS or sample_age < -30:
+                raw_state = "unknown"
+        except (TypeError, ValueError):
+            raw_state = "unknown"
 
     # 1. Compatibilidade com agentes legados (<= 1.4.1)
     if raw_idle is None and raw_state is None:
@@ -323,7 +356,6 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
 
     s_started = to_naive_utc(open_session.started_at) if open_session else None
     s_ended = to_naive_utc(open_session.ended_at) if open_session else None
-    d_updated = to_naive_utc(device.updated_at)
 
     # 6. Verificação de Troca de Sessão do Windows (Fast User Switching / RDP)
     if (
@@ -332,7 +364,7 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
         open_session.windows_session_id is not None and
         open_session.windows_session_id != win_session_id
     ):
-        last_point = d_updated or s_ended or now_naive
+        last_point = s_ended or s_started
         open_session.ended_at = last_point
         open_session.duration_seconds = max(0, int((last_point - s_started).total_seconds())) if s_started else 0
         open_session.is_open = False
@@ -343,7 +375,9 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
 
     # 7. Verificação de Gap de Telemetria (PC desligado / suspenso / sem rede)
     if open_session:
-        last_seen = s_ended or d_updated or s_started or now_naive
+        # device.updated_at was already set to this report by the caller.
+        # It cannot establish when the previous session was last observed.
+        last_seen = s_ended or s_started
         gap_seconds = (now_naive - last_seen).total_seconds()
         if gap_seconds > Config.MAX_USAGE_GAP_SECONDS:
             # Encerra sessão anterior no último ponto confiável de observação (last_seen)
@@ -478,11 +512,9 @@ def close_stale_device_sessions(offline_threshold_seconds: Optional[int] = None)
 
     closed_count = 0
     for sess in stale_sessions:
-        dev = sess.device
         s_started = to_naive_utc(sess.started_at)
         s_ended = to_naive_utc(sess.ended_at)
-        d_updated = to_naive_utc(dev.updated_at)
-        last_point = d_updated or s_ended or s_started or to_naive_utc(utc_now())
+        last_point = s_ended or s_started
         sess.ended_at = last_point
         sess.duration_seconds = max(0, int((last_point - s_started).total_seconds())) if s_started else 0
         sess.is_open = False

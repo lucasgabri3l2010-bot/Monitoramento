@@ -340,6 +340,7 @@ $usersGroupName = $usersGroupSid.Translate([System.Security.Principal.NTAccount]
 
 $action = New-ScheduledTaskAction -Execute $destExe -WorkingDirectory $installDir
 $trigger = New-ScheduledTaskTrigger -AtLogOn
+$trigger.CimInstanceProperties['Delay'].Value = 'PT45S'
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
@@ -364,10 +365,7 @@ try {
         Register-ScheduledTask -TaskName $appName -InputObject $taskDef -Force -ErrorAction Stop | Out-Null
         $registered = $true
     } catch {
-        try {
-            & schtasks.exe /create /tn $appName /tr "`"$destExe`"" /sc onlogon /rl limited /f 2>$null | Out-Null
-            $registered = $true
-        } catch {}
+        throw "Nao foi possivel registrar a tarefa com atraso e reinicio automatico: $($_.Exception.Message)"
     }
 }
 
@@ -389,8 +387,8 @@ if ($started) {
     Start-Sleep -Seconds 2
 }
 
-if (-not (Get-Process -Name "GivovaMonitorAgent" -ErrorAction SilentlyContinue)) {
-    Start-Process -FilePath $destExe -WorkingDirectory $installDir
+if (-not $started) {
+    throw "Nao foi possivel iniciar a tarefa agendada '$appName'."
 }
 
 # -------------------------------------------------------------------------

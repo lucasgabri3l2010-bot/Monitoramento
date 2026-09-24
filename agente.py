@@ -1210,6 +1210,7 @@ def run_agent():
     last_reported_activity = None
     last_reported_session_state = None
     loop_cycle = 0
+    consecutive_cycle_errors = 0
 
     while not _shutdown_event.is_set():
         try:
@@ -1288,11 +1289,17 @@ def run_agent():
                 else:
                     logger.warning(f"Report failed - {message}")
 
+            consecutive_cycle_errors = 0
+
         except KeyboardInterrupt:
             logger.info("Agente encerrado pelo operador.")
             break
         except Exception as e:
             logger.error(f"Erro inesperado no ciclo de coleta: {e}", exc_info=True)
+            consecutive_cycle_errors += 1
+            if consecutive_cycle_errors >= 3:
+                # Non-zero exit lets Task Scheduler apply its restart policy.
+                raise
 
         sleep_time = config["interval_seconds"]
         if fail_count > 3:

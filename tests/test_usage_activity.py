@@ -14,6 +14,7 @@ Cobre:
 """
 
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone, timedelta, date
 import json
 
@@ -620,6 +621,70 @@ class TestUsageActivityService(unittest.TestCase):
             ("idle", 30),
             ("off_hours", 30),
         ])
+
+    def test_stale_open_session_does_not_count_overnight_uptime(self):
+        previous = datetime(2026, 9, 15, 2, 0)  # Monday 23:00 local
+        current = datetime(2026, 9, 15, 11, 23, tzinfo=timezone.utc)
+        db.session.add(UsageSession(
+            device_id=self.device.id, state="active", started_at=previous,
+            ended_at=None, duration_seconds=0, is_open=True,
+        ))
+        self.device.updated_at = current  # Caller already overwrote it with this report.
+        db.session.commit()
+
+        process_device_usage_telemetry(self.device, {
+            "session_state": "active", "idle_seconds": 0,
+            "user_active": True, "windows_session_id": 1,
+        }, current)
+        db.session.commit()
+        summary = reconcile_daily_usage_for_date(self.device.id, date(2026, 9, 15))
+        self.assertEqual(summary.active_seconds, 0)
+        self.assertEqual(summary.overtime_seconds, 0)
+        self.assertEqual(summary.idle_seconds, 0)
+        with patch("services.utc_now", return_value=current):
+            dashboard = get_dashboard_stats()
+        self.assertEqual(dashboard["active_seconds_today"], 0)
+        self.assertEqual(dashboard["idle_seconds_today"], 0)
+        self.assertEqual(dashboard["average_active_percentage_today"], 0.0)
+        sessions = UsageSession.query.filter_by(device_id=self.device.id).all()
+        self.assertEqual(len(sessions), 2)
+        self.assertEqual(sessions[0].ended_at, previous)
+
+    def test_daily_totals_split_at_lunch_and_work_boundaries(self):
+        # Historical/open rows must not charge lunch or night as normal work.
+        for state, start, end in (
+            ("idle", datetime(2026, 9, 15, 14, 59), datetime(2026, 9, 15, 15, 1)),
+            ("active", datetime(2026, 9, 15, 20, 59), datetime(2026, 9, 15, 21, 1)),
+            ("off_hours", datetime(2026, 9, 15, 10, 59), datetime(2026, 9, 15, 11, 1)),
+        ):
+            db.session.add(UsageSession(
+                device_id=self.device.id, state=state, started_at=start,
+                ended_at=end, duration_seconds=120, is_open=False,
+            ))
+        db.session.commit()
+        summary = reconcile_daily_usage_for_date(self.device.id, date(2026, 9, 15))
+        self.assertEqual(summary.idle_seconds, 120)
+        self.assertEqual(summary.off_hours_seconds, 120)
+        self.assertEqual(summary.active_seconds, 60)
+        self.assertEqual(summary.overtime_seconds, 60)
+        self.assertEqual(summary.active_percentage, 50.0)
+
+    def test_stale_active_flag_is_not_real_input(self):
+        work = datetime(2026, 9, 15, 13, 0, tzinfo=timezone.utc)
+        night = datetime(2026, 9, 15, 22, 0, tzinfo=timezone.utc)
+        self.assertEqual(classify_work_activity_state(work, "active", 900, True), "idle")
+        self.assertEqual(classify_work_activity_state(night, "active", 900, True), "off_hours")
+
+    def test_delayed_report_does_not_create_active_time(self):
+        received = datetime(2026, 9, 15, 11, 23, tzinfo=timezone.utc)
+        process_device_usage_telemetry(self.device, {
+            "session_state": "active", "idle_seconds": 0,
+            "user_active": True, "windows_session_id": 1,
+            "activity_sampled_at": (received - timedelta(hours=8)).isoformat(),
+        }, received)
+        db.session.commit()
+        self.assertEqual(self.device.current_session_state, "unknown")
+        self.assertEqual(UsageSession.query.filter_by(device_id=self.device.id).count(), 0)
 
     def test_19_work_break_after_hours_and_weekend_accounting(self):
         target_d = date(2026, 9, 15)

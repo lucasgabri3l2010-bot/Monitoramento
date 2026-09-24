@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Installs the verified Givova Monitor 1.5.1 Agent and Updater from local media.
 
@@ -17,8 +17,8 @@
 param(
     [string]$SourceAgentExe = "",
     [string]$SourceUpdaterExe = "",
-    [string]$ExpectedAgentSha256 = "__AGENT_SHA256__",
-    [string]$ExpectedUpdaterSha256 = "__UPDATER_SHA256__",
+    [string]$ExpectedAgentSha256 = "e16bfc32798e4e395e28b0035bd27b2c9c3eedbdba8229776b914fbfc34a8288",
+    [string]$ExpectedUpdaterSha256 = "95ebc9b070561a62176a5bfdff41905e749f5d6928df0af55ce0ef285d689a93",
     [string]$InstallDir = "C:\ProgramData\GivovaMonitor",
     [int]$ReportTimeoutSeconds = 180
 )
