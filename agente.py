@@ -31,7 +31,7 @@ if platform.system() == "Windows":
     import ctypes
     from ctypes import wintypes
 
-VERSION = "1.5.2"
+VERSION = "1.5.3"
 LOCAL_RECEIVER_PORT = 5005
 
 

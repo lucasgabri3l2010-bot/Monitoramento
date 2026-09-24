@@ -1,11 +1,12 @@
 {
   "version": "1.5.3",
   "status": "draft",
-  "sha256": "4df3b9753229aba8e21901f8a736d5c40c560adda92ba5b08431c90fc8d46b68",
-  "file_size": 13771224,
+  "sha256": "281e48b47dd3a6303010fd4056eba7cbbe44a98840578470f14a83613d2f7e1e",
+  "file_size": 13771466,
   "required": false,
   "release_notes": "Agent 1.5.3: monitoramento resiliente a falhas temporarias de rede/servidor, sem reparo elevado da tarefa ou UAC.",
   "download_url": "/api/agent/download/1.5.3",
+  "object_key": "agents/1.5.3/GivovaMonitorAgent.exe",
   "release_channel": "stable",
   "rollout_scope": "global"
 }

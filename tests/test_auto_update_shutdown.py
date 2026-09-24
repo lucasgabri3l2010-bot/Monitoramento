@@ -43,8 +43,8 @@ class AutoUpdateShutdownTestCase(unittest.TestCase):
             "device_token": None,
         }
 
-    def test_non_elevating_monitoring_release_is_1_5_2(self):
-        self.assertEqual(agente.VERSION, "1.5.2")
+    def test_non_elevating_monitoring_release_is_1_5_3(self):
+        self.assertEqual(agente.VERSION, "1.5.3")
         self.assertFalse(hasattr(agente, "ensure_startup_task"))
         root = os.path.dirname(os.path.dirname(__file__))
         self.assertFalse(os.path.exists(os.path.join(root, "agent_startup_repair.py")))
@@ -54,8 +54,8 @@ class AutoUpdateShutdownTestCase(unittest.TestCase):
             self.assertNotIn("runas", source)
             self.assertNotIn("ensure_startup_task", source)
 
-    def test_unpublished_1_5_2_artifact_matches_draft(self):
-        release_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "releases", "1.5.2")
+    def test_unpublished_1_5_3_artifact_matches_draft(self):
+        release_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "releases", "1.5.3")
         with open(os.path.join(release_dir, "release.draft.json"), encoding="utf-8") as handle:
             draft = json.load(handle)
         with open(os.path.join(release_dir, "GivovaMonitorAgent.exe"), "rb") as handle:
@@ -64,7 +64,7 @@ class AutoUpdateShutdownTestCase(unittest.TestCase):
         self.assertEqual(draft["status"], "draft")
         self.assertEqual(draft["file_size"], len(binary))
         self.assertEqual(draft["sha256"], hashlib.sha256(binary).hexdigest())
-        self.assertEqual(draft["object_key"], "agents/1.5.2/GivovaMonitorAgent.exe")
+        self.assertEqual(draft["object_key"], "agents/1.5.3/GivovaMonitorAgent.exe")
 
     def _valid_update_responses(self, version="2.0.0", payload=b"new-agent-binary"):
         digest = hashlib.sha256(payload).hexdigest()
@@ -105,7 +105,7 @@ class AutoUpdateShutdownTestCase(unittest.TestCase):
         self.assertIsNotNone(popen.call_args.kwargs["stdin"])
         self.assertTrue(popen.call_args.kwargs["close_fds"])
 
-    def test_1_5_1_to_1_5_2_is_silent_and_preserves_identity(self):
+    def test_1_5_1_to_1_5_3_is_silent_and_preserves_identity(self):
         updater_script = os.path.join(self.app_dir, "updater.py")
         open(updater_script, "wb").close()
         config_file = os.path.join(self.app_dir, "agent_config.json")
@@ -122,7 +122,7 @@ class AutoUpdateShutdownTestCase(unittest.TestCase):
         config = dict(self._update_config(), device_token="existing-device-token")
 
         with patch.object(agente, "VERSION", "1.5.1"), \
-             patch.object(agente.requests, "get", side_effect=self._valid_update_responses("1.5.2")) as get, \
+             patch.object(agente.requests, "get", side_effect=self._valid_update_responses("1.5.3")) as get, \
              patch.object(agente, "get_machine_uuid", return_value="existing-uuid"), \
              patch.object(agente.subprocess, "Popen", return_value=process) as popen:
             self.assertTrue(agente._check_and_apply_update(config))
@@ -130,7 +130,7 @@ class AutoUpdateShutdownTestCase(unittest.TestCase):
         self.assertEqual(get.call_args_list[0].kwargs["headers"]["X-Device-UUID"], "existing-uuid")
         self.assertEqual(get.call_args_list[0].kwargs["headers"]["X-Device-Token"], "existing-device-token")
         command = popen.call_args.args[0]
-        self.assertEqual(command[command.index("--version") + 1], "1.5.2")
+        self.assertEqual(command[command.index("--version") + 1], "1.5.3")
         self.assertNotIn("runas", " ".join(command).lower())
         self.assertTrue(agente._shutdown_event.is_set())
         with open(config_file, "rb") as handle:
