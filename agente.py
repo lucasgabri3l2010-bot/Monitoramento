@@ -180,6 +180,14 @@ def request_agent_shutdown(reason: str):
         logger.info(f"Shutdown coordenado solicitado: {reason}")
         _shutdown_event.set()
 
+
+def _run_logged_background(name, target, *args):
+    """Keep the reason for a daemon-thread exit in the local rotating log."""
+    try:
+        target(*args)
+    except BaseException:
+        logger.exception("Background worker %s exited unexpectedly.", name)
+
 # Estado compartilhado e thread-safe para telemetria de abas da extensão corporativa
 _tab_lock = threading.Lock()
 _latest_browser_tab = {
@@ -245,7 +253,8 @@ def start_extension_receiver(port=LOCAL_RECEIVER_PORT):
     """
     try:
         server = HTTPServer(("127.0.0.1", port), ExtensionReceiverHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread = threading.Thread(target=_run_logged_background,
+                                  args=("extension receiver", server.serve_forever), daemon=True)
         thread.start()
         logger.info(f"Receptor local da extensão iniciado em http://127.0.0.1:{port}/active-tab")
         return server
@@ -539,7 +548,8 @@ def start_auto_update_worker(config: dict):
     if not config.get("auto_update", True):
         logger.info("Auto-update desabilitado por configuração.")
         return None
-    t = threading.Thread(target=_auto_update_loop, args=(config,), daemon=True)
+    t = threading.Thread(target=_run_logged_background,
+                         args=("auto-update", _auto_update_loop, config), daemon=True)
     t.start()
     return t
 
@@ -747,7 +757,8 @@ def start_admin_notifications_worker(config: dict):
     """Inicia worker de notificações Windows para computadores da equipe de TI autorizados."""
     if not config.get("admin_notifications", False):
         return None
-    t = threading.Thread(target=_admin_notifications_loop, args=(config,), daemon=True)
+    t = threading.Thread(target=_run_logged_background,
+                         args=("admin notifications", _admin_notifications_loop, config), daemon=True)
     t.start()
     return t
 
@@ -772,7 +783,7 @@ def _admin_notifications_loop(config: dict):
     if device_token:
         headers["X-Device-Token"] = device_token
 
-    while True:
+    while not _shutdown_event.is_set():
         try:
             params = {"since_id": last_seen_id, "uuid": uuid_str}
             resp = requests.get(alerts_url, headers=headers, params=params, timeout=10)
@@ -786,12 +797,14 @@ def _admin_notifications_loop(config: dict):
                         show_windows_toast(alert.get("title", "Givova Monitor"), alert.get("message", ""))
             elif resp.status_code == 403:
                 # Dispositivo não configurado como admin no servidor: pausa por 2 minutos
-                time.sleep(120)
+                if _shutdown_event.wait(120):
+                    return
                 continue
         except Exception as e:
             logger.debug(f"Polling de notificações admin: {e}")
 
-        time.sleep(45)
+        if _shutdown_event.wait(45):
+            return
 
 
 def show_windows_toast(title: str, message: str):
@@ -1185,8 +1198,8 @@ def run_agent():
         extension_receiver = start_extension_receiver(LOCAL_RECEIVER_PORT)
 
     # Inicia workers de background para auto-update e notificações de TI
-    start_auto_update_worker(config)
-    start_admin_notifications_worker(config)
+    update_worker = start_auto_update_worker(config)
+    notification_worker = start_admin_notifications_worker(config)
 
     # Cria arquivo de configuração inicial local caso não exista para facilitar customização
     if not os.path.exists(config_path):
@@ -1216,9 +1229,27 @@ def run_agent():
     last_reported_session_state = None
     loop_cycle = 0
     consecutive_cycle_errors = 0
+    next_update_restart_at = 0.0
+    next_notification_restart_at = 0.0
 
     while not _shutdown_event.is_set():
         try:
+            # Daemon workers do not keep the process alive or report their own
+            # death. Restart only a dead worker, with a cooldown so a broken
+            # worker cannot cause a thread-creation storm.
+            now_monotonic = time.monotonic()
+            if (config.get("auto_update", True)
+                    and (update_worker is None or not update_worker.is_alive())
+                    and now_monotonic >= next_update_restart_at):
+                logger.error("Auto-update worker exited unexpectedly; restarting it.")
+                update_worker = start_auto_update_worker(config)
+                next_update_restart_at = now_monotonic + 60
+            if (config.get("admin_notifications", False)
+                    and (notification_worker is None or not notification_worker.is_alive())
+                    and now_monotonic >= next_notification_restart_at):
+                logger.error("Admin notification worker exited unexpectedly; restarting it.")
+                notification_worker = start_admin_notifications_worker(config)
+                next_notification_restart_at = now_monotonic + 60
             loop_cycle += 1
             metrics = get_system_metrics(
                 activity_enabled=config["activity_monitoring"],
@@ -1302,14 +1333,17 @@ def run_agent():
         except Exception as e:
             logger.error(f"Erro inesperado no ciclo de coleta: {e}", exc_info=True)
             consecutive_cycle_errors += 1
-            if consecutive_cycle_errors >= 3:
-                # Non-zero exit lets Task Scheduler apply its restart policy.
-                raise
+            fail_count += 1
+            had_previous_failure = True
+            if consecutive_cycle_errors == 3 or consecutive_cycle_errors % 20 == 0:
+                logger.error("Report loop remains alive after %s consecutive cycle errors; retrying.", consecutive_cycle_errors)
 
-        sleep_time = config["interval_seconds"]
-        if fail_count > 3:
-            # Em caso de instabilidade prolongada (ex: cold start do Render), pausa suavemente para poupar recursos
-            sleep_time = min(20, config["interval_seconds"] * min(fail_count - 2, 4))
+        # Bounded exponential retry applies to HTTP failures and collection
+        # exceptions alike. A transient outage must never exhaust the three
+        # Task Scheduler restart attempts and leave the PC offline all day.
+        sleep_time = max(1, config["interval_seconds"])
+        if fail_count:
+            sleep_time = min(300, max(5, sleep_time) * (2 ** min(fail_count - 1, 5)))
         if _shutdown_event.wait(sleep_time):
             break
 
@@ -1325,4 +1359,8 @@ def run_agent():
 
 
 if __name__ == "__main__":
-    run_agent()
+    try:
+        run_agent()
+    except Exception:
+        logger.exception("Agent process terminated unexpectedly; Scheduled Task restart is required.")
+        raise

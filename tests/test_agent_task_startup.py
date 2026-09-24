@@ -33,11 +33,11 @@ class TestAgentTaskStartup(unittest.TestCase):
             self.assertIn("Set-ScheduledTask -TaskName $taskName -Trigger $trigger -Settings $settings", packaged_source)
             self.assertGreaterEqual(packaged_source.count("Set-GivovaTaskReliability"), 3)
 
-    def test_repeated_unexpected_agent_failures_exit_nonzero(self):
+    def test_repeated_report_failures_do_not_exhaust_task_restart_budget(self):
         source = (ROOT / "agente.py").read_text(encoding="utf-8")
         self.assertIn("consecutive_cycle_errors += 1", source)
-        self.assertIn("if consecutive_cycle_errors >= 3:", source)
-        self.assertIn("# Non-zero exit lets Task Scheduler apply its restart policy.\n                raise", source)
+        self.assertIn("Report loop remains alive after", source)
+        self.assertNotIn("if consecutive_cycle_errors >= 3:", source)
 
     def test_existing_pc_startup_repair_does_not_replace_agent_or_config(self):
         recovery = (ROOT / "scripts" / "Recover-Givova.ps1").read_text(encoding="utf-8-sig")

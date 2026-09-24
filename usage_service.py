@@ -62,6 +62,31 @@ def is_within_work_hours(moment: datetime) -> bool:
     return any(start <= local_time < end for start, end in _configured_work_windows())
 
 
+def current_work_window_start(moment: datetime) -> Optional[datetime]:
+    """Start of the current São Paulo work window, as naive UTC."""
+    local = to_app_timezone(moment, Config.WORK_HOURS_TIMEZONE)
+    if local.weekday() not in Config.WORK_HOURS_WEEKDAYS:
+        return None
+    local_time = local.time().replace(tzinfo=None)
+    for start, end in _configured_work_windows():
+        if start <= local_time < end:
+            boundary = datetime.combine(local.date(), start, tzinfo=get_app_timezone(Config.WORK_HOURS_TIMEZONE))
+            return boundary.astimezone(timezone.utc).replace(tzinfo=None)
+    return None
+
+
+def current_idle_duration(now_naive: datetime, raw_idle: float, observed_start: datetime) -> float:
+    """Show only idle time observed in this uninterrupted work window."""
+    window_start = current_work_window_start(now_naive)
+    if window_start is None:
+        return 0.0
+    return round(max(0.0, min(
+        raw_idle,
+        (now_naive - window_start).total_seconds(),
+        (now_naive - observed_start).total_seconds(),
+    )), 1)
+
+
 def classify_work_activity_state(
     moment: datetime,
     reported_state: str,
@@ -332,7 +357,10 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
 
     # 4. Atualização do estado instantâneo do dispositivo
     device.current_session_state = session_state
-    device.last_idle_seconds = idle_seconds
+    # The Windows idle counter may include overnight/lunch or time before a
+    # reconnect. Set the displayed duration only after finding the observed
+    # session interval below; raw_idle is never a valid UI duration by itself.
+    device.last_idle_seconds = 0.0
     device.user_active = user_active
     if win_session_id is not None:
         try:
@@ -412,6 +440,8 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
 
     # 9. Continuação com o MESMO Estado
     if open_session.state == session_state:
+        if session_state == "idle":
+            device.last_idle_seconds = current_idle_duration(now_naive, idle_seconds, s_started)
         current_local_date = get_local_date(now_naive)
         session_start_date = get_local_date(s_started)
 
@@ -463,6 +493,9 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
             calculated_transition = schedule_boundary
         elif session_state == "idle":
             calculated_transition = now_naive - timedelta(seconds=idle_seconds)
+            window_start = current_work_window_start(now_naive)
+            if window_start is not None:
+                calculated_transition = max(calculated_transition, window_start)
         elif session_state == "off_hours" and open_session.state == "overtime":
             calculated_transition = now_naive - timedelta(
                 seconds=max(0.0, idle_seconds - Config.OVERTIME_INACTIVITY_SECONDS)
@@ -473,6 +506,8 @@ def process_device_usage_telemetry(device: Device, data: dict, now: Optional[dat
         # CLAMP: a transição nunca pode ocorrer antes do início da sessão anterior,
         # e nunca pode estar no futuro.
         transition_point = max(s_started, min(now_naive, calculated_transition)) if s_started else now_naive
+        if session_state == "idle":
+            device.last_idle_seconds = current_idle_duration(now_naive, idle_seconds, transition_point)
 
         # Fecha a sessão anterior no ponto exato da transição
         open_session.ended_at = transition_point
