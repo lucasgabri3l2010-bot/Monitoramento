@@ -1,11 +1,12 @@
 {
   "version": "1.5.2",
   "status": "draft",
-  "sha256": "9d7b0d0720a2a3e6b46960a52deda12ee99e005df9c4b8a176dc6db20a312c73",
-  "file_size": 13774540,
+  "sha256": "39ae7ff12dec2065a6153a143f0f4e4c10695b111de5fe6f5a743b8816833ca9",
+  "file_size": 13771048,
   "required": false,
-  "release_notes": "Agent 1.5.2: reparo automatico com UAC da tarefa de inicializacao; rollback para 1.5.1 se nao aprovado.",
+  "release_notes": "Agent 1.5.2: monitoramento resiliente a falhas temporarias de rede/servidor e contabilizacao correta de inatividade; atualizacao silenciosa sem reparo elevado da tarefa.",
   "download_url": "/api/agent/download/1.5.2",
+  "object_key": "agents/1.5.2/GivovaMonitorAgent.exe",
   "release_channel": "stable",
   "rollout_scope": "global"
 }
