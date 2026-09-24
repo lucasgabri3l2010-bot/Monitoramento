@@ -31,14 +31,35 @@ class TestAgentTaskStartup(unittest.TestCase):
         if packaged.exists():
             packaged_source = packaged.read_text(encoding="utf-8-sig")
             self.assertIn("Set-ScheduledTask -TaskName $taskName -Trigger $trigger -Settings $settings", packaged_source)
-            self.assertEqual(packaged_source.count("        Set-GivovaTaskReliability"), 1)
-            self.assertEqual(packaged_source.count("    Set-GivovaTaskReliability"), 2)
+            self.assertGreaterEqual(packaged_source.count("Set-GivovaTaskReliability"), 3)
 
     def test_repeated_unexpected_agent_failures_exit_nonzero(self):
         source = (ROOT / "agente.py").read_text(encoding="utf-8")
         self.assertIn("consecutive_cycle_errors += 1", source)
         self.assertIn("if consecutive_cycle_errors >= 3:", source)
         self.assertIn("# Non-zero exit lets Task Scheduler apply its restart policy.\n                raise", source)
+
+    def test_existing_pc_startup_repair_does_not_replace_agent_or_config(self):
+        recovery = (ROOT / "scripts" / "Recover-Givova.ps1").read_text(encoding="utf-8-sig")
+        launcher = (ROOT / "scripts" / "ATUALIZAR_GIVOVA.cmd").read_text(encoding="utf-8-sig")
+        packaged_recovery = (ROOT / "dist" / "GivovaRecovery-1.5.1" / "Recover-Givova.ps1").read_text(encoding="utf-8-sig")
+        packaged_launcher = (ROOT / "dist" / "GivovaRecovery-1.5.1" / "ATUALIZAR_GIVOVA.cmd").read_text(encoding="utf-8-sig")
+        for script in (recovery, packaged_recovery):
+            with self.subTest(script=script[:24]):
+                repair = script[script.index("if ($StartupOnly) {"):script.index("$taskExists = $false")]
+                self.assertLess(script.index("if ($StartupOnly) {"), script.index("Test-ExpectedHash $SourceAgentExe"))
+                self.assertIn("Set-GivovaTaskReliability", repair)
+                self.assertIn("Enable-ScheduledTask -TaskName $taskName", repair)
+                self.assertIn("Assert-GivovaTaskReliability", repair)
+                self.assertIn("$configHashBefore = Get-OptionalSha256 $configFile", repair)
+                self.assertIn("Acao ou principal da tarefa foi alterado", repair)
+                for field in ("LogonTrigger/t:Delay", "RestartOnFailure/t:Interval", "RestartOnFailure/t:Count", "MultipleInstancesPolicy"):
+                    self.assertIn(field, script)
+                for forbidden in ("Copy-Item", "Stop-GivovaProcesses", "Set-RailwayEndpoint", "Register-ScheduledTask"):
+                    self.assertNotIn(forbidden, repair)
+        for cmd in (launcher, packaged_launcher):
+            self.assertIn('if /I "%~1"=="startup" set "RECOVERY_ARGS= -StartupOnly"', cmd)
+            self.assertIn("+ $env:RECOVERY_ARGS", cmd)
 
 
 if __name__ == "__main__":

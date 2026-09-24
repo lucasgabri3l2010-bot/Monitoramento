@@ -20,7 +20,8 @@ param(
     [string]$ExpectedAgentSha256 = "e16bfc32798e4e395e28b0035bd27b2c9c3eedbdba8229776b914fbfc34a8288",
     [string]$ExpectedUpdaterSha256 = "95ebc9b070561a62176a5bfdff41905e749f5d6928df0af55ce0ef285d689a93",
     [string]$InstallDir = "C:\ProgramData\GivovaMonitor",
-    [int]$ReportTimeoutSeconds = 180
+    [int]$ReportTimeoutSeconds = 180,
+    [switch]$StartupOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -180,6 +181,23 @@ function Set-GivovaTaskReliability {
     Set-ScheduledTask -TaskName $taskName -Trigger $trigger -Settings $settings -ErrorAction Stop | Out-Null
 }
 
+function Assert-GivovaTaskReliability {
+    Assert-ScheduledTaskEnabled
+    [xml]$definition = Export-ScheduledTask -TaskName $taskName -ErrorAction Stop
+    $ns = [System.Xml.XmlNamespaceManager]::new($definition.NameTable)
+    $ns.AddNamespace('t', $definition.DocumentElement.NamespaceURI)
+    $delay = $definition.SelectSingleNode('//t:LogonTrigger/t:Delay', $ns)
+    $restartInterval = $definition.SelectSingleNode('//t:Settings/t:RestartOnFailure/t:Interval', $ns)
+    $restartCount = $definition.SelectSingleNode('//t:Settings/t:RestartOnFailure/t:Count', $ns)
+    $instances = $definition.SelectSingleNode('//t:Settings/t:MultipleInstancesPolicy', $ns)
+    if ($null -eq $delay -or [Xml.XmlConvert]::ToTimeSpan($delay.InnerText) -ne [TimeSpan]::FromSeconds(45) -or
+        $null -eq $restartInterval -or [Xml.XmlConvert]::ToTimeSpan($restartInterval.InnerText) -ne [TimeSpan]::FromMinutes(1) -or
+        $null -eq $restartCount -or [int]$restartCount.InnerText -ne 3 -or
+        $null -eq $instances -or $instances.InnerText -ne 'IgnoreNew') {
+        throw "A tarefa '$taskName' nao manteve as configuracoes de inicializacao exigidas."
+    }
+}
+
 function Test-ExpectedHash([string]$Path, [string]$ExpectedHash, [string]$Label) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "$Label nao encontrado: $Path"
@@ -302,6 +320,35 @@ $configFile = Resolve-AgentConfigPath $InstallDir
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 Write-RecoveryMessage "Inicio da recuperacao local $targetVersion (origem: $packageDir)." Cyan
 
+if ($StartupOnly) {
+    try {
+        if (-not (Test-Path -LiteralPath $targetAgent -PathType Leaf)) {
+            throw "Agent instalado nao encontrado em $targetAgent."
+        }
+        $taskBefore = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+        $configHashBefore = Get-OptionalSha256 $configFile
+        Set-GivovaTaskReliability
+        Enable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+        Assert-GivovaTaskReliability
+        $taskAfter = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+        $actionsBefore = @($taskBefore.Actions | ForEach-Object { "$($_.Execute)|$($_.Arguments)|$($_.WorkingDirectory)" })
+        $actionsAfter = @($taskAfter.Actions | ForEach-Object { "$($_.Execute)|$($_.Arguments)|$($_.WorkingDirectory)" })
+        $principalBefore = "$($taskBefore.Principal.UserId)|$($taskBefore.Principal.GroupId)|$($taskBefore.Principal.LogonType)|$($taskBefore.Principal.RunLevel)"
+        $principalAfter = "$($taskAfter.Principal.UserId)|$($taskAfter.Principal.GroupId)|$($taskAfter.Principal.LogonType)|$($taskAfter.Principal.RunLevel)"
+        if ((@($actionsBefore) -join ';') -cne (@($actionsAfter) -join ';') -or $principalBefore -cne $principalAfter) {
+            throw "Acao ou principal da tarefa foi alterado durante o reparo."
+        }
+        if ((Get-OptionalSha256 $configFile) -ne $configHashBefore) {
+            throw "agent_config.json foi alterado durante o reparo da tarefa."
+        }
+        Write-RecoveryMessage "Inicializacao automatica reparada; Agent, identidade e configuracao preservados." Green
+        exit 0
+    } catch {
+        Write-RecoveryMessage ("ERRO NO REPARO DA TAREFA: " + $_.Exception.Message) Red
+        exit 1
+    }
+}
+
 $taskExists = $false
 $processesStopped = $false
 $backupsCreated = $false
@@ -352,7 +399,7 @@ try {
                 throw "Agent $targetVersion ja instalado, mas nao iniciou."
             }
         }
-        Assert-ScheduledTaskEnabled
+        Assert-GivovaTaskReliability
         Assert-AgentConfigState $configFile $configSnapshot
         if ($configSnapshot.EndpointState -ne "Render" -and (Get-OptionalSha256 $configFile) -ne $configHashBefore) {
             throw "agent_config.json foi alterado sem necessidade."
@@ -404,7 +451,7 @@ try {
     $updateId = Request-ReportConfirmation
     Set-GivovaTaskReliability
     Enable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
-    Assert-ScheduledTaskEnabled
+    Assert-GivovaTaskReliability
     Start-GivovaAgent $taskExists
     if (-not (Wait-AgentRunning 30)) {
         throw "O Agent $targetVersion nao iniciou apos a substituicao."
