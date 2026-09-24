@@ -25,14 +25,13 @@ from logging.handlers import RotatingFileHandler
 
 import psutil
 import requests
-from agent_startup_repair import ensure_startup_task
 
 # Detecção Windows para primeiro plano e Mutex
 if platform.system() == "Windows":
     import ctypes
     from ctypes import wintypes
 
-VERSION = "1.5.2"
+VERSION = "1.5.3"
 LOCAL_RECEIVER_PORT = 5005
 
 
@@ -608,7 +607,11 @@ def _check_and_apply_update(config: dict):
             return
         data = resp.json()
     except Exception as e:
-        logger.debug(f"Servidor de atualização inacessível: {e}")
+        logger.warning("Update check failed (%s); monitoring continues.", type(e).__name__)
+        return
+
+    if not isinstance(data, dict):
+        logger.warning("Update check returned malformed data; monitoring continues.")
         return
 
     if not data.get("update_available"):
@@ -1166,10 +1169,6 @@ def run_agent():
 
     config = load_config()
     config_path = get_config_file_path()
-    if getattr(sys, "frozen", False) and not ensure_startup_task(APP_DIR, VERSION, logger):
-        # Do not report or confirm a partially repaired update. The installed
-        # 1.5.1 updater restores the previous executable on confirmation timeout.
-        sys.exit(1)
     raw_token = str(config.get("agent_token") or "").strip()
     has_token = bool(raw_token)
     token_valid = is_valid_token(raw_token)
@@ -1198,8 +1197,10 @@ def run_agent():
         extension_receiver = start_extension_receiver(LOCAL_RECEIVER_PORT)
 
     # Inicia workers de background para auto-update e notificações de TI
-    update_worker = start_auto_update_worker(config)
-    notification_worker = start_admin_notifications_worker(config)
+    # Optional background workers are started by the guarded main loop below.
+    # Their launch failures must not prevent the first monitoring report.
+    update_worker = None
+    notification_worker = None
 
     # Cria arquivo de configuração inicial local caso não exista para facilitar customização
     if not os.path.exists(config_path):
@@ -1241,15 +1242,21 @@ def run_agent():
             if (config.get("auto_update", True)
                     and (update_worker is None or not update_worker.is_alive())
                     and now_monotonic >= next_update_restart_at):
-                logger.error("Auto-update worker exited unexpectedly; restarting it.")
-                update_worker = start_auto_update_worker(config)
+                logger.warning("Auto-update worker is not running; starting it.")
                 next_update_restart_at = now_monotonic + 60
+                try:
+                    update_worker = start_auto_update_worker(config)
+                except Exception:
+                    logger.exception("Could not start auto-update worker; reporting continues.")
             if (config.get("admin_notifications", False)
                     and (notification_worker is None or not notification_worker.is_alive())
                     and now_monotonic >= next_notification_restart_at):
-                logger.error("Admin notification worker exited unexpectedly; restarting it.")
-                notification_worker = start_admin_notifications_worker(config)
+                logger.warning("Admin notification worker is not running; starting it.")
                 next_notification_restart_at = now_monotonic + 60
+                try:
+                    notification_worker = start_admin_notifications_worker(config)
+                except Exception:
+                    logger.exception("Could not start admin notification worker; reporting continues.")
             loop_cycle += 1
             metrics = get_system_metrics(
                 activity_enabled=config["activity_monitoring"],
@@ -1341,7 +1348,11 @@ def run_agent():
         # Bounded exponential retry applies to HTTP failures and collection
         # exceptions alike. A transient outage must never exhaust the three
         # Task Scheduler restart attempts and leave the PC offline all day.
-        sleep_time = max(1, config["interval_seconds"])
+        try:
+            sleep_time = max(1, min(3600, int(config.get("interval_seconds", 6))))
+        except (TypeError, ValueError):
+            logger.error("Invalid report interval; retrying with a safe 6-second interval.")
+            sleep_time = 6
         if fail_count:
             sleep_time = min(300, max(5, sleep_time) * (2 ** min(fail_count - 1, 5)))
         if _shutdown_event.wait(sleep_time):

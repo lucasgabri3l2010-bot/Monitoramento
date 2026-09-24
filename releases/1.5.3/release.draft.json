@@ -1,0 +1,11 @@
+{
+  "version": "1.5.3",
+  "status": "draft",
+  "sha256": "4df3b9753229aba8e21901f8a736d5c40c560adda92ba5b08431c90fc8d46b68",
+  "file_size": 13771224,
+  "required": false,
+  "release_notes": "Agent 1.5.3: monitoramento resiliente a falhas temporarias de rede/servidor, sem reparo elevado da tarefa ou UAC.",
+  "download_url": "/api/agent/download/1.5.3",
+  "release_channel": "stable",
+  "rollout_scope": "global"
+}

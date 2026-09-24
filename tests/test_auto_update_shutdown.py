@@ -43,8 +43,20 @@ class AutoUpdateShutdownTestCase(unittest.TestCase):
             "device_token": None,
         }
 
-    def test_startup_repair_agent_release_is_1_5_2(self):
-        self.assertEqual(agente.VERSION, "1.5.2")
+    def test_non_elevating_monitoring_release_is_1_5_3(self):
+        self.assertEqual(agente.VERSION, "1.5.3")
+        self.assertFalse(hasattr(agente, "ensure_startup_task"))
+
+    def test_unpublished_1_5_3_artifact_matches_draft(self):
+        release_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "releases", "1.5.3")
+        with open(os.path.join(release_dir, "release.draft.json"), encoding="utf-8") as handle:
+            draft = json.load(handle)
+        with open(os.path.join(release_dir, "GivovaMonitorAgent.exe"), "rb") as handle:
+            binary = handle.read()
+        self.assertEqual(draft["version"], agente.VERSION)
+        self.assertEqual(draft["status"], "draft")
+        self.assertEqual(draft["file_size"], len(binary))
+        self.assertEqual(draft["sha256"], hashlib.sha256(binary).hexdigest())
 
     def _valid_update_responses(self, version="2.0.0", payload=b"new-agent-binary"):
         digest = hashlib.sha256(payload).hexdigest()

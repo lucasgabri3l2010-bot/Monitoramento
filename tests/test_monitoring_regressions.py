@@ -25,10 +25,13 @@ class _StopAfterWaits:
     def is_set(self):
         return self.stopped
 
+    def set(self):
+        self.stopped = True
+
     def wait(self, delay):
         self.delays.append(delay)
         self.remaining -= 1
-        self.stopped = self.remaining <= 0
+        self.stopped = self.stopped or self.remaining <= 0
         return self.stopped
 
 
@@ -87,13 +90,23 @@ class AgentRuntimeRegressionTests(unittest.TestCase):
         alive = Mock()
         alive.is_alive.return_value = True
         effects = [RuntimeError("collection failed")] * 3 + [(True, 200, "ok", {})]
-        calls, delays, starts = self._run_cycles(effects, auto_update=True, update_workers=[dead, alive])
+        ticks = iter((100, 161, 162, 163))
+        with patch.object(agente.time, "monotonic", side_effect=lambda: next(ticks, 163)):
+            calls, delays, starts = self._run_cycles(effects, auto_update=True, update_workers=[dead, alive])
         self.assertEqual(calls, 4)
         self.assertEqual(starts, 2)
         self.assertEqual(delays, [5, 10, 20, 1])
 
     def test_graceful_shutdown_stops_without_restarting(self):
         calls, _, _ = self._run_cycles([(True, 200, "ok", {})], count=1)
+        self.assertEqual(calls, 1)
+
+    def test_intentional_updater_shutdown_exits_cleanly(self):
+        def updater_started(**_kwargs):
+            agente.request_agent_shutdown("updater started")
+            return True, 200, "ok", {}
+
+        calls, _, _ = self._run_cycles(updater_started, count=5)
         self.assertEqual(calls, 1)
 
     def test_background_worker_failure_records_its_reason(self):
@@ -109,12 +122,62 @@ class AgentRuntimeRegressionTests(unittest.TestCase):
                 [(True, 200, "ok", {})] * 4, auto_update=True,
                 update_workers=[dead, dead],
             )
-        self.assertEqual(starts, 2)  # initial launch plus one guarded restart
+        self.assertEqual(starts, 1)  # no repeated launch inside the cooldown
+
+    def test_live_worker_and_recovered_reports_are_not_duplicated(self):
+        alive = Mock()
+        alive.is_alive.return_value = True
+        calls, _, starts = self._run_cycles(
+            [(False, None, "timeout", None), (True, 200, "ok", {}),
+             (True, 200, "ok", {}), (True, 200, "ok", {})],
+            auto_update=True, update_workers=[alive],
+        )
+        self.assertEqual(calls, 4)
+        self.assertEqual(starts, 1)
+
+    def test_optional_worker_launch_failure_does_not_skip_reports(self):
+        calls, _, starts = self._run_cycles(
+            [(True, 200, "ok", {})] * 4, auto_update=True,
+            update_workers=[RuntimeError("thread start failed")],
+        )
+        self.assertEqual(calls, 4)
+        self.assertEqual(starts, 1)
 
     def test_network_exceptions_are_returned_as_report_failures(self):
         for error in (requests.Timeout(), requests.ConnectionError()):
             with self.subTest(error=type(error).__name__), patch.object(agente.requests, "post", side_effect=error):
                 self.assertFalse(agente.send_metrics("https://example.invalid", "test", {}, 1)[0])
+
+    def test_real_timeout_connection_and_500_recover_in_main_loop(self):
+        real_send = agente.send_metrics
+        for failed_response in (requests.Timeout(), requests.ConnectionError(), Mock(status_code=500)):
+            with self.subTest(failure=type(failed_response).__name__):
+                healthy = Mock(status_code=200)
+                healthy.json.return_value = {}
+                with patch.object(agente.requests, "post", side_effect=[failed_response] * 3 + [healthy]):
+                    calls, delays, _ = self._run_cycles(lambda **kwargs: real_send(**kwargs))
+                self.assertEqual(calls, 4)
+                self.assertEqual(delays, [5, 10, 20, 1])
+
+    def test_update_check_outage_or_malformed_data_is_nonfatal(self):
+        malformed = Mock(status_code=200)
+        malformed.json.return_value = ["not an update manifest"]
+        with patch.object(agente, "get_machine_uuid", return_value="device-1"):
+            for outcome in (requests.Timeout(), requests.ConnectionError(), Mock(status_code=503), malformed):
+                with self.subTest(outcome=type(outcome).__name__), \
+                     patch.object(agente.requests, "get", side_effect=[outcome]):
+                    self.assertIsNone(agente._check_and_apply_update({
+                        "server_url": "https://example.invalid/api/agent/report", "agent_token": "test",
+                    }))
+                    self.assertFalse(agente._shutdown_event.is_set())
+
+    def test_update_worker_retries_after_unexpected_check_exception(self):
+        event = _StopAfterWaits(3)
+        with patch.object(agente, "_shutdown_event", event), \
+             patch.object(agente.random, "randint", return_value=0), \
+             patch.object(agente, "_check_and_apply_update", side_effect=[RuntimeError("temporary"), None]) as check:
+            agente._auto_update_loop({"update_check_interval": 300})
+        self.assertEqual(check.call_count, 2)
 
 
 class IdleIntervalRegressionTests(unittest.TestCase):

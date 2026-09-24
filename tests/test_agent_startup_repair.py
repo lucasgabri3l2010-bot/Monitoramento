@@ -100,17 +100,9 @@ class AgentStartupRepairTests(unittest.TestCase):
         with open(failed_path, encoding="utf-8") as handle:
             self.assertEqual(json.load(handle), [{"version": "1.4.0", "reason": "keep"}])
 
-    def test_agent_exits_before_reporting_when_repair_fails(self):
-        with patch.object(agente.sys, "frozen", True, create=True), \
-             patch.object(agente, "acquire_single_instance_mutex", return_value=True), \
-             patch.object(agente, "load_config", return_value={}), \
-             patch.object(agente, "get_config_file_path", return_value="ignored"), \
-             patch.object(agente, "ensure_startup_task", return_value=False), \
-             patch.object(agente, "send_metrics") as report:
-            with self.assertRaises(SystemExit) as stopped:
-                agente.run_agent()
-        self.assertEqual(stopped.exception.code, 1)
-        report.assert_not_called()
+    def test_current_agent_no_longer_requires_elevated_startup_repair(self):
+        self.assertEqual(agente.VERSION, "1.5.3")
+        self.assertFalse(hasattr(agente, "ensure_startup_task"))
 
     def test_release_artifact_matches_draft_metadata_without_activation(self):
         root = Path(__file__).resolve().parents[1]
