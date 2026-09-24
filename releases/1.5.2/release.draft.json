@@ -1,0 +1,11 @@
+{
+  "version": "1.5.2",
+  "status": "draft",
+  "sha256": "9d7b0d0720a2a3e6b46960a52deda12ee99e005df9c4b8a176dc6db20a312c73",
+  "file_size": 13774540,
+  "required": false,
+  "release_notes": "Agent 1.5.2: reparo automatico com UAC da tarefa de inicializacao; rollback para 1.5.1 se nao aprovado.",
+  "download_url": "/api/agent/download/1.5.2",
+  "release_channel": "stable",
+  "rollout_scope": "global"
+}

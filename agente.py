@@ -25,13 +25,14 @@ from logging.handlers import RotatingFileHandler
 
 import psutil
 import requests
+from agent_startup_repair import ensure_startup_task
 
 # Detecção Windows para primeiro plano e Mutex
 if platform.system() == "Windows":
     import ctypes
     from ctypes import wintypes
 
-VERSION = "1.5.1"
+VERSION = "1.5.2"
 LOCAL_RECEIVER_PORT = 5005
 
 
@@ -1152,6 +1153,10 @@ def run_agent():
 
     config = load_config()
     config_path = get_config_file_path()
+    if getattr(sys, "frozen", False) and not ensure_startup_task(APP_DIR, VERSION, logger):
+        # Do not report or confirm a partially repaired update. The installed
+        # 1.5.1 updater restores the previous executable on confirmation timeout.
+        sys.exit(1)
     raw_token = str(config.get("agent_token") or "").strip()
     has_token = bool(raw_token)
     token_valid = is_valid_token(raw_token)
