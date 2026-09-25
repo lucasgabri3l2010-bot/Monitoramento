@@ -12,10 +12,15 @@ class Config:
     # NUNCA utilizar token hardcoded ou fallback fixo. Deve ser fornecido via variável de ambiente.
     AGENT_SECRET_TOKEN = os.getenv("AGENT_SECRET_TOKEN", "").strip()
     
-    # Conexão com o Banco de dados (adequa URLs do Postgres legadas ex: postgres:// -> postgresql://)
+    # Railway may provide psycopg v3 URLs, but production installs psycopg2-binary.
+    # Change only the scheme; preserve credentials, encoding and query parameters.
     _db_url = os.getenv("DATABASE_URL", "sqlite:///monitoramento.db").strip()
     if _db_url.startswith("postgres://"):
-        _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+        _db_url = "postgresql+psycopg2://" + _db_url[len("postgres://"):]
+    elif _db_url.startswith("postgresql+psycopg://"):
+        _db_url = "postgresql+psycopg2://" + _db_url[len("postgresql+psycopg://"):]
+    elif _db_url.startswith("postgresql://"):
+        _db_url = "postgresql+psycopg2://" + _db_url[len("postgresql://"):]
     SQLALCHEMY_DATABASE_URI = _db_url
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
