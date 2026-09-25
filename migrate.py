@@ -15,7 +15,7 @@ import threading
 from config import Config
 from models import (
     db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent,
-    PolicyAuditLog, SystemMetadata, AgentRelease, UsageSession, DailyUsageSummary,
+    PolicyAuditLog, SystemMetadata, AgentRelease, UpdaterRelease, UsageSession, DailyUsageSummary,
     normalize_domain
 )
 from corporate_rules_data import CORPORATE_DEFAULT_RULES
@@ -262,7 +262,8 @@ def run_migrations() -> bool:
                                 ("status", "VARCHAR(30) DEFAULT 'active'", "VARCHAR(30) DEFAULT 'active'"),
                                 ("updated_at", "TIMESTAMP", "DATETIME"),
                                 ("object_key", "VARCHAR(512)", "VARCHAR(512)"),
-                                ("file_size", "BIGINT", "INTEGER")
+                                ("file_size", "BIGINT", "INTEGER"),
+                                ("min_updater_version", "VARCHAR(32) DEFAULT '1.1.0'", "VARCHAR(32) DEFAULT '1.1.0'")
                             ]
                         )
                     ]

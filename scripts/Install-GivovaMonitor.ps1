@@ -5,7 +5,7 @@
     Instala o agente corporativo de monitoramento em C:\ProgramData\GivovaMonitor,
     configura a inicializacao automatica e invisivel via Windows Task Scheduler,
     solicita elevacao UAC automaticamente e valida a execucao do processo e a
-    conectividade com o servidor Render.
+    conectividade com o servidor Railway.
 .PARAMETER ServerUrl
     URL do endpoint de ingestao de telemetria do servidor.
 .PARAMETER AgentToken
@@ -21,7 +21,7 @@
 [CmdletBinding(PositionalBinding=$false)]
 param (
     [Parameter(Mandatory=$false)]
-    [string]$ServerUrl = "https://monitoramento-gb9g.onrender.com/api/agent/report",
+    [string]$ServerUrl = "https://monitoramento-production.up.railway.app/api/agent/report",
 
     [Parameter(Mandatory=$false)]
     [string]$AgentToken = "",
@@ -109,6 +109,8 @@ if (-not $sourceDir) {
 }
 
 $sourceExe = Join-Path $sourceDir "GivovaMonitorAgent.exe"
+$sourceUpdater = Join-Path $sourceDir "GivovaMonitorUpdater.exe"
+$trustedTaskInstaller = Join-Path $sourceDir "Install-TrustedUpdaterTask.ps1"
 $sourceConfig = Join-Path $sourceDir "agent_config.json"
 $sourceExtension = Join-Path $sourceDir "extension"
 if (-not (Test-Path -Path $sourceExtension)) {
@@ -162,6 +164,24 @@ if (-not (Test-Path -Path $sourceExe)) {
 # -------------------------------------------------------------------------
 # 3. INTERRUPCAO DE VERSOES ANTERIORES (ATUALIZACAO SEGURA)
 # -------------------------------------------------------------------------
+if (-not (Test-Path -LiteralPath $sourceUpdater -PathType Leaf)) {
+    throw "Updater assinado ausente do pacote. Instalacao abortada antes de alterar o computador."
+}
+if (-not (Test-Path -LiteralPath $trustedTaskInstaller -PathType Leaf) -or
+    (Get-AuthenticodeSignature -LiteralPath $trustedTaskInstaller).Status -ne 'Valid') {
+    throw "Instalador assinado da tarefa de update ausente. Instalacao abortada."
+}
+$agentSignature = Get-AuthenticodeSignature -LiteralPath $sourceExe
+$updaterSignature = Get-AuthenticodeSignature -LiteralPath $sourceUpdater
+if ($agentSignature.Status -ne 'Valid' -or $updaterSignature.Status -ne 'Valid' -or
+    -not $agentSignature.SignerCertificate -or -not $updaterSignature.SignerCertificate -or
+    $agentSignature.SignerCertificate.Subject -cne $updaterSignature.SignerCertificate.Subject) {
+    throw "Assinaturas Authenticode invalidas ou publicadores divergentes. Instalacao abortada."
+}
+if ((Get-AuthenticodeSignature -LiteralPath $trustedTaskInstaller).SignerCertificate.Subject -cne
+    $updaterSignature.SignerCertificate.Subject) {
+    throw "Instalador da tarefa nao pertence ao publicador confiavel. Instalacao abortada."
+}
 Write-Host "[1/6] Verificando instancias em execucao..." -ForegroundColor Gray
 $isUpdate = Test-Path -Path $destExe
 
@@ -195,14 +215,12 @@ if (-not (Test-Path -Path $logDir)) {
 
 Write-Host "[3/6] Copiando executavel autonomo..." -ForegroundColor Gray
 Copy-Item -Path $sourceExe -Destination $destExe -Force
-try { Unblock-File -Path $destExe -ErrorAction SilentlyContinue } catch {}
-$sourceUpdater = Join-Path $sourceDir "GivovaMonitorUpdater.exe"
 if (Test-Path -Path $sourceUpdater) {
     $destUpdater = Join-Path $installDir "GivovaMonitorUpdater.exe"
     Copy-Item -Path $sourceUpdater -Destination $destUpdater -Force
-    try { Unblock-File -Path $destUpdater -ErrorAction SilentlyContinue } catch {}
     Write-Host "      Supervisor de atualizacoes GivovaMonitorUpdater.exe copiado." -ForegroundColor Green
 }
+& $trustedTaskInstaller
 
 # Copia da Extensao Corporativa de Monitoramento de Dominio (Chrome / Edge)
 if (Test-Path -Path $sourceExtension) {

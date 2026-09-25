@@ -271,7 +271,9 @@ class AutoUpdateShutdownTestCase(unittest.TestCase):
             "--old-pid", "999999", "--version", "2.0.0", "--update-id", "upd-test", "--timeout", "1",
         ]
         with patch.object(sys, "argv", argv), \
+             patch.object(sys, "platform", "linux"), \
              patch.object(updater, "start_agent", side_effect=start_and_confirm), \
+             patch.object(updater, "select_approved_updater", return_value=(None, "1.2.0")), \
              patch.object(updater, "setup_logging", return_value=MagicMock()), \
              patch.object(updater.time, "sleep", return_value=None):
             with self.assertRaises(SystemExit) as exit_context:

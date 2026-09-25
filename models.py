@@ -781,6 +781,7 @@ class AgentRelease(db.Model):
     download_url = db.Column(db.String(512), nullable=False)
     changelog = db.Column(db.Text, default="")
     min_supported_version = db.Column(db.String(32), default="1.0.0")
+    min_updater_version = db.Column(db.String(32), default="1.1.0", nullable=False)
     mandatory = db.Column(db.Boolean, default=False)
     storage_type = db.Column(db.String(32), default="external")  # "external", "database", "r2", "local"
     object_key = db.Column(db.String(512), nullable=True)  # ex: "agents/1.5.0/GivovaMonitorAgent.exe"
@@ -855,6 +856,7 @@ class AgentRelease(db.Model):
             "download_url": self.download_url,
             "changelog": self.changelog,
             "min_supported_version": self.min_supported_version,
+            "min_updater_version": self.min_updater_version or "1.1.0",
             "mandatory": self.mandatory,
             "storage_type": self.storage_type,
             "object_key": self.object_key,
@@ -870,6 +872,28 @@ class AgentRelease(db.Model):
             "created_at": format_local_datetime(self.created_at),  # LEGACY
             "updated_at_iso": format_iso_utc(self.updated_at),
             "created_by": self.created_by
+        }
+
+
+class UpdaterRelease(db.Model):
+    """Independently versioned, immutable R2 Updater artifact metadata."""
+    __tablename__ = "updater_releases"
+
+    id = db.Column(db.Integer, primary_key=True)
+    version = db.Column(db.String(32), unique=True, nullable=False, index=True)
+    sha256 = db.Column(db.String(64), nullable=False)
+    file_size = db.Column(db.BigInteger, nullable=False)
+    object_key = db.Column(db.String(512), nullable=False)
+    status = db.Column(db.String(30), default="draft", nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def artifact(self):
+        return {
+            "version": self.version,
+            "sha256": self.sha256,
+            "file_size": self.file_size,
+            "object_key": self.object_key,
+            "download_url": f"/api/agent/updater/download/{self.version}",
         }
 
 

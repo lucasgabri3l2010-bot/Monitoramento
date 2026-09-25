@@ -25,6 +25,8 @@ from logging.handlers import RotatingFileHandler
 
 import psutil
 import requests
+import re
+import trusted_update
 
 # Detecção Windows para primeiro plano e Mutex
 if platform.system() == "Windows":
@@ -575,6 +577,22 @@ def _auto_update_loop(config: dict):
             return
 
 
+def get_installed_updater_version():
+    updater_exe = os.path.join(APP_DIR, "GivovaMonitorUpdater.exe")
+    if not os.path.isfile(updater_exe):
+        return "unknown"
+    try:
+        flags = 0x08000000 if platform.system() == "Windows" else 0
+        result = subprocess.run([updater_exe, "--updater-version"], capture_output=True,
+                                text=True, timeout=5, creationflags=flags, check=False)
+        match = re.search(r"GivovaMonitorUpdater v([0-9]+(?:\.[0-9]+){1,3})", result.stdout)
+        if result.returncode == 0 and match:
+            return match.group(1)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "unknown"
+
+
 def _check_and_apply_update(config: dict):
     server_url = config.get("server_url", "")
     token = config.get("agent_token", "")
@@ -596,6 +614,7 @@ def _check_and_apply_update(config: dict):
 
     params = {
         "current_version": VERSION,
+        "updater_version": get_installed_updater_version(),
         "uuid": uuid_str,
         "os_name": platform.system(),
         "os_arch": platform.machine()
@@ -622,6 +641,25 @@ def _check_and_apply_update(config: dict):
     download_url = data.get("download_url")
 
     if not target_version or not download_url:
+        return
+
+    try:
+        trusted_update.version_parts(target_version)
+        if not trusted_update.SHA256_RE.fullmatch(target_sha256):
+            raise ValueError("missing Agent SHA-256")
+        if download_url != f"/api/agent/download/{target_version}":
+            raise ValueError("non-canonical Agent artifact URL")
+        minimum = data.get("min_updater_version")
+        if minimum:
+            trusted_update.version_parts(minimum)
+            installed = get_installed_updater_version()
+            if installed == "unknown" or trusted_update.is_newer(minimum, installed):
+                release = data.get("updater_release")
+                if not release or trusted_update.is_newer(minimum, release.get("version", "")):
+                    raise ValueError("required Updater release is unavailable")
+                trusted_update.validate_artifact(release, "updater")
+    except ValueError as error:
+        logger.error("Update metadata rejected: %s", error)
         return
 
     # 1. Verifica se esta versão está na lista de falhas anteriores (evita loop de rollback)

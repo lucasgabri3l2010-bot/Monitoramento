@@ -3,6 +3,7 @@ import json
 import secrets
 import logging
 import gzip
+import re
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 from flask import Flask, g, request, jsonify, render_template, redirect, url_for, session, flash, send_file, Response
@@ -28,7 +29,7 @@ from datetime_utils import (
 )
 from models import (
     db, User, Device, MetricHistory, Alert, PolicyRule, PolicyEvent,
-    PolicyAuditLog, SystemMetadata, AgentRelease, ReleaseTargetDevice, PolicyAllowlist,
+    PolicyAuditLog, SystemMetadata, AgentRelease, UpdaterRelease, ReleaseTargetDevice, PolicyAllowlist,
     DomainClassification, DailyUsageSummary, compare_versions, parse_semver, normalize_domain
 )
 from services import (
@@ -877,6 +878,14 @@ def checar_atualizacao_agente():
             "release_channel": chosen_release.release_channel,
             "rollout_scope": chosen_release.rollout_scope
         }
+        manifest["min_updater_version"] = chosen_release.min_updater_version or "1.1.0"
+        manifest["agent_artifact"] = {
+            "version": chosen_release.version, "sha256": chosen_release.sha256,
+            "object_key": chosen_release.object_key,
+            "download_url": f"/api/agent/download/{chosen_release.version}",
+        }
+        approved_updater = _approved_updater(manifest["min_updater_version"])
+        manifest["updater_release"] = approved_updater.artifact() if approved_updater else None
     else:
         has_update = False
         latest_version = current_version
@@ -910,6 +919,9 @@ def checar_atualizacao_agente():
         "release_notes": manifest.get("release_notes", ""),
         "release_channel": manifest.get("release_channel", "stable"),
         "rollout_scope": manifest.get("rollout_scope", "global"),
+        "min_updater_version": manifest.get("min_updater_version", "1.1.0"),
+        "agent_artifact": manifest.get("agent_artifact"),
+        "updater_release": manifest.get("updater_release"),
         "server_time": format_iso_utc(now)
     })
 
@@ -1052,6 +1064,110 @@ def baixar_versao_agente(version):
     )
 
 
+def _authorized_updater_plan(agent_version):
+    """An Updater may only be served for an active Agent release eligible to this device."""
+    if not re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", agent_version or ""):
+        return None
+    release = AgentRelease.query.filter_by(version=agent_version, status="active").first()
+    if not release:
+        return None
+    if release.release_channel == "stable" and release.rollout_scope == "global":
+        return release
+    device = getattr(request, "authenticated_device", None)
+    if not device or not any(target.id == device.id for target in release.target_devices):
+        return None
+    supplied = request.headers.get("X-Device-Token", "")
+    if device.device_token:
+        return release if supplied and secrets.compare_digest(supplied.strip(), device.device_token.strip()) else None
+    shared = request.headers.get("X-Agent-Token", "")
+    return release if shared and Config.AGENT_SECRET_TOKEN and secrets.compare_digest(shared.strip(), Config.AGENT_SECRET_TOKEN.strip()) else None
+
+
+def _approved_updater(minimum):
+    if not re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", minimum or ""):
+        return None
+    candidates = [r for r in UpdaterRelease.query.filter_by(status="active").all()
+                  if re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", r.version or "")
+                  and compare_versions(r.version, minimum) >= 0]
+    return max(candidates, key=lambda r: tuple(int(x) for x in r.version.split("."))) if candidates else None
+
+
+@app.route("/api/agent/updater/check", methods=["GET"])
+@require_agent_token
+def checar_atualizacao_updater():
+    release = _authorized_updater_plan(request.args.get("agent_version", ""))
+    if not release:
+        return jsonify({"error": "Updater plan unavailable"}), 403
+    minimum = release.min_updater_version or "1.1.0"
+    updater = _approved_updater(minimum)
+    return jsonify({"min_updater_version": minimum,
+                    "updater_release": updater.artifact() if updater else None,
+                    "agent_artifact": {
+                        "version": release.version, "sha256": release.sha256,
+                        "object_key": release.object_key,
+                        "download_url": f"/api/agent/download/{release.version}",
+                    }})
+
+
+@app.route("/api/agent/updater/download/<version>", methods=["GET"])
+@require_agent_token
+def baixar_versao_updater(version):
+    release = _authorized_updater_plan(request.args.get("agent_version", ""))
+    if not release:
+        return jsonify({"error": "Updater download unavailable"}), 403
+    updater = _approved_updater(release.min_updater_version or "1.1.0")
+    if not updater or version != updater.version or updater.object_key != f"updaters/{version}/GivovaMonitorUpdater.exe":
+        return jsonify({"error": "Updater artifact not approved"}), 403
+    if not storage_service.is_r2_configured():
+        return jsonify({"error": "Updater storage unavailable"}), 503
+    if get_r2_download_strategy() == "stream":
+        return Response(storage_service.download_stream(updater.object_key),
+                        mimetype="application/octet-stream",
+                        headers={"Content-Length": str(updater.file_size)})
+    return redirect(storage_service.generate_presigned_download_url(
+        updater.object_key, expires_in=Config.R2_PRESIGNED_URL_EXPIRES_SECONDS,
+        filename="GivovaMonitorUpdater.exe"), code=302)
+
+
+@app.route("/api/admin/updater-releases", methods=["POST"])
+@admin_required
+def registrar_release_updater():
+    """Register already-uploaded R2 metadata; activation needs a second explicit request."""
+    data = request.get_json(silent=True) or {}
+    version, sha256, key = data.get("version"), data.get("sha256"), data.get("object_key")
+    size = data.get("file_size")
+    if (not isinstance(version, str) or not re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", version)
+            or not isinstance(sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", sha256)
+            or key != f"updaters/{version}/GivovaMonitorUpdater.exe"
+            or type(size) is not int or size <= 0):
+        return jsonify({"error": "Invalid Updater artifact metadata"}), 400
+    existing = UpdaterRelease.query.filter_by(version=version).first()
+    if existing:
+        return jsonify({"error": "Updater version already registered"}), 409
+    valid, reason = storage_service.verify_object(key, expected_size=size, expected_sha256=sha256)
+    if not valid:
+        return jsonify({"error": "R2 artifact verification failed", "reason": reason}), 400
+    db.session.add(UpdaterRelease(version=version, sha256=sha256, file_size=size,
+                                  object_key=key, status="draft"))
+    db.session.commit()
+    return jsonify({"status": "draft", "version": version}), 201
+
+
+@app.route("/api/admin/updater-releases/<version>/activate", methods=["POST"])
+@admin_required
+def ativar_release_updater(version):
+    release = UpdaterRelease.query.filter_by(version=version).first()
+    if not release or release.status != "draft":
+        return jsonify({"error": "Draft Updater release not found"}), 404
+    valid, reason = storage_service.verify_object(release.object_key,
+        expected_size=release.file_size, expected_sha256=release.sha256)
+    if not valid:
+        return jsonify({"error": "R2 artifact verification failed", "reason": reason}), 400
+    release.status = "active"
+    db.session.commit()
+    return jsonify({"status": "active", "version": version})
+
+
 @app.route("/api/admin/releases", methods=["GET"])
 @admin_required
 def listar_releases_agente():
@@ -1083,11 +1199,14 @@ def publicar_release_agente():
     raw_channel = str(data.get("release_channel", "stable")).strip().lower()
     raw_scope = str(data.get("rollout_scope", "global")).strip().lower()
     raw_status = str(data.get("status", "active")).strip().lower()
+    min_updater_version = str(data.get("min_updater_version") or "1.1.0").strip()
 
     if not version:
         return jsonify({"error": "O campo 'version' é obrigatório."}), 400
 
     clean_version = version.strip().lstrip("vV")
+    if not re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", min_updater_version):
+        return jsonify({"error": "Invalid minimum Updater version"}), 400
 
     # Invariantes Rígidas de Release
     if raw_channel not in ("canary", "stable"):
@@ -1106,7 +1225,8 @@ def publicar_release_agente():
     existing_rel = AgentRelease.query.filter_by(version=clean_version).first()
     has_uploaded_file = ("executable" in request.files) or ("file" in request.files)
     if existing_rel and existing_rel.status == "active":
-        if has_uploaded_file or (external_url and external_url != existing_rel.download_url):
+        if (has_uploaded_file or (external_url and external_url != existing_rel.download_url)
+                or min_updater_version != (existing_rel.min_updater_version or "1.1.0")):
             return jsonify({
                 "error": f"A release v{clean_version} já está ativa e é imutável. Para publicar novo código, lance uma nova versão (ex: 1.5.1)."
             }), 400
@@ -1147,6 +1267,7 @@ def publicar_release_agente():
         db.session.add(rel)
 
     rel.sha256 = sha256_final
+    rel.min_updater_version = min_updater_version
     rel.download_url = external_url or f"/api/agent/download/{clean_version}"
     rel.changelog = release_notes
     rel.mandatory = bool(required)
@@ -1200,6 +1321,7 @@ def publicar_release_agente():
     manifest_data = {
         "version": clean_version,
         "sha256": sha256_final,
+        "min_updater_version": min_updater_version,
         "required": bool(required),
         "release_notes": release_notes,
         "download_url": rel.download_url,
