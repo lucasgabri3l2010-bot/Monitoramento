@@ -99,6 +99,11 @@ class Config:
         ).split(",")
         if window.strip()
     )
+    SATURDAY_WORK_WINDOWS = tuple(
+        window.strip()
+        for window in os.getenv("SATURDAY_WORK_WINDOWS", "08:00-12:00").split(",")
+        if window.strip()
+    )
     OVERTIME_INACTIVITY_SECONDS = int(os.getenv("OVERTIME_INACTIVITY_SECONDS", str(IDLE_THRESHOLD_SECONDS)))
     MAX_USAGE_GAP_SECONDS = int(os.getenv("MAX_USAGE_GAP_SECONDS", "120"))
     USAGE_SESSION_RETENTION_DAYS = int(os.getenv("USAGE_SESSION_RETENTION_DAYS", "90"))

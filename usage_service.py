@@ -37,10 +37,16 @@ def _configured_work_time(value: str):
         raise ValueError(f"Invalid work-hours time: {value!r}; expected HH:MM")
 
 
-def _configured_work_windows():
-    """Parse centralized work windows such as 08:00-12:00,14:00-18:00."""
+def _configured_work_windows(weekday: int):
+    """Parse the configured work windows for a local weekday (Monday=0)."""
+    if weekday == 5:
+        configured = Config.SATURDAY_WORK_WINDOWS
+    elif weekday in Config.WORK_HOURS_WEEKDAYS:
+        configured = Config.WORK_WINDOWS
+    else:
+        configured = ()
     windows = []
-    for raw_window in Config.WORK_WINDOWS:
+    for raw_window in configured:
         try:
             raw_start, raw_end = raw_window.split("-", 1)
         except ValueError:
@@ -56,19 +62,15 @@ def _configured_work_windows():
 def is_within_work_hours(moment: datetime) -> bool:
     """Return whether a UTC/aware instant falls inside the configured local schedule."""
     local_moment = to_app_timezone(moment, Config.WORK_HOURS_TIMEZONE)
-    if local_moment.weekday() not in Config.WORK_HOURS_WEEKDAYS:
-        return False
     local_time = local_moment.time().replace(tzinfo=None)
-    return any(start <= local_time < end for start, end in _configured_work_windows())
+    return any(start <= local_time < end for start, end in _configured_work_windows(local_moment.weekday()))
 
 
 def current_work_window_start(moment: datetime) -> Optional[datetime]:
     """Start of the current São Paulo work window, as naive UTC."""
     local = to_app_timezone(moment, Config.WORK_HOURS_TIMEZONE)
-    if local.weekday() not in Config.WORK_HOURS_WEEKDAYS:
-        return None
     local_time = local.time().replace(tzinfo=None)
-    for start, end in _configured_work_windows():
+    for start, end in _configured_work_windows(local.weekday()):
         if start <= local_time < end:
             boundary = datetime.combine(local.date(), start, tzinfo=get_app_timezone(Config.WORK_HOURS_TIMEZONE))
             return boundary.astimezone(timezone.utc).replace(tzinfo=None)
@@ -121,19 +123,18 @@ def _work_schedule_boundary_between(
     tz = get_app_timezone(Config.WORK_HOURS_TIMEZONE)
     start_local = to_app_timezone(start_utc, Config.WORK_HOURS_TIMEZONE)
     end_local = to_app_timezone(end_utc, Config.WORK_HOURS_TIMEZONE)
-    boundary_times = [
-        start if entering_work_hours else end
-        for start, end in _configured_work_windows()
-    ]
     boundaries = []
     current_date = start_local.date()
     while current_date <= end_local.date():
-        if current_date.weekday() in Config.WORK_HOURS_WEEKDAYS:
-            for boundary_time in boundary_times:
-                local_boundary = datetime.combine(current_date, boundary_time, tzinfo=tz)
-                boundary_utc = local_boundary.astimezone(timezone.utc).replace(tzinfo=None)
-                if start_utc < boundary_utc <= end_utc:
-                    boundaries.append(boundary_utc)
+        boundary_times = [
+            start if entering_work_hours else end
+            for start, end in _configured_work_windows(current_date.weekday())
+        ]
+        for boundary_time in boundary_times:
+            local_boundary = datetime.combine(current_date, boundary_time, tzinfo=tz)
+            boundary_utc = local_boundary.astimezone(timezone.utc).replace(tzinfo=None)
+            if start_utc < boundary_utc <= end_utc:
+                boundaries.append(boundary_utc)
         current_date += timedelta(days=1)
     return boundaries[-1] if boundaries else None
 
@@ -217,9 +218,7 @@ def reconcile_daily_usage_for_date(device_id: int, target_date: date) -> DailyUs
                 next_boundary = min(slice_end, cursor + timedelta(days=1))
                 local_day = get_local_date(cursor)
                 for candidate_day in (local_day, local_day + timedelta(days=1)):
-                    if candidate_day.weekday() not in Config.WORK_HOURS_WEEKDAYS:
-                        continue
-                    for window_start, window_end in _configured_work_windows():
+                    for window_start, window_end in _configured_work_windows(candidate_day.weekday()):
                         for boundary_time in (window_start, window_end):
                             local_boundary = datetime.combine(
                                 candidate_day, boundary_time,

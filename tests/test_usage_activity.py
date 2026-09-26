@@ -28,6 +28,7 @@ from models import (
 )
 from usage_service import (
     classify_work_activity_state,
+    current_idle_duration,
     process_device_usage_telemetry,
     reconcile_daily_usage_for_date,
     close_stale_device_sessions,
@@ -516,8 +517,16 @@ class TestUsageActivityService(unittest.TestCase):
             (datetime(2026, 9, 15, 21, 30, tzinfo=timezone.utc), "active", 600, True, "off_hours"),# Tue 18:30
             (datetime(2026, 9, 15, 10, 0, tzinfo=timezone.utc), "active", 600, False, "off_hours"),# Tue 07:00
             (datetime(2026, 9, 15, 10, 0, tzinfo=timezone.utc), "active", 5, True, "overtime"),    # Tue 07:00
-            (datetime(2026, 9, 19, 13, 0, tzinfo=timezone.utc), "active", 600, False, "off_hours"),# Sat 10:00
-            (datetime(2026, 9, 19, 13, 0, tzinfo=timezone.utc), "active", 5, True, "overtime"),    # Sat 10:00
+            (datetime(2026, 9, 19, 10, 59, tzinfo=timezone.utc), "idle", 600, False, "off_hours"), # Sat 07:59
+            (datetime(2026, 9, 19, 10, 59, tzinfo=timezone.utc), "active", 5, True, "overtime"),  # Sat 07:59
+            (datetime(2026, 9, 19, 11, 0, tzinfo=timezone.utc), "active", 5, True, "active"),     # Sat 08:00
+            (datetime(2026, 9, 19, 13, 34, tzinfo=timezone.utc), "active", 5, True, "active"),    # Sat 10:34
+            (datetime(2026, 9, 19, 13, 34, tzinfo=timezone.utc), "idle", 600, False, "idle"),     # Sat 10:34
+            (datetime(2026, 9, 19, 14, 59, tzinfo=timezone.utc), "active", 5, True, "active"),    # Sat 11:59
+            (datetime(2026, 9, 19, 15, 0, tzinfo=timezone.utc), "idle", 600, False, "off_hours"), # Sat 12:00
+            (datetime(2026, 9, 19, 15, 0, tzinfo=timezone.utc), "active", 5, True, "overtime"),   # Sat 12:00
+            (datetime(2026, 9, 20, 13, 0, tzinfo=timezone.utc), "idle", 600, False, "off_hours"), # Sun 10:00
+            (datetime(2026, 9, 20, 13, 0, tzinfo=timezone.utc), "active", 5, True, "overtime"),   # Sun 10:00
         ]
         for moment, reported, idle_seconds, user_active, expected in cases:
             with self.subTest(moment=moment, expected=expected):
@@ -714,8 +723,8 @@ class TestUsageActivityService(unittest.TestCase):
         self.assertEqual(summary.off_hours_seconds, 1200)
         self.assertEqual(summary.to_dict()["active_seconds"], 1800)
 
-        weekend_d = date(2026, 9, 19)
-        weekend_start = datetime(2026, 9, 19, 13, 0)
+        weekend_d = date(2026, 9, 20)
+        weekend_start = datetime(2026, 9, 20, 13, 0)
         db.session.add_all([
             UsageSession(
                 device_id=self.device.id, state="off_hours",
@@ -733,6 +742,37 @@ class TestUsageActivityService(unittest.TestCase):
         weekend = reconcile_daily_usage_for_date(self.device.id, weekend_d)
         self.assertEqual(weekend.idle_seconds, 0)
         self.assertEqual(weekend.to_dict()["active_seconds"], 600)
+
+    def test_19a_saturday_boundaries_and_daily_summary(self):
+        saturday = date(2026, 9, 19)
+        intervals = [
+            ("overtime", datetime(2026, 9, 19, 10, 59), 120),  # 07:59-08:01
+            ("idle", datetime(2026, 9, 19, 14, 59), 120),      # 11:59-12:01
+            ("off_hours", datetime(2026, 9, 19, 15, 1), 60),   # 12:01-12:02
+        ]
+        for state, start, seconds in intervals:
+            db.session.add(UsageSession(
+                device_id=self.device.id, state=state, started_at=start,
+                ended_at=start + timedelta(seconds=seconds),
+                duration_seconds=seconds, is_open=False,
+            ))
+        db.session.commit()
+
+        summary = reconcile_daily_usage_for_date(self.device.id, saturday)
+        self.assertEqual(summary.active_seconds, 60)
+        self.assertEqual(summary.idle_seconds, 60)
+        self.assertEqual(summary.overtime_seconds, 60)
+        self.assertEqual(summary.off_hours_seconds, 120)
+        self.assertEqual(summary.to_dict()["active_seconds"], 120)
+        self.assertEqual(summary.active_percentage, 66.7)
+        self.assertEqual(
+            current_idle_duration(datetime(2026, 9, 19, 13, 34), 36000, datetime(2026, 9, 19, 10, 0)),
+            9240.0,  # Saturday 10:34 local: capped at the 08:00 work-window start
+        )
+        self.assertEqual(
+            current_idle_duration(datetime(2026, 9, 19, 15, 0), 36000, datetime(2026, 9, 19, 10, 0)),
+            0.0,  # Saturday 12:00 local is outside the window
+        )
 
     def test_20_dashboard_time_cards_are_per_fleet_device_averages(self):
         second = Device(uuid="test-uuid-002", hostname="WS-TEST-02", updated_at=utc_now())
