@@ -39,7 +39,7 @@ from services import (
     invalidate_policy_rules_cache,
     process_agent_payload,
 )
-from usage_service import get_device_usage_data
+from usage_service import get_device_usage_data, get_monthly_activity_report
 
 # Configuração de Logging Profissional
 logging.basicConfig(
@@ -617,6 +617,21 @@ def obter_uso_dispositivo(device_id):
     end_date_str = request.args.get("end_date")
     data = get_device_usage_data(device.id, date_str, start_date_str, end_date_str)
     return jsonify(data)
+
+
+@app.route("/api/reports/monthly")
+@login_required
+def relatorio_mensal():
+    local_today = get_local_date(utc_now())
+    try:
+        year = int(request.args.get("year", local_today.year))
+        month = int(request.args.get("month", local_today.month))
+        report = get_monthly_activity_report(
+            year, month, request.args.get("department", ""), request.args.get("search", "")
+        )
+    except ValueError:
+        return jsonify({"error": "Mês inválido."}), 400
+    return jsonify(report)
 
 
 @app.route("/api/settings/idle-threshold", methods=["GET"])

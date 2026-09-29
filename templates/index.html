@@ -118,6 +118,11 @@
                 <span>Setores</span>
             </a>
 
+            <a href="#relatorio-mensal" onclick="navigate('relatorio-mensal')" id="nav-relatorio-mensal"
+               class="nav-item flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
+                <span class="w-4 h-4 text-center">▦</span><span>Relatório Mensal</span>
+            </a>
+
             <a href="#configuracoes" onclick="navigate('configuracoes')" id="nav-configuracoes"
                class="nav-item flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1169,6 +1174,37 @@
                 <div id="sectors-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     <div class="col-span-full py-12 text-center text-xs text-slate-400">Carregando setores...</div>
                 </div>
+            </div>
+
+            <div id="view-relatorio-mensal" class="hidden space-y-6">
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center gap-3">
+                    <button type="button" onclick="mudarMesRelatorio(-1)" class="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50" aria-label="Mês anterior">←</button>
+                    <h2 id="monthly-period" class="text-base font-bold text-slate-900 min-w-40 text-center"></h2>
+                    <button type="button" onclick="mudarMesRelatorio(1)" class="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50" aria-label="Próximo mês">→</button>
+                    <select id="monthly-department" onchange="carregarRelatorioMensal()" class="px-3 py-2 rounded-xl border border-slate-200 text-sm" aria-label="Filtrar setor"><option value="">Todos os setores</option></select>
+                    <input id="monthly-search" oninput="filtrarRelatorioMensal()" type="search" placeholder="Buscar colaborador ou computador" class="px-3 py-2 rounded-xl border border-slate-200 text-sm flex-1 min-w-48" aria-label="Buscar colaborador">
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs"><div class="text-xs text-slate-500">Média ativa/dia</div><div id="monthly-average-active" class="text-xl font-bold text-slate-900 mt-2">—</div></div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs"><div class="text-xs text-slate-500">Média ociosa/dia</div><div id="monthly-average-idle" class="text-xl font-bold text-slate-900 mt-2">—</div></div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs"><div class="text-xs text-slate-500">Média de atividade (%)</div><div id="monthly-active-percent" class="text-xl font-bold text-slate-900 mt-2">—</div></div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs"><div class="text-xs text-slate-500">Total de hora extra no mês</div><div id="monthly-overtime" class="text-xl font-bold text-slate-900 mt-2">—</div></div>
+                </div>
+                <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-x-auto">
+                    <table class="w-full text-sm text-left"><thead class="bg-slate-50 text-xs text-slate-500"><tr>
+                        <th class="p-3"><button onclick="ordenarRelatorioMensal('employee')">Colaborador ↕</button></th>
+                        <th class="p-3"><button onclick="ordenarRelatorioMensal('department')">Setor ↕</button></th>
+                        <th class="p-3"><button onclick="ordenarRelatorioMensal('monitored_workdays')">Dias monitorados ↕</button></th>
+                        <th class="p-3"><button onclick="ordenarRelatorioMensal('average_active_seconds')">Média ativa/dia ↕</button></th>
+                        <th class="p-3"><button onclick="ordenarRelatorioMensal('average_idle_seconds')">Média ociosa/dia ↕</button></th>
+                        <th class="p-3"><button onclick="ordenarRelatorioMensal('active_percentage')">% ativa ↕</button></th>
+                        <th class="p-3"><button onclick="ordenarRelatorioMensal('overtime_seconds')">Hora extra ↕</button></th>
+                        <th class="p-3"><button onclick="ordenarRelatorioMensal('regular_active_seconds')">Total ativo no mês ↕</button></th>
+                    </tr></thead><tbody id="monthly-table-body" class="divide-y divide-slate-100"></tbody>
+                    <tfoot id="monthly-table-foot" class="sticky bottom-0 bg-givova-50 font-bold text-slate-900"></tfoot></table>
+                    <div id="monthly-empty" class="hidden py-12 text-center text-sm text-slate-500">Nenhuma telemetria para este mês e filtros.</div>
+                </div>
+                <p class="text-xs text-slate-500">Identidade por computador: nomes iguais em computadores diferentes não são unidos sem vínculo confiável.</p>
             </div>
 
             <!-- ========================================================= -->
@@ -2548,6 +2584,124 @@ streamdemo.tv,streaming,warning,alert,global
             }
         }
 
+        const monthlyNowParts = new Intl.DateTimeFormat('en-US', {
+            timeZone: APP_TIMEZONE, year: 'numeric', month: 'numeric'
+        }).formatToParts(new Date());
+        let monthlyYear = Number(monthlyNowParts.find(p => p.type === 'year').value);
+        let monthlyMonth = Number(monthlyNowParts.find(p => p.type === 'month').value);
+        let monthlySort = { key: 'employee', descending: false };
+        let monthlyRows = [];
+        let monthlyOverall = null;
+        let monthlySearchTimer = null;
+        let monthlyRequestId = 0;
+
+        function mudarMesRelatorio(offset) {
+            const next = new Date(Date.UTC(monthlyYear, monthlyMonth - 1 + offset, 1));
+            monthlyYear = next.getUTCFullYear();
+            monthlyMonth = next.getUTCMonth() + 1;
+            carregarRelatorioMensal();
+        }
+
+        function filtrarRelatorioMensal() {
+            clearTimeout(monthlySearchTimer);
+            monthlySearchTimer = setTimeout(carregarRelatorioMensal, 250);
+        }
+
+        function ordenarRelatorioMensal(key) {
+            monthlySort = { key, descending: monthlySort.key === key ? !monthlySort.descending : false };
+            renderizarRelatorioMensal();
+        }
+
+        async function carregarRelatorioMensal() {
+            const requestId = ++monthlyRequestId;
+            const period = new Date(Date.UTC(monthlyYear, monthlyMonth - 1, 1, 12));
+            document.getElementById('monthly-period').textContent = new Intl.DateTimeFormat('pt-BR', {
+                month: 'long', year: 'numeric', timeZone: 'UTC'
+            }).format(period);
+            const params = new URLSearchParams({
+                year: monthlyYear, month: monthlyMonth,
+                department: document.getElementById('monthly-department').value,
+                search: document.getElementById('monthly-search').value
+            });
+            try {
+                const response = await fetch(`/api/reports/monthly?${params}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                if (requestId !== monthlyRequestId) return;
+                monthlyRows = data.rows;
+                monthlyOverall = data.overall;
+                const select = document.getElementById('monthly-department');
+                const selected = select.value;
+                select.replaceChildren(new Option('Todos os setores', ''));
+                data.departments.forEach(value => select.add(new Option(value, value)));
+                select.value = selected;
+                renderizarRelatorioMensal(data.has_data);
+            } catch (error) {
+                if (requestId !== monthlyRequestId) return;
+                monthlyRows = [];
+                monthlyOverall = null;
+                renderizarRelatorioMensal(false);
+                document.getElementById('monthly-empty').textContent = 'Não foi possível carregar o relatório mensal.';
+            }
+        }
+
+        function renderizarRelatorioMensal(hasData = monthlyRows.some(row => row.monitored_workdays || row.overtime_seconds)) {
+            const overall = monthlyOverall || {};
+            document.getElementById('monthly-average-active').textContent = formatDurationHours(overall.average_active_seconds || 0);
+            document.getElementById('monthly-average-idle').textContent = formatDurationHours(overall.average_idle_seconds || 0);
+            document.getElementById('monthly-active-percent').textContent = `${(overall.active_percentage || 0).toFixed(1)}%`;
+            document.getElementById('monthly-overtime').textContent = formatDurationHours(overall.overtime_seconds || 0);
+            const body = document.getElementById('monthly-table-body');
+            const foot = document.getElementById('monthly-table-foot');
+            body.replaceChildren();
+            foot.replaceChildren();
+            const rows = [...monthlyRows].sort((a, b) => {
+                const av = a[monthlySort.key], bv = b[monthlySort.key];
+                const comparison = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv), 'pt-BR');
+                return monthlySort.descending ? -comparison : comparison;
+            });
+            const appendRow = (target, row, summary = false) => {
+                const tr = document.createElement('tr');
+                if (summary) tr.className = 'border-t-2 border-givova-200';
+                const values = [
+                    row.employee + (summary ? '' : ` · ${row.computer}`),
+                    summary ? 'Todos' : row.department,
+                    summary ? '—' : String(row.monitored_workdays),
+                    formatDurationHours(row.average_active_seconds),
+                    formatDurationHours(row.average_idle_seconds),
+                    null,
+                    formatDurationHours(row.overtime_seconds),
+                    formatDurationHours(row.regular_active_seconds)
+                ];
+                values.forEach((value, index) => {
+                    const td = document.createElement('td');
+                    td.className = 'p-3 whitespace-nowrap';
+                    if (index === 5) {
+                        const percent = Math.max(0, Math.min(100, row.active_percentage || 0));
+                        const label = document.createElement('span');
+                        label.textContent = `${percent.toFixed(1)}%`;
+                        const track = document.createElement('div');
+                        track.className = 'h-1.5 w-20 bg-slate-100 rounded-full mt-1';
+                        const bar = document.createElement('div');
+                        bar.className = 'h-full bg-givova-600 rounded-full';
+                        bar.style.width = `${percent}%`;
+                        track.appendChild(bar);
+                        td.append(label, track);
+                    } else {
+                        td.textContent = value;
+                    }
+                    tr.appendChild(td);
+                });
+                target.appendChild(tr);
+            };
+            if (hasData) {
+                rows.forEach(row => appendRow(body, row));
+                appendRow(foot, overall, true);
+            }
+            document.getElementById('monthly-empty').classList.toggle('hidden', Boolean(hasData));
+            if (!hasData) document.getElementById('monthly-empty').textContent = 'Nenhuma telemetria para este mês e filtros.';
+        }
+
         function navigate(viewName, updateHash = true) {
             currentView = viewName;
             if (updateHash) {
@@ -2560,6 +2714,7 @@ streamdemo.tv,streaming,warning,alert,global
             document.getElementById("view-alertas").classList.add("hidden");
             document.getElementById("view-politicas").classList.add("hidden");
             document.getElementById("view-setores").classList.add("hidden");
+            document.getElementById("view-relatorio-mensal").classList.add("hidden");
             document.getElementById("view-configuracoes").classList.add("hidden");
 
             // Exibe a view selecionada
@@ -2587,6 +2742,7 @@ streamdemo.tv,streaming,warning,alert,global
                 alertas: ["Central de Alertas e Incidentes", "Monitoramento de anomalias operacionais e sobrecarga"],
                 politicas: ["Políticas de Uso Corporativo", "Monitoramento de conformidade de navegação e softwares"],
                 setores: ["Distribuição por Departamento", "Visão setorial e saúde dos computadores por equipe"],
+                "relatorio-mensal": ["Relatório Mensal", "Atividade regular e hora extra por colaborador/computador"],
                 configuracoes: ["Instalação do Agente e Parâmetros", "Instruções técnicas para implantação nos terminais"]
             };
 
@@ -2607,6 +2763,8 @@ streamdemo.tv,streaming,warning,alert,global
                 carregarPoliticas();
             } else if (viewName === "setores") {
                 renderizarSetores();
+            } else if (viewName === "relatorio-mensal") {
+                carregarRelatorioMensal();
             } else if (viewName === "configuracoes") {
                 carregarConfiguracaoIdle();
                 carregarReleasesRollout();

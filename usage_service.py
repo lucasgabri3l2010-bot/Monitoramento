@@ -234,7 +234,7 @@ def reconcile_daily_usage_for_date(device_id: int, target_date: date) -> DailyUs
                         active_seconds += segment
                     else:
                         overtime_seconds += segment
-                elif working and sess.state in ("idle", "off_hours"):
+                elif working and sess.state == "idle":
                     idle_seconds += segment
                 elif working and sess.state == "locked":
                     locked_seconds += segment
@@ -291,6 +291,74 @@ def reconcile_daily_usage_for_date(device_id: int, target_date: date) -> DailyUs
 
     db.session.flush()
     return summary
+
+
+def get_monthly_activity_report(year: int, month: int, department: str = "", search: str = "") -> dict:
+    """Read-only monthly report from the canonical per-device daily summaries."""
+    if month < 1 or month > 12 or year < 2000 or year > 2100:
+        raise ValueError("Invalid report month")
+    next_month = date(year + (month == 12), month % 12 + 1, 1)
+    first_day = date(year, month, 1)
+    department = department.strip().casefold()
+    search = search.strip().casefold()
+    devices = Device.query.order_by(Device.user_name, Device.hostname).all()
+    included = [device for device in devices if
+                (not department or (device.department or "").casefold() == department) and
+                (not search or search in (device.user_name or "").casefold() or
+                 search in (device.hostname or "").casefold())]
+    summaries = DailyUsageSummary.query.filter(
+        DailyUsageSummary.date >= first_day,
+        DailyUsageSummary.date < next_month,
+        DailyUsageSummary.device_id.in_([device.id for device in included]),
+    ).all() if included else []
+    by_device = {}
+    for summary in summaries:
+        by_device.setdefault(summary.device_id, []).append(summary)
+
+    rows = []
+    for device in included:
+        regular_active = regular_idle = overtime = workdays = 0
+        for summary in by_device.get(device.id, []):
+            scheduled = bool(_configured_work_windows(summary.date.weekday()))
+            active = max(0, summary.active_seconds or 0) if scheduled else 0
+            idle = max(0, summary.idle_seconds or 0) if scheduled else 0
+            if active or idle:
+                workdays += 1
+            regular_active += active
+            regular_idle += idle
+            overtime += max(0, summary.overtime_seconds or 0)
+        denominator = regular_active + regular_idle
+        rows.append({
+            "device_id": device.id,
+            "employee": device.user_name or device.hostname,
+            "computer": device.hostname,
+            "department": device.department or "Não informado",
+            "monitored_workdays": workdays,
+            "average_active_seconds": regular_active / workdays if workdays else 0,
+            "average_idle_seconds": regular_idle / workdays if workdays else 0,
+            "active_percentage": round(regular_active * 100 / denominator, 1) if denominator else 0,
+            "overtime_seconds": overtime,
+            "regular_active_seconds": regular_active,
+            "regular_idle_seconds": regular_idle,
+        })
+
+    count = len(rows)
+    total_active = sum(row["regular_active_seconds"] for row in rows)
+    total_idle = sum(row["regular_idle_seconds"] for row in rows)
+    denominator = total_active + total_idle
+    overall = {
+        "employee": "Média geral / Todos",
+        "monitored_workdays": None,
+        "average_active_seconds": round(sum(row["average_active_seconds"] for row in rows) / count) if count else 0,
+        "average_idle_seconds": round(sum(row["average_idle_seconds"] for row in rows) / count) if count else 0,
+        "active_percentage": round(total_active * 100 / denominator, 1) if denominator else 0,
+        "overtime_seconds": sum(row["overtime_seconds"] for row in rows),
+        "regular_active_seconds": total_active,
+        "regular_idle_seconds": total_idle,
+    }
+    return {"year": year, "month": month, "rows": rows, "overall": overall,
+            "departments": sorted({device.department or "Não informado" for device in devices}),
+            "has_data": bool(summaries)}
 
 
 def process_device_usage_telemetry(device: Device, data: dict, now: Optional[datetime] = None) -> None:

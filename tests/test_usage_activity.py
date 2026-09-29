@@ -660,7 +660,7 @@ class TestUsageActivityService(unittest.TestCase):
         self.assertEqual(sessions[0].ended_at, previous)
 
     def test_daily_totals_split_at_lunch_and_work_boundaries(self):
-        # Historical/open rows must not charge lunch or night as normal work.
+        # Historical/open rows must not charge lunch, night, or stale off-hours as idle work.
         for state, start, end in (
             ("idle", datetime(2026, 9, 15, 14, 59), datetime(2026, 9, 15, 15, 1)),
             ("active", datetime(2026, 9, 15, 20, 59), datetime(2026, 9, 15, 21, 1)),
@@ -672,11 +672,11 @@ class TestUsageActivityService(unittest.TestCase):
             ))
         db.session.commit()
         summary = reconcile_daily_usage_for_date(self.device.id, date(2026, 9, 15))
-        self.assertEqual(summary.idle_seconds, 120)
-        self.assertEqual(summary.off_hours_seconds, 120)
+        self.assertEqual(summary.idle_seconds, 60)
+        self.assertEqual(summary.off_hours_seconds, 180)
         self.assertEqual(summary.active_seconds, 60)
         self.assertEqual(summary.overtime_seconds, 60)
-        self.assertEqual(summary.active_percentage, 50.0)
+        self.assertEqual(summary.active_percentage, 66.7)
 
     def test_stale_active_flag_is_not_real_input(self):
         work = datetime(2026, 9, 15, 13, 0, tzinfo=timezone.utc)
